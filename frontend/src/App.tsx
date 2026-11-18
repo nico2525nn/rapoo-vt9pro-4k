@@ -291,7 +291,7 @@ export default function App() {
           onRefresh={() => void handleManualRefresh()}
         />
 
-        <main className="relative min-w-0 flex-1 overflow-y-auto">
+        <main className="no-scrollbar relative min-w-0 flex-1 overflow-y-auto">
           <div
             className="absolute inset-x-0 top-0 z-10 h-10"
             style={dragStyle}
