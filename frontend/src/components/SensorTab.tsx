@@ -61,7 +61,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>センサー</CardTitle>
+          <CardTitle>トラッキング</CardTitle>
         </CardHeader>
         <CardContent>
           <SettingRow label="リフトオフディスタンス">

@@ -136,7 +136,7 @@ export function ProfilesToolsTab({
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader className="flex-row items-center justify-between ">
+        <CardHeader className="flex-row items-center justify-between">
           <CardTitle>プリセット</CardTitle>
           <Button size="sm" disabled={!snapshot?.dpi} onClick={() => setSaveOpen(true)}>
             保存

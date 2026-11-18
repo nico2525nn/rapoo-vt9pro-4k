@@ -115,7 +115,7 @@ export function DpiPollingTab({
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>DPI</CardTitle>
+          <CardTitle>ステージ</CardTitle>
           <CardDescription>変更は自動で保存されます。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

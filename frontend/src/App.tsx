@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Moon, WifiOff } from "lucide-react";
 import { Toaster, toast } from "sonner";
+import { AppSidebar } from "@/components/AppSidebar";
 import { ButtonsTab } from "@/components/ButtonsTab";
 import { DpiPollingTab } from "@/components/DpiPollingTab";
-import { HeaderBar } from "@/components/HeaderBar";
 import { ProfilesToolsTab } from "@/components/ProfilesToolsTab";
 import { SensorTab } from "@/components/SensorTab";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { rapooApi } from "@/lib/wails";
 import type {
@@ -43,6 +42,13 @@ const INITIAL_STATE: ServiceState = {
   permissionDenied: false,
   platform: "windows",
   updatedAt: "",
+};
+
+const PAGE_TITLES: Record<string, string> = {
+  dpi: "DPI",
+  sensor: "センサー",
+  buttons: "ボタン",
+  profiles: "プロファイル",
 };
 
 export default function App() {
@@ -268,27 +274,35 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex min-h-screen flex-col bg-background">
-        <HeaderBar
+      <div className="flex h-screen overflow-hidden bg-background">
+        <AppSidebar
           state={state}
           snapshot={snapshot}
           busy={busy}
           darkMode={darkMode}
+          activeTab={activeTab}
+          onNavigate={setActiveTab}
           onToggleTheme={() => setDarkMode((value) => !value)}
           onRefresh={() => void handleManualRefresh()}
         />
 
-        <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-4">
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="dpi">DPI</TabsTrigger>
-              <TabsTrigger value="sensor">センサー</TabsTrigger>
-              <TabsTrigger value="buttons">ボタン</TabsTrigger>
-              <TabsTrigger value="profiles">プロファイル</TabsTrigger>
-            </TabsList>
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-4xl p-6">
+            <h2 className="mb-4 text-xl font-semibold tracking-tight">
+              {PAGE_TITLES[activeTab] ?? "DPI"}
+            </h2>
 
-            <TabsContent value="dpi">
-              {hasDeviceData && snapshot ? (
+            {state.lastError && (
+              <div
+                role="alert"
+                className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {state.lastError}
+              </div>
+            )}
+
+            {activeTab === "dpi" &&
+              (hasDeviceData && snapshot ? (
                 <DpiPollingTab
                   snapshot={snapshot}
                   writable={writable}
@@ -300,11 +314,10 @@ export default function App() {
                 />
               ) : (
                 unavailable
-              )}
-            </TabsContent>
+              ))}
 
-            <TabsContent value="sensor">
-              {hasDeviceData && snapshot ? (
+            {activeTab === "sensor" &&
+              (hasDeviceData && snapshot ? (
                 <SensorTab
                   snapshot={snapshot}
                   debounceSteps={catalog?.debounceSteps ?? []}
@@ -313,11 +326,10 @@ export default function App() {
                 />
               ) : (
                 unavailable
-              )}
-            </TabsContent>
+              ))}
 
-            <TabsContent value="buttons">
-              {hasDeviceData && snapshot ? (
+            {activeTab === "buttons" &&
+              (hasDeviceData && snapshot ? (
                 <ButtonsTab
                   snapshot={snapshot}
                   supportedKeys={catalog?.supportedKeys ?? []}
@@ -341,10 +353,9 @@ export default function App() {
                 />
               ) : (
                 unavailable
-              )}
-            </TabsContent>
+              ))}
 
-            <TabsContent value="profiles">
+            {activeTab === "profiles" && (
               <ProfilesToolsTab
                 state={state}
                 snapshot={snapshot}
@@ -380,8 +391,8 @@ export default function App() {
                   runMutation(() => rapooApi.factoryReset(), "工場出荷時設定に戻しました")
                 }
               />
-            </TabsContent>
-          </Tabs>
+            )}
+          </div>
         </main>
 
         <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />

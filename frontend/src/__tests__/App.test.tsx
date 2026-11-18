@@ -28,7 +28,7 @@ describe("Rapoo Control", () => {
     await enterDemo(user);
 
     expect(screen.getByText(/デモモード · .*電池 82%/)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "DPI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "DPI" })).toBeInTheDocument();
     expect(screen.getByText("Stage 1")).toBeInTheDocument();
   });
 
@@ -41,10 +41,11 @@ describe("Rapoo Control", () => {
     await user.clear(xInput);
     await user.type(xInput, "1600");
     await user.tab();
-    expect(await screen.findByText(/1600 DPI/)).toBeInTheDocument();
+    const sidebar = screen.getByRole("complementary");
+    expect(await within(sidebar).findByText("1600 DPI")).toBeInTheDocument();
 
     await selectOption(user, "ポーリングレート", "4000 Hz");
-    expect(await screen.findByText(/デモモード · 1600 DPI · 4000 Hz/)).toBeInTheDocument();
+    expect(within(sidebar).getByText("4000 Hz")).toBeInTheDocument();
   });
 
   it("updates sensor settings", async () => {
@@ -52,7 +53,7 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("tab", { name: "センサー" }));
+    await user.click(screen.getByRole("button", { name: "センサー" }));
 
     const motionSync = screen.getByRole("switch", { name: "Motion Sync" });
     expect(motionSync).toHaveAttribute("data-state", "unchecked");
@@ -71,7 +72,7 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("tab", { name: "ボタン" }));
+    await user.click(screen.getByRole("button", { name: "ボタン" }));
     expect(screen.getByText("底面 DIY ボタン")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "左クリック を変更" }));
@@ -95,7 +96,7 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("tab", { name: "プロファイル" }));
+    await user.click(screen.getByRole("button", { name: "プロファイル" }));
     expect(await screen.findByText(/FPS 競技用/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "保存" }));

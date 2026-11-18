@@ -245,8 +245,8 @@ export function ButtonsTab({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between ">
-        <CardTitle>ボタン</CardTitle>
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle>割り当て</CardTitle>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="outline" size="sm" disabled={!writable}>
