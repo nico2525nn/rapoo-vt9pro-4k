@@ -3,6 +3,7 @@ package rapoo
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -34,9 +35,11 @@ const (
 	AddrSilentHeight     uint32 = 0x0884
 	AddrMotionSync       uint32 = 0x0885
 	AddrDPIStagesX       uint32 = 0x0888
+	AddrStageCount       uint32 = 0x0896
 	AddrCurrentDPIGear   uint32 = 0x0898
 	AddrSensorParameters uint32 = 0x08C0
 	AddrSleepTimeout     uint32 = 0x08C2
+	AddrSensorAngle      uint32 = 0x08C4
 	AddrDPIStagesY       uint32 = 0x08C8
 )
 
@@ -87,6 +90,13 @@ func BuildCommand(target, opcode byte, payload ...byte) ([]byte, error) {
 // (opcode 0xAA on Gen-A 0x1211/0x4411, 0xBA on Gen-B 0x1227/0x4427).
 func BuildBatteryQuery(target, opcode byte) []byte {
 	pkt, _ := BuildCommand(target, opcode)
+	return pkt
+}
+
+// BuildFactoryReset constructs the factory reset command packet
+// (0xAD 0x52 0x3D on Gen-A, 0xD0 on Gen-B).
+func BuildFactoryReset(target byte, ops OpcodeSet) []byte {
+	pkt, _ := BuildCommand(target, ops.FactoryReset, ops.ResetMagic...)
 	return pkt
 }
 
@@ -183,7 +193,8 @@ func BuildFirmwareQuery(target, opcode byte) []byte {
 	return pkt
 }
 
-// ParseFirmwareResponse parses a 32-bit little-endian firmware version from resp[1:5].
+// ParseFirmwareResponse parses a firmware version from resp[1:5] (supporting both
+// BCD resp[2]:resp[1] when resp[2]>0 and raw uint16/uint32 when resp[2]==0).
 func ParseFirmwareResponse(raw []byte) (uint32, error) {
 	resp := NormalizeCommandResponse(raw)
 	if len(resp) < 5 {
@@ -194,6 +205,12 @@ func ParseFirmwareResponse(raw []byte) (uint32, error) {
 	}
 	if resp[0] != StatusOK {
 		return 0, fmt.Errorf("%w: firmware status %#02x", ErrInvalidResponse, resp[0])
+	}
+	// If resp[2] > 0 and both resp[1], resp[2] are valid BCD bytes (nibbles 0..9), decode BCD major*100 + minor.
+	isBCD := func(b byte) bool { return (b>>4) <= 9 && (b&0x0F) <= 9 }
+	fromBCD := func(b byte) uint32 { return uint32(b>>4)*10 + uint32(b&0x0F) }
+	if resp[2] > 0 && resp[3] == 0 && resp[4] == 0 && isBCD(resp[2]) && isBCD(resp[1]) {
+		return fromBCD(resp[2])*100 + fromBCD(resp[1]), nil
 	}
 	return binary.LittleEndian.Uint32(resp[1:5]), nil
 }
@@ -256,71 +273,201 @@ func EncodePollingRate(hz int) (byte, error) {
 	return code, nil
 }
 
-// DecodeDPIConfig parses the 24-byte X-DPI block at 0x0888 and 20-byte Y-DPI block at 0x08C8.
+// DecodeDPIConfig parses the 24-byte X-DPI block at 0x0888 and 24-byte Y-DPI block at 0x08C8.
 func DecodeDPIConfig(mem888, mem8C8 []byte) (DPIConfig, error) {
 	if len(mem888) < 17 {
 		return DPIConfig{}, fmt.Errorf("%w: DPI X block too short (%d)", ErrInvalidResponse, len(mem888))
 	}
 	stageCount := int(mem888[14]) + 1
-	if stageCount < 1 || stageCount > 7 {
-		stageCount = 7
+	if stageCount < 1 || stageCount > MaxDPIStage {
+		stageCount = MaxDPIStage
 	}
 	curStage := int(mem888[16]) + 1
 	if curStage < 1 || curStage > stageCount {
 		curStage = 1
 	}
 
-	stages := make([]DPIStage, stageCount)
-	for i := 0; i < stageCount; i++ {
+	allStages := make([]DPIStage, MaxDPIStage)
+	indepXY := false
+	for i := 0; i < MaxDPIStage; i++ {
 		x := binary.LittleEndian.Uint16(mem888[i*2 : i*2+2])
+		if x == 0 || x == 0xFFFF {
+			x = 800
+		}
 		y := x
 		if len(mem8C8) >= (i+1)*2 {
-			if yVal := binary.LittleEndian.Uint16(mem8C8[i*2 : i*2+2]); yVal > 0 {
+			if yVal := binary.LittleEndian.Uint16(mem8C8[i*2 : i*2+2]); yVal >= MinDPI && yVal <= MaxDPI {
 				y = yVal
 			}
 		}
-		stages[i] = DPIStage{
-			Index: i + 1,
-			X:     x,
-			Y:     y,
+		enabled := i < stageCount
+		if enabled && x != y {
+			indepXY = true
+		}
+		allStages[i] = DPIStage{
+			Index:   i + 1,
+			X:       x,
+			Y:       y,
+			Enabled: enabled,
 		}
 	}
 
+	stages := make([]DPIStage, stageCount)
+	copy(stages, allStages[:stageCount])
+
 	return DPIConfig{
-		CurrentStage: curStage,
-		StageCount:   stageCount,
-		Stages:       stages,
+		CurrentStage:  curStage,
+		StageCount:    stageCount,
+		IndependentXY: indepXY,
+		Stages:        stages,
+		AllStages:     allStages,
 	}, nil
 }
 
-// DecodeSensorConfig combines memory reads from 0x0880 (4B), 0x0884 (4B), and 0x08C0 (8B).
+// EncodeDPIBlocks encodes 7 X/Y DPI slots and stageCount into 16-byte write blocks for 0x0888 and 0x08C8.
+func EncodeDPIBlocks(stages []DPIStage, stageCount int) (blockX [16]byte, blockY [16]byte, err error) {
+	if stageCount < 1 || stageCount > MaxDPIStage {
+		return blockX, blockY, fmt.Errorf("rapoo: DPI stageCount %d out of range (1..7)", stageCount)
+	}
+	if len(stages) < stageCount {
+		return blockX, blockY, fmt.Errorf("rapoo: got %d DPI stages for stageCount %d", len(stages), stageCount)
+	}
+
+	defaults := [7]uint16{400, 800, 1200, 1600, 3200, 6400, 26000}
+	for i := 0; i < MaxDPIStage; i++ {
+		x := defaults[i]
+		y := defaults[i]
+		if i < len(stages) {
+			x = NormalizeDPI(stages[i].X)
+			if stages[i].Y > 0 {
+				y = NormalizeDPI(stages[i].Y)
+			} else {
+				y = x
+			}
+		}
+		binary.LittleEndian.PutUint16(blockX[i*2:i*2+2], x)
+		binary.LittleEndian.PutUint16(blockY[i*2:i*2+2], y)
+	}
+	blockX[14] = byte(stageCount - 1)
+	blockX[15] = 0x00
+	blockY[14] = byte(stageCount - 1)
+	blockY[15] = 0x00
+	return blockX, blockY, nil
+}
+
+// DecodeGenADebounce maps a Gen-A raw debounce byte (1, 2, 4, 8, 16, 24, 32) to step index, ms, and label.
+func DecodeGenADebounce(raw byte) (step int, roundedMs int, label string) {
+	best := GenADebounceSteps[3] // 4 ms default
+	bestDist := 999
+	for _, s := range GenADebounceSteps {
+		d := int(raw) - int(s.RawByte)
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			best = s
+		}
+	}
+	return best.Index, int(math.Round(best.Ms)), best.Label
+}
+
+// EncodeGenADebounceStep maps a step index (0..6) to its exact Gen-A raw byte.
+func EncodeGenADebounceStep(step int) (byte, error) {
+	if step < 0 || step >= len(GenADebounceSteps) {
+		return 0, fmt.Errorf("rapoo: debounce step %d out of range (0..%d)", step, len(GenADebounceSteps)-1)
+	}
+	return GenADebounceSteps[step].RawByte, nil
+}
+
+// DecodeSensorConfig decodes 0x0880 (4B), 0x0884 (4B), and 0x08C0 (8B) using Gen-A defaults.
 func DecodeSensorConfig(mem880, mem884, mem8C0 []byte) (SensorConfig, error) {
+	return DecodeSensorConfigForGeneration(mem880, mem884, mem8C0, true)
+}
+
+// DecodeSensorConfigForGeneration decodes sensor/switch parameters with generation-specific debounce scaling.
+func DecodeSensorConfigForGeneration(mem880, mem884, mem8C0 []byte, genADebounce bool) (SensorConfig, error) {
 	if len(mem880) < 2 || len(mem884) < 2 || len(mem8C0) < 7 {
 		return SensorConfig{}, fmt.Errorf("%w: sensor memory blocks too short", ErrInvalidResponse)
 	}
 	hz, _ := DecodePollingRate(mem880[0])
-	pressMs := int(mem8C0[0]) - 2
-	if pressMs < 0 {
-		pressMs = 0
+
+	lodRaw := mem884[0]
+	lodLevel := int(lodRaw) - 1
+	if lodLevel < 0 {
+		lodLevel = 0
 	}
-	releaseMs := int(mem8C0[1]) - 2
-	if releaseMs < 0 {
-		releaseMs = 0
+	if lodLevel > 10 {
+		lodLevel = 10
 	}
+	lodMm := math.Round((1.0+float64(lodLevel)*0.1)*10) / 10
+
+	var pressStep, pressMs int
+	var pressLabel string
+	var relStep, relMs int
+	var relLabel string
+
+	if genADebounce {
+		pressStep, pressMs, pressLabel = DecodeGenADebounce(mem8C0[0])
+		relStep, relMs, relLabel = DecodeGenADebounce(mem8C0[1])
+	} else {
+		pressMs = int(mem8C0[0]) - 2
+		if pressMs < 0 {
+			pressMs = 0
+		}
+		pressStep = pressMs
+		pressLabel = fmt.Sprintf("%d ms", pressMs)
+
+		relMs = int(mem8C0[1]) - 2
+		if relMs < 0 {
+			relMs = 0
+		}
+		relStep = relMs
+		relLabel = fmt.Sprintf("%d ms", relMs)
+	}
+
 	flags := mem8C0[3]
+	angle := int8(mem8C0[4])
+	if angle < -30 {
+		angle = -30
+	}
+	if angle > 30 {
+		angle = 30
+	}
 
 	return SensorConfig{
-		PollingRateHz:     hz,
-		Wireless8KSwitch:  mem880[1],
-		SilentHeightLOD:   mem884[0],
-		MotionSync:        mem884[1] != 0,
-		PressDebounceMs:   pressMs,
-		ReleaseDebounceMs: releaseMs,
-		SleepMinutes:      int(mem8C0[2]),
-		RippleControl:     ((^flags) & 0x01) != 0,
-		LinearCorrection:  (((flags >> 1) ^ 0x01) & 0x01) != 0,
-		SensorAngleDeg:    int8(mem8C0[4]),
-		GlassMode:         mem8C0[5] != 0,
-		LEDLowPowerMode:   mem8C0[6],
+		PollingRateHz:        hz,
+		Wireless8KSwitch:     mem880[1],
+		SilentHeightLOD:      lodRaw,
+		LiftOffLevel:         lodLevel,
+		LiftOffDistanceMm:    lodMm,
+		MotionSync:           mem884[1] != 0,
+		PressDebounceRaw:     mem8C0[0],
+		PressDebounceStep:    pressStep,
+		PressDebounceMs:      pressMs,
+		PressDebounceLabel:   pressLabel,
+		ReleaseDebounceRaw:   mem8C0[1],
+		ReleaseDebounceStep:  relStep,
+		ReleaseDebounceMs:    relMs,
+		ReleaseDebounceLabel: relLabel,
+		SleepMinutes:         int(mem8C0[2]),
+		RippleControl:        ((^flags) & 0x01) != 0,
+		LinearCorrection:     (((flags >> 1) ^ 0x01) & 0x01) != 0,
+		SensorAngleDeg:       angle,
+		GlassMode:            mem8C0[5] != 0,
+		LEDLowPowerMode:      mem8C0[6],
 	}, nil
+}
+
+// EncodeRippleLinearByte encodes RippleControl and LinearCorrection into mem[0x08C3]
+// matching QDeviceVT9PRO_4K (0x03 = both OFF, 0x02 = Ripple ON, 0x01 = Linear ON, 0x00 = both ON).
+func EncodeRippleLinearByte(ripple, linear bool) byte {
+	var b byte
+	if !ripple {
+		b |= 0x01
+	}
+	if !linear {
+		b |= 0x02
+	}
+	return b
 }

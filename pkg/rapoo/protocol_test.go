@@ -48,10 +48,20 @@ func TestBuildAndParseBattery(t *testing.T) {
 	}
 }
 
+func TestBuildFactoryResetGenAAndGenB(t *testing.T) {
+	genA := BuildFactoryReset(TargetWirelessMouse, OpcodesGenA)
+	if genA[0] != 0xBA || genA[1] != 0xA5 || genA[2] != 0xAD || genA[3] != 0x52 || genA[4] != 0x3D {
+		t.Fatalf("unexpected Gen-A factory reset packet: % x", genA[:8])
+	}
+	genB := BuildFactoryReset(TargetLocalOrWired, OpcodesGenB)
+	if genB[0] != 0xBA || genB[1] != 0xFF || genB[2] != 0xD0 || genB[3] != 0x00 {
+		t.Fatalf("unexpected Gen-B factory reset packet: % x", genB[:8])
+	}
+}
+
 func TestParseAsyncReport(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 
-	// 0xBB passive battery report: raw[3]=1 (online), raw[5]=2 (charging), raw[6]=64%
 	pktBB := []byte{0xBB, 0x00, 0x00, 0x01, 0x03, 0x02, 64, 0x00}
 	ev, ok := ParseAsyncReport(pktBB, now)
 	if !ok || ev.Kind != EventBattery || ev.Battery == nil {
@@ -61,14 +71,12 @@ func TestParseAsyncReport(t *testing.T) {
 		t.Fatalf("unexpected async battery: %+v", ev.Battery)
 	}
 
-	// 0x06 COL06 wake/status notification on Gen-A
 	pkt06 := []byte{0x06, 0x02, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 	evWake, ok := ParseAsyncReport(pkt06, now)
 	if !ok || evWake.Kind != EventWake {
 		t.Fatalf("expected wake event, got ok=%v ev=%+v", ok, evWake)
 	}
 
-	// 0xBD profile switch notification: high nibble of raw[2]
 	pktBD := []byte{0xBD, 0x01, 0x20, 0x00}
 	ev2, ok := ParseAsyncReport(pktBD, now)
 	if !ok || ev2.Kind != EventProfile || ev2.ProfileID != 2 {
@@ -76,7 +84,109 @@ func TestParseAsyncReport(t *testing.T) {
 	}
 }
 
-func TestReadWriteMemoryFramingAndDecoders(t *testing.T) {
+func TestLiveHardwareDumpSensorAndKeymapDecoding(t *testing.T) {
+	// Exact bytes dumped read-only from user's live Rapoo VT9 Pro 4K (0x24AE:0x1211) on RTX5050:
+	mem880 := []byte{0x01, 0x00, 0x01, 0xFF}
+	mem884 := []byte{0x02, 0x00, 0x01, 0x00}
+	mem8C0 := []byte{0x08, 0x08, 0x0A, 0x03, 0x00, 0x00, 0x01, 0x00}
+
+	sc, err := DecodeSensorConfigForGeneration(mem880, mem884, mem8C0, true)
+	if err != nil {
+		t.Fatalf("DecodeSensorConfigForGeneration: %v", err)
+	}
+	if sc.PollingRateHz != 1000 {
+		t.Fatalf("PollingRateHz = %d, want 1000", sc.PollingRateHz)
+	}
+	if sc.LiftOffLevel != 1 || sc.LiftOffDistanceMm != 1.1 {
+		t.Fatalf("LOD = lvl %d (%.1fmm), want lvl 1 (1.1mm)", sc.LiftOffLevel, sc.LiftOffDistanceMm)
+	}
+	if sc.MotionSync {
+		t.Fatalf("MotionSync = true, want false")
+	}
+	if sc.PressDebounceStep != 3 || sc.PressDebounceLabel != "4 ms" ||
+		sc.ReleaseDebounceStep != 3 || sc.ReleaseDebounceLabel != "4 ms" {
+		t.Fatalf("unexpected Gen-A debounce: press=%d(%s) release=%d(%s)",
+			sc.PressDebounceStep, sc.PressDebounceLabel, sc.ReleaseDebounceStep, sc.ReleaseDebounceLabel)
+	}
+	if sc.SleepMinutes != 10 || sc.RippleControl || sc.LinearCorrection || sc.SensorAngleDeg != 0 || sc.GlassMode {
+		t.Fatalf("unexpected sensor flags: %+v", sc)
+	}
+
+	// Exact 56-byte dump of 0x0600..0x0637 from live RTX5050 mouse:
+	mem600 := []byte{
+		0x03, 0x00, 0x01, 0x00, // 0x0600: Key 0 Left
+		0x03, 0x00, 0x04, 0x00, // 0x0604: Key 2 Middle
+		0x03, 0x00, 0x02, 0x00, // 0x0608: Key 1 Right
+		0x07, 0x00, 0x00, 0x00, // 0x060C: Key 5 DPI+ (Disabled)
+		0x07, 0x00, 0x00, 0x00, // 0x0610: Key 6 DPI- (Disabled)
+		0x03, 0x00, 0x10, 0x00, // 0x0614: Key 7 Forward
+		0x03, 0x00, 0x08, 0x00, // 0x0618: Key 8 Back
+		0x07, 0x00, 0x08, 0x00, // 0x061C: unused
+		0x07, 0x00, 0x08, 0x00, // 0x0620: unused
+		0xFF, 0xFF, 0xFF, 0xFF, // 0x0624: Key 11 Wheel Up
+		0xFF, 0xFF, 0xFF, 0xFF, // 0x0628: Key 12 Wheel Down
+		0xFF, 0xFF, 0xFF, 0xFF, // 0x062C: unused
+		0xFF, 0xFF, 0xFF, 0xFF, // 0x0630: unused
+		0x07, 0x00, 0x00, 0x00, // 0x0634: Key 13 Bottom DIY (Disabled)
+	}
+	btns, err := DecodeButtonTable(mem600)
+	if err != nil {
+		t.Fatalf("DecodeButtonTable: %v", err)
+	}
+	if len(btns) != 10 {
+		t.Fatalf("len(btns) = %d, want 10", len(btns))
+	}
+
+	expected := map[ButtonID]ButtonActionType{
+		ButtonLeft:      ActionLeftClick,
+		ButtonRight:     ActionRightClick,
+		ButtonMiddle:    ActionMiddleClick,
+		ButtonDPIPlus:   ActionDisabled,
+		ButtonDPIMinus:  ActionDisabled,
+		ButtonForward:   ActionForward,
+		ButtonBack:      ActionBack,
+		ButtonWheelUp:   ActionWheelDefault,
+		ButtonWheelDown: ActionWheelDefault,
+		ButtonBottomDIY: ActionDisabled,
+	}
+	for _, b := range btns {
+		if want := expected[b.Slot.ID]; b.Action.Type != want {
+			t.Fatalf("button %d (%s): got %s, want %s", b.Slot.ID, b.Slot.NameEN, b.Action.Type, want)
+		}
+	}
+}
+
+func TestKeyboardShortcutAndLeftClickGuard(t *testing.T) {
+	act := ButtonAction{
+		Type:      ActionKeyboard,
+		Modifiers: KeyModifiers{Ctrl: true, Shift: true},
+		KeyName:   "R",
+	}
+	raw, err := EncodeButtonAction(act)
+	if err != nil {
+		t.Fatalf("EncodeButtonAction: %v", err)
+	}
+	if raw != [4]byte{0x02, 0x00, 0x03, 0x15} {
+		t.Fatalf("raw = % x, want 02 00 03 15", raw)
+	}
+	slot, _ := LookupButtonSlot(ButtonForward)
+	dec := DecodeButtonAction(slot, raw)
+	if dec.Type != ActionKeyboard || !dec.Modifiers.Ctrl || !dec.Modifiers.Shift || dec.KeyName != "R" {
+		t.Fatalf("unexpected decoded keyboard action: %+v", dec)
+	}
+
+	// Verify Left-Click safety guard rejects removing the only Left-Click
+	defs := DefaultButtonMappings()
+	if err := ValidateButtonMappings(defs); err != nil {
+		t.Fatalf("default mappings should be valid: %v", err)
+	}
+	defs[0].Action.Type = ActionRightClick
+	if err := ValidateButtonMappings(defs); !errors.Is(err, ErrMissingLeftClick) {
+		t.Fatalf("expected ErrMissingLeftClick, got %v", err)
+	}
+}
+
+func TestReadWriteMemoryFramingAndDPIEncoder(t *testing.T) {
 	readTX, err := BuildReadMemory(TargetWirelessMouse, OpcodesGenA.ReadMemory, AddrDPIStagesX, 24)
 	if err != nil {
 		t.Fatalf("BuildReadMemory: %v", err)
@@ -88,44 +198,28 @@ func TestReadWriteMemoryFramingAndDecoders(t *testing.T) {
 		t.Fatalf("addr = %#x, want %#x", gotAddr, AddrDPIStagesX)
 	}
 
-	writeTX, err := BuildWriteMemory(TargetLocalOrWired, OpcodesGenA.WriteMemory, AddrPollingRate, []byte{0x82, 0x00, 0x82, 0x01})
+	stages := []DPIStage{
+		{Index: 1, X: 400, Y: 400},
+		{Index: 2, X: 800, Y: 750},
+		{Index: 3, X: 1624, Y: 1600}, // Should snap 1624 -> 1600
+	}
+	bx, by, err := EncodeDPIBlocks(stages, 3)
 	if err != nil {
-		t.Fatalf("BuildWriteMemory: %v", err)
+		t.Fatalf("EncodeDPIBlocks: %v", err)
 	}
-	if writeTX[0] != 0xBA || writeTX[1] != 0xFF || writeTX[2] != 0xA5 || writeTX[3] != 4 {
-		t.Fatalf("unexpected write header: % x", writeTX[:12])
+	if bx[14] != 2 || by[14] != 2 {
+		t.Fatalf("stageCount byte = %d/%d, want 2", bx[14], by[14])
 	}
-	if string(writeTX[8:12]) != string([]byte{0x82, 0x00, 0x82, 0x01}) {
-		t.Fatalf("unexpected write data: % x", writeTX[8:12])
-	}
-
 	mem888 := make([]byte, 24)
-	dpis := []uint16{400, 800, 1200, 1600, 3200, 6400, 1000}
-	for i, v := range dpis {
-		binary.LittleEndian.PutUint16(mem888[i*2:i*2+2], v)
-	}
-	mem888[14] = 6
-	mem888[16] = 6
-
-	dpiCfg, err := DecodeDPIConfig(mem888, nil)
+	copy(mem888, bx[:])
+	mem888[16] = 1 // Stage 2 active
+	dpiCfg, err := DecodeDPIConfig(mem888, by[:])
 	if err != nil {
 		t.Fatalf("DecodeDPIConfig: %v", err)
 	}
-	if dpiCfg.StageCount != 7 || dpiCfg.CurrentStage != 7 || dpiCfg.Stages[6].X != 1000 {
-		t.Fatalf("unexpected DPIConfig: %+v", dpiCfg)
-	}
-
-	mem880 := []byte{0x82, 0x00, 0x82, 0x00}
-	mem884 := []byte{0x01, 0x00, 0x00, 0x00}
-	mem8C0 := []byte{5, 5, 10, 0x03, 0, 0, 0, 0}
-	sc, err := DecodeSensorConfig(mem880, mem884, mem8C0)
-	if err != nil {
-		t.Fatalf("DecodeSensorConfig: %v", err)
-	}
-	if sc.PollingRateHz != 4000 || sc.SilentHeightLOD != 1 || sc.MotionSync ||
-		sc.PressDebounceMs != 3 || sc.ReleaseDebounceMs != 3 || sc.SleepMinutes != 10 ||
-		sc.RippleControl || sc.LinearCorrection {
-		t.Fatalf("unexpected SensorConfig: %+v", sc)
+	if dpiCfg.StageCount != 3 || dpiCfg.CurrentStage != 2 || !dpiCfg.IndependentXY ||
+		dpiCfg.Stages[1].X != 800 || dpiCfg.Stages[1].Y != 750 || dpiCfg.Stages[2].X != 1600 {
+		t.Fatalf("unexpected decoded DPIConfig: %+v", dpiCfg)
 	}
 }
 

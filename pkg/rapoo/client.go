@@ -332,13 +332,13 @@ func (c *Client) ReadMemory(addr uint32, count byte) ([]byte, error) {
 	return ParseReadMemory(resp, int(count))
 }
 
-// ReadDPIConfig reads all configured X/Y DPI stages and the active stage index.
+// ReadDPIConfig reads all 7 configured X/Y DPI stages and the active stage index.
 func (c *Client) ReadDPIConfig() (DPIConfig, error) {
 	memX, err := c.ReadMemory(AddrDPIStagesX, 24)
 	if err != nil {
 		return DPIConfig{}, err
 	}
-	memY, err := c.ReadMemory(AddrDPIStagesY, 20)
+	memY, err := c.ReadMemory(AddrDPIStagesY, 24)
 	if err != nil {
 		return DPIConfig{}, err
 	}
@@ -347,6 +347,10 @@ func (c *Client) ReadDPIConfig() (DPIConfig, error) {
 
 // ReadSensorConfig reads polling rate, LOD, Motion Sync, debounce, sleep timeout, and sensor flags.
 func (c *Client) ReadSensorConfig() (SensorConfig, error) {
+	c.cmdMu.Lock()
+	genA := c.opcodes.GenADebounce
+	c.cmdMu.Unlock()
+
 	mem880, err := c.ReadMemory(AddrPollingRate, 4)
 	if err != nil {
 		return SensorConfig{}, err
@@ -359,10 +363,31 @@ func (c *Client) ReadSensorConfig() (SensorConfig, error) {
 	if err != nil {
 		return SensorConfig{}, err
 	}
-	return DecodeSensorConfig(mem880, mem884, mem8C0)
+	return DecodeSensorConfigForGeneration(mem880, mem884, mem8C0, genA)
 }
 
-// ReadSnapshot collects battery, firmware, DPI, and sensor state in one call.
+// ReadButtonMappings reads all 10 physical button assignments from 0x0600..0x0637.
+func (c *Client) ReadButtonMappings() ([]ButtonMapping, error) {
+	b1, err := c.ReadMemory(AddrButtonBlock1, 24)
+	if err != nil {
+		return nil, err
+	}
+	b2, err := c.ReadMemory(AddrButtonBlock2, 24)
+	if err != nil {
+		return nil, err
+	}
+	b3, err := c.ReadMemory(AddrButtonBlock3, 8)
+	if err != nil {
+		return nil, err
+	}
+	full := make([]byte, 0, ButtonTableTotalSize)
+	full = append(full, b1...)
+	full = append(full, b2...)
+	full = append(full, b3...)
+	return DecodeButtonTable(full)
+}
+
+// ReadSnapshot collects battery, firmware, DPI, sensor, and 10-button mappings in one call.
 func (c *Client) ReadSnapshot() (DeviceSnapshot, error) {
 	bat, err := c.ReadBattery()
 	snap := DeviceSnapshot{
@@ -391,12 +416,18 @@ func (c *Client) ReadSnapshot() (DeviceSnapshot, error) {
 	}
 	if sensor, sErr := c.ReadSensorConfig(); sErr == nil {
 		snap.Sensor = &sensor
+		snap.EstimatedHours = EstimateBatteryHours(bat.Percentage, sensor.PollingRateHz)
+	} else {
+		snap.EstimatedHours = EstimateBatteryHours(bat.Percentage, 1000)
+	}
+	if buttons, bErr := c.ReadButtonMappings(); bErr == nil {
+		snap.Buttons = buttons
 	}
 	return snap, nil
 }
 
 // ============================================================================
-// Mutating Configuration Commands (For CLI / Future Wails Settings UI)
+// Mutating Configuration Commands
 // ============================================================================
 
 func (c *Client) writeMemory(addr uint32, data []byte) error {
@@ -435,14 +466,18 @@ func (c *Client) SetPollingRate(hz int) error {
 	if err != nil {
 		return err
 	}
-	next := []byte{code, cur[1], code, cur[3]}
+	wiredCode := cur[2]
+	if c.endpoint.Model.Connection == ConnectionWired {
+		wiredCode = code
+	}
+	next := []byte{code, cur[1], wiredCode, cur[3]}
 	return c.writeMemory(AddrPollingRate, next)
 }
 
 // SetCurrentDPIGear switches the active DPI stage (1-based: 1..7) via
 // read-modify-write at 0x0898.
 func (c *Client) SetCurrentDPIGear(stage int) error {
-	if stage < 1 || stage > 7 {
+	if stage < 1 || stage > MaxDPIStage {
 		return fmt.Errorf("rapoo: DPI stage %d out of range (1..7)", stage)
 	}
 	cur, err := c.ReadMemory(AddrCurrentDPIGear, 4)
@@ -453,9 +488,47 @@ func (c *Client) SetCurrentDPIGear(stage int) error {
 	return c.writeMemory(AddrCurrentDPIGear, next)
 }
 
-// SetMotionSync toggles sensor Motion Sync via read-modify-write at 0x0885.
+// SetDPIConfig writes all 7 X/Y DPI stages, stage count (1..7), and active DPI stage (1..stageCount).
+func (c *Client) SetDPIConfig(cfg DPIConfig) error {
+	stageCount := cfg.StageCount
+	if stageCount < 1 || stageCount > MaxDPIStage {
+		return fmt.Errorf("rapoo: DPI stageCount %d out of range (1..7)", stageCount)
+	}
+	curStage := cfg.CurrentStage
+	if curStage < 1 || curStage > stageCount {
+		curStage = 1
+	}
+
+	srcStages := cfg.AllStages
+	if len(srcStages) < stageCount {
+		srcStages = cfg.Stages
+	}
+	// Preserve any trailing onboard slots (> len(srcStages)) by reading current slots if needed.
+	if len(srcStages) < MaxDPIStage {
+		if existing, err := c.ReadDPIConfig(); err == nil && len(existing.AllStages) == MaxDPIStage {
+			merged := make([]DPIStage, MaxDPIStage)
+			copy(merged, existing.AllStages)
+			copy(merged, srcStages)
+			srcStages = merged
+		}
+	}
+
+	blockX, blockY, err := EncodeDPIBlocks(srcStages, stageCount)
+	if err != nil {
+		return err
+	}
+	if err := c.writeMemory(AddrDPIStagesX, blockX[:]); err != nil {
+		return err
+	}
+	if err := c.writeMemory(AddrDPIStagesY, blockY[:]); err != nil {
+		return err
+	}
+	return c.SetCurrentDPIGear(curStage)
+}
+
+// SetMotionSync toggles sensor Motion Sync via 4-byte aligned read-modify-write at 0x0884 (mem[0x0885]).
 func (c *Client) SetMotionSync(enabled bool) error {
-	cur, err := c.ReadMemory(AddrMotionSync, 4)
+	cur, err := c.ReadMemory(AddrSilentHeight, 4)
 	if err != nil {
 		return err
 	}
@@ -463,20 +536,221 @@ func (c *Client) SetMotionSync(enabled bool) error {
 	if enabled {
 		flag = 1
 	}
-	next := []byte{flag, cur[1], cur[2], cur[3]}
-	return c.writeMemory(AddrMotionSync, next)
+	next := []byte{cur[0], flag, cur[2], cur[3]}
+	return c.writeMemory(AddrSilentHeight, next)
 }
 
-// SetSleepMinutes updates the wireless idle sleep timeout (1..120 minutes) via
-// read-modify-write at 0x08C2.
+// SetLiftOffLevel updates Lift-Off Distance level (0..10 corresponding to 1.0mm..2.0mm in 0.1mm steps).
+func (c *Client) SetLiftOffLevel(level int) error {
+	if level < 0 || level > 10 {
+		return fmt.Errorf("rapoo: lift-off level %d out of range (0..10)", level)
+	}
+	cur, err := c.ReadMemory(AddrSilentHeight, 4)
+	if err != nil {
+		return err
+	}
+	next := []byte{byte(level + 1), cur[1], cur[2], cur[3]}
+	return c.writeMemory(AddrSilentHeight, next)
+}
+
+// SetSleepMinutes updates the wireless idle sleep timeout (2..120 minutes) via
+// 8-byte aligned read-modify-write at 0x08C0 (mem[0x08C2]).
 func (c *Client) SetSleepMinutes(minutes int) error {
 	if minutes < 1 || minutes > 120 {
 		return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (1..120)", minutes)
 	}
-	cur, err := c.ReadMemory(AddrSleepTimeout, 4)
+	return c.UpdateSensorConfig(SensorPatch{SleepMinutes: &minutes})
+}
+
+// UpdateSensorConfig atomically applies one or more SensorPatch fields to 0x0884 and/or 0x08C0.
+func (c *Client) UpdateSensorConfig(patch SensorPatch) error {
+	c.cmdMu.Lock()
+	genA := c.opcodes.GenADebounce
+	c.cmdMu.Unlock()
+
+	if patch.LiftOffLevel != nil || patch.MotionSync != nil {
+		cur884, err := c.ReadMemory(AddrSilentHeight, 4)
+		if err != nil {
+			return err
+		}
+		next884 := append([]byte(nil), cur884...)
+		if patch.LiftOffLevel != nil {
+			lvl := *patch.LiftOffLevel
+			if lvl < 0 || lvl > 10 {
+				return fmt.Errorf("rapoo: lift-off level %d out of range (0..10)", lvl)
+			}
+			next884[0] = byte(lvl + 1)
+		}
+		if patch.MotionSync != nil {
+			if *patch.MotionSync {
+				next884[1] = 1
+			} else {
+				next884[1] = 0
+			}
+		}
+		if err := c.writeMemory(AddrSilentHeight, next884); err != nil {
+			return err
+		}
+	}
+
+	if patch.PressDebounceStep != nil || patch.ReleaseDebounceStep != nil ||
+		patch.SleepMinutes != nil || patch.RippleControl != nil ||
+		patch.LinearCorrection != nil || patch.SensorAngleDeg != nil ||
+		patch.GlassMode != nil || patch.LEDLowPowerMode != nil {
+
+		cur8C0, err := c.ReadMemory(AddrSensorParameters, 8)
+		if err != nil {
+			return err
+		}
+		next8C0 := append([]byte(nil), cur8C0...)
+
+		if patch.PressDebounceStep != nil {
+			if genA {
+				raw, err := EncodeGenADebounceStep(*patch.PressDebounceStep)
+				if err != nil {
+					return err
+				}
+				next8C0[0] = raw
+			} else {
+				ms := *patch.PressDebounceStep
+				if ms < 0 || ms > 32 {
+					return fmt.Errorf("rapoo: press debounce %d ms out of range (0..32)", ms)
+				}
+				next8C0[0] = byte(ms + 2)
+			}
+		}
+
+		if patch.ReleaseDebounceStep != nil {
+			if genA {
+				raw, err := EncodeGenADebounceStep(*patch.ReleaseDebounceStep)
+				if err != nil {
+					return err
+				}
+				next8C0[1] = raw
+			} else {
+				ms := *patch.ReleaseDebounceStep
+				if ms < 0 || ms > 32 {
+					return fmt.Errorf("rapoo: release debounce %d ms out of range (0..32)", ms)
+				}
+				next8C0[1] = byte(ms + 2)
+			}
+		}
+
+		if patch.SleepMinutes != nil {
+			mins := *patch.SleepMinutes
+			if mins < 1 || mins > 120 {
+				return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (1..120)", mins)
+			}
+			next8C0[2] = byte(mins)
+		}
+
+		if patch.RippleControl != nil || patch.LinearCorrection != nil {
+			curFlags := next8C0[3]
+			ripple := ((^curFlags) & 0x01) != 0
+			linear := (((curFlags >> 1) ^ 0x01) & 0x01) != 0
+			if patch.RippleControl != nil {
+				ripple = *patch.RippleControl
+			}
+			if patch.LinearCorrection != nil {
+				linear = *patch.LinearCorrection
+			}
+			next8C0[3] = EncodeRippleLinearByte(ripple, linear)
+		}
+
+		if patch.SensorAngleDeg != nil {
+			deg := *patch.SensorAngleDeg
+			if deg < -30 || deg > 30 {
+				return fmt.Errorf("rapoo: sensor angle %d° out of range (-30..+30)", deg)
+			}
+			next8C0[4] = byte(int8(deg))
+		}
+
+		if patch.GlassMode != nil {
+			if *patch.GlassMode {
+				next8C0[5] = 1
+			} else {
+				next8C0[5] = 0
+			}
+		}
+
+		if patch.LEDLowPowerMode != nil {
+			next8C0[6] = *patch.LEDLowPowerMode
+		}
+
+		if err := c.writeMemory(AddrSensorParameters, next8C0); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// SetButtonMapping updates a single physical button's onboard action, enforcing
+// the Left-Click safety guard so at least one clickable button retains Left-Click.
+func (c *Client) SetButtonMapping(buttonID ButtonID, action ButtonAction) error {
+	slot, ok := LookupButtonSlot(buttonID)
+	if !ok {
+		return fmt.Errorf("rapoo: unknown button ID %d", buttonID)
+	}
+	raw, err := EncodeButtonAction(action)
 	if err != nil {
 		return err
 	}
-	next := []byte{byte(minutes), cur[1], cur[2], cur[3]}
-	return c.writeMemory(AddrSleepTimeout, next)
+
+	// Read current table to enforce Left-Click safety guard before mutating onboard memory.
+	current, err := c.ReadButtonMappings()
+	if err != nil {
+		return err
+	}
+	for i := range current {
+		if current[i].Slot.ID == buttonID {
+			current[i].Action = DecodeButtonAction(slot, raw)
+		}
+	}
+	if err := ValidateButtonMappings(current); err != nil {
+		return err
+	}
+
+	return c.writeMemory(slot.Addr, raw[:])
+}
+
+// SetAllButtonMappings validates and writes a full set of button mappings.
+func (c *Client) SetAllButtonMappings(mappings []ButtonMapping) error {
+	if err := ValidateButtonMappings(mappings); err != nil {
+		return err
+	}
+	for _, m := range mappings {
+		slot, ok := LookupButtonSlot(m.Slot.ID)
+		if !ok {
+			continue
+		}
+		raw, err := EncodeButtonAction(m.Action)
+		if err != nil {
+			return err
+		}
+		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// FactoryReset sends the hardware factory reset command (0xAD 0x52 0x3D on Gen-A / 0xD0 on Gen-B).
+func (c *Client) FactoryReset() error {
+	c.cmdMu.Lock()
+	ops := c.opcodes
+	c.cmdMu.Unlock()
+
+	tx := BuildFactoryReset(c.endpoint.Model.TargetByte, ops)
+	resp, err := c.sendAndRecv(tx)
+	if err != nil {
+		return err
+	}
+	if resp[0] == StatusPending {
+		return ErrMouseAsleep
+	}
+	if resp[0] != StatusOK {
+		return fmt.Errorf("%w: factory reset status %#02x", ErrInvalidResponse, resp[0])
+	}
+	return nil
 }

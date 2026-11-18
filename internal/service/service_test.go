@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nico/rapoo-vt9pro-4k/pkg/hid"
+	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
 func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testing.T) {
@@ -22,20 +23,20 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 		OutputReportLen: 32,
 	})
 	repDev := hid.NewMockDevice(hid.DeviceInfo{
-		Path:            "rep_col05",
+		Path:            "rep_col06",
 		VendorID:        0x24AE,
 		ProductID:       0x1211,
 		InterfaceNumber: 1,
 		UsagePage:       0xFF00,
 		Usage:           0x0002,
-		InputReportLen:  32,
+		InputReportLen:  10,
 	})
 
 	var sleeping atomic.Bool
 	cmdDev.OnGetInput = func(reportID byte, length int) ([]byte, error) {
 		buf := make([]byte, length)
 		if sleeping.Load() {
-			buf[0] = 0x02 // Mouse asleep
+			buf[0] = 0x02
 			return buf, nil
 		}
 		buf[0] = 0x01
@@ -51,6 +52,7 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 		InitialMode:       ModeNormal,
 		NormalInterval:    10 * time.Second,
 		ReconnectInterval: 10 * time.Second,
+		PresetDir:         t.TempDir(),
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,21 +64,62 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 		return st.Connected && st.HasBattery && st.Percentage == 78 && !st.Sleeping
 	})
 
-	// Put mouse to sleep and force refresh: should keep Percentage == 78 and mark Sleeping == true!
 	sleeping.Store(true)
 	svc.RefreshNow()
 	waitForState(t, svc, func(st State) bool {
 		return st.Connected && st.HasBattery && st.Percentage == 78 && st.Sleeping && !st.MouseOnline
 	})
 
-	// Switch to PassiveOnly mode and push an async 0xBB wakeup with 81% charging
 	svc.SetPollingMode(ModePassiveOnly)
-	time.Sleep(220 * time.Millisecond) // allow passive reopen
+	time.Sleep(220 * time.Millisecond)
 	repDev.PushAsyncPacket([]byte{0xBB, 0x00, 0x00, 0x01, 0x00, 0x02, 81, 0x00})
 
 	waitForState(t, svc, func(st State) bool {
 		return st.Mode == ModePassiveOnly && st.Percentage == 81 && st.Charging && !st.Sleeping
 	})
+
+	// Verify gaming lock rejects writes while in PassiveOnly mode
+	if _, err := svc.SetPollingRate(4000); err == nil {
+		t.Fatal("expected error mutating polling rate while in ModePassiveOnly")
+	}
+}
+
+func TestMouseServiceDemoModeAndPresets(t *testing.T) {
+	emptyProv := hid.NewMockProvider()
+	svc := NewMouseService(emptyProv, Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		PresetDir:         t.TempDir(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	snap, err := svc.SetDemoMode(true)
+	if err != nil {
+		t.Fatalf("SetDemoMode(true): %v", err)
+	}
+	if !snap.DemoMode || snap.Battery.Percentage != 82 || len(snap.Buttons) != 10 {
+		t.Fatalf("unexpected demo snapshot: %+v", snap)
+	}
+
+	// Apply FPS 4K built-in preset
+	applied, err := svc.ApplyPreset("builtin-fps-4k")
+	if err != nil {
+		t.Fatalf("ApplyPreset: %v", err)
+	}
+	if applied.Sensor.PollingRateHz != 4000 || applied.DPI.StageCount != 3 || applied.DPI.Stages[1].X != 800 {
+		t.Fatalf("unexpected state after ApplyPreset: sensor=%+v dpi=%+v", applied.Sensor, applied.DPI)
+	}
+
+	// Verify Left-Click safety guard via service
+	_, err = svc.SetButtonMapping(int(rapoo.ButtonLeft), rapoo.ButtonAction{Type: rapoo.ActionDisabled})
+	if err == nil {
+		t.Fatal("expected Japanese Left-Click guard error")
+	}
 }
 
 func waitForState(t *testing.T, svc *MouseService, pred func(State) bool) {

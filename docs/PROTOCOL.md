@@ -164,17 +164,17 @@ Reading interrupt Input packets from the `Usage == 0x0002` (`COL05`) collection 
 | Address | Size | Field / Layout | Encoding Details |
 | :---: | :---: | :--- | :--- |
 | `0x0880` | `4`–`8` B | **Polling Rate (`ReturnRate`)** | `mem[0x880]` & `mem[0x882]` = Rate code:<br>`0x08`=125 Hz, `0x04`=250 Hz, `0x02`=500 Hz, `0x01`=1000 Hz,<br>`0x84`=2000 Hz, `0x82`=4000 Hz, `0x81`=8000 Hz.<br>`mem[0x881]` = `Wireless8KSwitch` flag (preserve on RMW). |
-| `0x0884` | `1` B | **Lift-Off Distance (`SilentHeight`)** | Raw byte (`0`, `1`, `2` -> 1.0mm..2.0mm depending on sensor). |
-| `0x0885` | `1` B | **Motion Sync** | `0x00` = Off, `0x01` = On (RMW 4 bytes at `0x0885`). |
-| `0x0888` | `24` B | **X-DPI Table & Stage Count** | `mem[0x888 + i*2]` (`i=0..6`): `uint16` LE X-DPI for stages 1..7.<br>`mem[0x896]` (`+14`): `stageCount - 1` (`0..6` -> 1..7 stages).<br>`mem[0x898]` (`+16`): Current DPI stage (`0..6`). |
+| `0x0884` | `1` B | **Lift-Off Distance (`SilentHeight`)** | `1..11` -> Level `0..10` (`1.0 mm .. 2.0 mm` in `0.1 mm` steps). |
+| `0x0885` | `1` B | **Motion Sync** | `0x00` = Off, `0x01` = On (RMW 4 bytes at `0x0884`). |
+| `0x0888` | `24` B | **X-DPI Table & Stage Count** | `mem[0x888 + i*2]` (`i=0..6`): `uint16` LE X-DPI (`50..26000`, step `50`).<br>`mem[0x896]` (`+14`): `stageCount - 1` (`0..6` -> 1..7 stages).<br>`mem[0x898]` (`+16`): Current DPI stage (`0..6`). |
 | `0x0898` | `4` B | **Current DPI Stage (`CurDPIGear`)** | `mem[0x898]`: `0..6` (0-based index for stages 1..7; preserve `0x899..0x89B` on RMW). |
-| `0x08C0` | `1` B | **Key Press Debounce** | `(raw - 2)` ms (`raw >= 2`). |
-| `0x08C1` | `1` B | **Key Release Debounce** | `(raw - 2)` ms (`raw >= 2`). |
-| `0x08C2` | `1` B | **Wireless Sleep Timeout** | Minutes (`uint8`, e.g. `2`..`120`, default `10`). |
-| `0x08C3` | `1` B | **Sensor Correction Flags** | Bit 0 inverted (`(~b)&1`) = Ripple Control;<br>Bit 1 inverted (`((b>>1)^1)&1`) = Angle Snapping / Linear Correction. |
+| `0x08C0` | `1` B | **Key Press Debounce** | **Gen-A (`0x1211`/`0x4411`)**: `0.5 ms` units — `0x01`=0.5ms, `0x02`=1ms, `0x04`=2ms, `0x08`=4ms, `0x10`=8ms, `0x18`=12ms, `0x20`=16ms.<br>**Gen-B (`0x1227`/`0x4427`)**: `(raw - 2)` ms. |
+| `0x08C1` | `1` B | **Key Release Debounce** | Same encoding as `0x08C0`. |
+| `0x08C2` | `1` B | **Wireless Sleep Timeout** | Minutes (`uint8`, `2..120`, default `10`). |
+| `0x08C3` | `1` B | **Sensor Correction Flags** | Bit 0 inverted (`(~b)&1`) = Ripple Control;<br>Bit 1 inverted (`((b>>1)^1)&1`) = Angle Snapping / Linear Correction (`0x03` = both OFF). |
 | `0x08C4` | `1` B | **Sensor Angle** | `int8` degrees (`-30`..`+30`). |
-| `0x08C5` | `1` B | **Glass Tracking Mode** | `0x00` = Off, non-zero = On. |
-| `0x08C6` | `1` B | **Dongle Indicator / Low-Battery LED Mode** | Mode byte. |
-| `0x08C8` | `20` B | **Y-DPI Table** | `mem[0x8C8 + i*2]` (`i=0..6`): `uint16` LE Y-DPI for stages 1..7. |
-| `0x0600` + `N*0x400` | `0x400` B | **Profile `N` (`N=0..7`) Key Bindings** | Base `0x0600`, `0x0A00`, `0x0E00`, `0x1200`, `0x1600`, `0x1A00`, `0x1E00`, `0x2200`.<br>4-byte key entries at `+0x00, +0x04, +0x08, +0x0C, +0x10, +0x14, +0x18, +0x24, +0x28, +0x2C, +0x30, +0x34, +0x38`. |
-| `0x1000` | — | **Macro Storage Area** | Onboard macro data region. |
+| `0x08C5` | `1` B | **Glass Tracking Mode** | `0x00` = Off, `0x01` = On. |
+| `0x08C6` | `1` B | **Dongle Indicator / Low-Battery LED Mode** | `0x00`..`0x01`. |
+| `0x08C8` | `24` B | **Y-DPI Table** | `mem[0x8C8 + i*2]` (`i=0..6`): `uint16` LE Y-DPI for stages 1..7; `mem[0x8D6]` = `stageCount - 1`. |
+| `0x0600`..`0x0637` | `56` B | **10 Physical Button Bindings (4B each)** | `0x0600`=Left (`key 0`), `0x0604`=Middle (`key 2`), `0x0608`=Right (`key 1`), `0x060C`=DPI+ (`key 5`), `0x0610`=DPI- (`key 6`), `0x0614`=Forward (`key 7`), `0x0618`=Back (`key 8`), `0x0624`=Wheel Up (`key 11`), `0x0628`=Wheel Down (`key 12`), `0x0634`=Bottom DIY (`key 13`).<br>4B action payloads: `[03 00 mask 00]` mouse click, `[03 00 01 01]` triple fire, `[08 00 03/05/06 00]` DPI cycle/+/-, `[09 00 01/03 00]` sniper/profile, `[0A 00 00/01 00]` receiver/polling switch, `[04 00 hi lo]` HID Consumer media, `[02 00 mod hidKey]` USB HID keyboard combo, `[FF FF FF FF]` wheel default, `[07 00 00 00]` disabled. |
+| `0xAD` / `0xD0` | — | **Factory Reset Command** | Gen-A: `[0xBA, Target, 0xAD, 0x52, 0x3D, 0...]`; Gen-B: `[0xBA, Target, 0xD0, 0...]`. |

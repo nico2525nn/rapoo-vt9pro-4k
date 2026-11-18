@@ -32,20 +32,24 @@ type OpcodeSet struct {
 	SetProfile    byte   `json:"-"`
 	GetBattery    byte   `json:"-"`
 	FactoryReset  byte   `json:"-"`
+	ResetMagic    []byte `json:"-"`
+	GenADebounce  bool   `json:"genADebounce"`
 }
 
 var (
 	// OpcodesGenA is used by VT9 Pro 4K (0x1211 / 0x4411, RapooGameDev QDeviceVT9PRO_4K).
 	OpcodesGenA = OpcodeSet{
 		Name:          "realtek_0xAx",
-		DongleVersion: 0xA1,
+		DongleVersion: 0xA3,
 		MouseVersion:  0xA3,
 		ReadMemory:    0xA4,
 		WriteMemory:   0xA5,
 		GetProfile:    0xA7,
 		SetProfile:    0xA8,
 		GetBattery:    0xAA,
-		FactoryReset:  0xD0,
+		FactoryReset:  0xAD,
+		ResetMagic:    []byte{0x52, 0x3D},
+		GenADebounce:  true,
 	}
 
 	// OpcodesGenB is used by VT9 Pro 4K Rev B / A-HUB firmware (0x1227 / 0x4427, MouseForRealtek).
@@ -59,6 +63,8 @@ var (
 		SetProfile:    0xB8,
 		GetBattery:    0xBA,
 		FactoryReset:  0xD0,
+		ResetMagic:    nil,
+		GenADebounce:  false,
 	}
 )
 

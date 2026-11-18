@@ -1,0 +1,89 @@
+package profile
+
+import (
+	"testing"
+
+	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
+)
+
+func TestStoreSaveExportImportDelete(t *testing.T) {
+	dir := t.TempDir()
+	store, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	initial := store.List()
+	if len(initial) != 3 {
+		t.Fatalf("len(initial) = %d, want 3 built-ins", len(initial))
+	}
+
+	snap := rapoo.DeviceSnapshot{
+		DPI: &rapoo.DPIConfig{
+			CurrentStage: 1,
+			StageCount:   2,
+			Stages: []rapoo.DPIStage{
+				{Index: 1, X: 800, Y: 800, Enabled: true},
+				{Index: 2, X: 1600, Y: 1600, Enabled: true},
+			},
+			AllStages: []rapoo.DPIStage{
+				{Index: 1, X: 800, Y: 800, Enabled: true},
+				{Index: 2, X: 1600, Y: 1600, Enabled: true},
+				{Index: 3, X: 3200, Y: 3200, Enabled: false},
+				{Index: 4, X: 3200, Y: 3200, Enabled: false},
+				{Index: 5, X: 3200, Y: 3200, Enabled: false},
+				{Index: 6, X: 3200, Y: 3200, Enabled: false},
+				{Index: 7, X: 3200, Y: 3200, Enabled: false},
+			},
+		},
+		Sensor: &rapoo.SensorConfig{
+			PollingRateHz:       2000,
+			LiftOffLevel:        1,
+			MotionSync:          false,
+			PressDebounceStep:   2,
+			ReleaseDebounceStep: 2,
+			SleepMinutes:        15,
+		},
+		Buttons: rapoo.DefaultButtonMappings(),
+	}
+
+	saved, err := store.SaveSnapshot("", "Valorant Custom", "My 2K setup", snap)
+	if err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	if saved.BuiltIn || saved.PollingHz != 2000 {
+		t.Fatalf("unexpected saved preset: %+v", saved)
+	}
+
+	exported, err := store.ExportJSON(saved.ID)
+	if err != nil {
+		t.Fatalf("ExportJSON: %v", err)
+	}
+
+	imported, err := store.ImportJSON(exported)
+	if err != nil {
+		t.Fatalf("ImportJSON: %v", err)
+	}
+	if imported.ID == saved.ID || imported.Name != "Valorant Custom" {
+		t.Fatalf("unexpected imported preset: %+v", imported)
+	}
+
+	// Reopen from disk to verify persistence.
+	store2, err := NewStore(dir)
+	if err != nil {
+		t.Fatalf("NewStore reopen: %v", err)
+	}
+	if len(store2.List()) != 5 {
+		t.Fatalf("len(store2.List()) = %d, want 5", len(store2.List()))
+	}
+
+	if err := store2.Delete("builtin-fps-4k"); err == nil {
+		t.Fatal("expected error deleting built-in preset")
+	}
+	if err := store2.Delete(saved.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if len(store2.List()) != 4 {
+		t.Fatalf("len after delete = %d, want 4", len(store2.List()))
+	}
+}

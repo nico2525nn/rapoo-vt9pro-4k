@@ -39,6 +39,8 @@ func main() {
 		err = runWatch(args)
 	case "info":
 		err = runInfo(args)
+	case "dump-mem":
+		err = runDumpMem(args)
 	case "set-rate":
 		err = runSetRate(args)
 	case "set-dpi-stage":
@@ -238,10 +240,10 @@ func runInfo(args []string) error {
 		fmt.Println("Battery:    wireless mouse asleep")
 		return nil
 	}
-	fmt.Printf("Battery:    %d%% (charging=%v)\n", snap.Battery.Percentage, snap.Battery.Charging)
+	fmt.Printf("Battery:    %d%% (charging=%v, est. ~%.1f h)\n", snap.Battery.Percentage, snap.Battery.Charging, snap.EstimatedHours)
 
 	if snap.DPI != nil {
-		fmt.Printf("DPI Stages: active=%d/%d\n", snap.DPI.CurrentStage, snap.DPI.StageCount)
+		fmt.Printf("DPI Stages: active=%d/%d (independentXY=%v)\n", snap.DPI.CurrentStage, snap.DPI.StageCount, snap.DPI.IndependentXY)
 		for _, st := range snap.DPI.Stages {
 			mark := " "
 			if st.Index == snap.DPI.CurrentStage {
@@ -253,10 +255,69 @@ func runInfo(args []string) error {
 	if snap.Sensor != nil {
 		s := snap.Sensor
 		fmt.Printf("Polling:    %d Hz\n", s.PollingRateHz)
-		fmt.Printf("Sensor:     LOD=%d, MotionSync=%v, Ripple=%v, Linear=%v, Angle=%d°, Glass=%v\n",
-			s.SilentHeightLOD, s.MotionSync, s.RippleControl, s.LinearCorrection, s.SensorAngleDeg, s.GlassMode)
-		fmt.Printf("Debounce:   press=%dms, release=%dms | Sleep=%d min\n",
-			s.PressDebounceMs, s.ReleaseDebounceMs, s.SleepMinutes)
+		fmt.Printf("Sensor:     LOD=%.1fmm (lvl %d), MotionSync=%v, Ripple=%v, Linear=%v, Angle=%d°, Glass=%v\n",
+			s.LiftOffDistanceMm, s.LiftOffLevel, s.MotionSync, s.RippleControl, s.LinearCorrection, s.SensorAngleDeg, s.GlassMode)
+		fmt.Printf("Debounce:   press=%s, release=%s | Sleep=%d min\n",
+			s.PressDebounceLabel, s.ReleaseDebounceLabel, s.SleepMinutes)
+	}
+	if len(snap.Buttons) > 0 {
+		fmt.Println("Buttons:")
+		for _, bm := range snap.Buttons {
+			fmt.Printf("  [Key %2d | 0x%04X] %-24s -> %s (%s)\n",
+				bm.Slot.ID, bm.Slot.Addr, bm.Slot.NameJA, bm.Action.LabelJA, bm.Action.Type)
+		}
+	}
+	return nil
+}
+
+func runDumpMem(args []string) error {
+	if len(args) != 2 {
+		return errors.New("usage: vt9ctl dump-mem <hex_or_dec_addr> <byte_len>")
+	}
+	addr, err := strconv.ParseUint(args[0], 0, 32)
+	if err != nil {
+		return fmt.Errorf("invalid address: %w", err)
+	}
+	total, err := strconv.Atoi(args[1])
+	if err != nil || total <= 0 || total > 512 {
+		return errors.New("byte_len must be between 1 and 512")
+	}
+
+	client, err := rapoo.OpenFirst(nil, rapoo.ClientOptions{})
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	// Ensure opcode generation is auto-detected first via ReadBattery (read-only).
+	if _, berr := client.ReadBattery(); berr != nil && !errors.Is(berr, rapoo.ErrMouseAsleep) {
+		return berr
+	}
+
+	cur := uint32(addr)
+	rem := total
+	for rem > 0 {
+		chunk := rem
+		if chunk > 24 {
+			chunk = 24
+		}
+		buf, rerr := client.ReadMemory(cur, byte(chunk))
+		if rerr != nil {
+			return rerr
+		}
+		for off := 0; off < len(buf); off += 16 {
+			end := off + 16
+			if end > len(buf) {
+				end = len(buf)
+			}
+			fmt.Printf("0x%04X:", cur+uint32(off))
+			for _, b := range buf[off:end] {
+				fmt.Printf(" %02X", b)
+			}
+			fmt.Println()
+		}
+		cur += uint32(chunk)
+		rem -= chunk
 	}
 	return nil
 }

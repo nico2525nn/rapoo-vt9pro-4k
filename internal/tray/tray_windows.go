@@ -19,7 +19,7 @@ import (
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
-// ErrAlreadyRunning indicates another vt9tray instance is already active in the user session.
+// ErrAlreadyRunning indicates another tray instance with the same MutexName is already active.
 var ErrAlreadyRunning = errors.New("vt9tray is already running")
 
 var (
@@ -70,6 +70,7 @@ const (
 	wmDeviceChange  = 0x0219
 	wmDpiChanged    = 0x02E0
 	wmLButtonUp     = 0x0202
+	wmLButtonDblClk = 0x0203
 	wmRButtonUp     = 0x0205
 	wmContextMenu   = 0x007B
 	wmAppTray       = 0x8001
@@ -99,6 +100,7 @@ const (
 	tpmBottomAln = 0x0020
 	tpmReturnCmd = 0x0100
 
+	cmdOpenWindow  = 1000
 	cmdRefresh     = 1001
 	cmdModeNormal  = 1002
 	cmdModeLowFreq = 1003
@@ -111,8 +113,8 @@ const (
 	keySetValue     = 0x0002
 	regSz           = 1
 
-	runRegistryPath  = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runRegistryValue = "RapooVT9Tray"
+	runRegistryPath         = `Software\Microsoft\Windows\CurrentVersion\Run`
+	defaultRunRegistryValue = "RapooVT9Tray"
 )
 
 type winGUID struct {
@@ -188,30 +190,43 @@ var activeApp *trayApp
 
 type trayApp struct {
 	svc               *service.MouseService
+	opts              Options
 	hwnd              syscall.Handle
 	devNotify         uintptr
 	currentIcon       syscall.Handle
 	trayAdded         bool
 	msgTaskbarCreated uint32
+	userQuit          bool
 
 	mu          sync.Mutex
 	latestState service.State
 }
 
-// Run starts the native Win32 system tray icon and blocks until the user exits
-// or ctx is cancelled.
+// Run starts the standalone Win32 system tray icon with default options.
 func Run(ctx context.Context, svc *service.MouseService) error {
+	return RunWithOptions(ctx, svc, Options{})
+}
+
+// RunWithOptions starts the native Win32 system tray icon and blocks until Quit or ctx cancellation.
+func RunWithOptions(ctx context.Context, svc *service.MouseService, opts Options) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Enable Per-Monitor v2 DPI awareness so SM_CXSMICON and menus render razor-sharp.
+	if opts.MutexName == "" {
+		opts.MutexName = `Local\RapooVT9Pro4KTrayMutex`
+	}
+	if opts.WindowClass == "" {
+		opts.WindowClass = "RapooVT9Pro4KTrayWndClass"
+	}
+	if opts.RegistryValueName == "" {
+		opts.RegistryValueName = defaultRunRegistryValue
+	}
+
 	if procSetProcessDpiAwarenessContext.Find() == nil {
-		// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 == (DPI_AWARENESS_CONTEXT)-4
 		procSetProcessDpiAwarenessContext.Call(^uintptr(3))
 	}
 
-	// Single-instance check
-	mutexName, _ := syscall.UTF16PtrFromString(`Local\RapooVT9Pro4KTrayMutex`)
+	mutexName, _ := syscall.UTF16PtrFromString(opts.MutexName)
 	hMutex, _, lastErr := procCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(mutexName)))
 	if hMutex == 0 {
 		return fmt.Errorf("CreateMutexW: %w", lastErr)
@@ -223,6 +238,7 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 
 	app := &trayApp{
 		svc:         svc,
+		opts:        opts,
 		latestState: svc.GetState(),
 	}
 	activeApp = app
@@ -235,16 +251,14 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 	hInstRaw, _, _ := procGetModuleHandleW.Call(0)
 	hInst := syscall.Handle(hInstRaw)
 
-	className, _ := syscall.UTF16PtrFromString("RapooVT9Pro4KTrayWndClass")
+	className, _ := syscall.UTF16PtrFromString(opts.WindowClass)
 	wcx := wndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(wndClassExW{})),
 		LpfnWndProc:   syscall.NewCallback(trayWndProc),
 		HInstance:     hInst,
 		LpszClassName: className,
 	}
-	if atom, _, err := procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wcx))); atom == 0 {
-		return fmt.Errorf("RegisterClassExW: %w", err)
-	}
+	_, _, _ = procRegisterClassExW.Call(uintptr(unsafe.Pointer(&wcx)))
 
 	wndTitle, _ := syscall.UTF16PtrFromString("Rapoo VT9 Pro 4K Battery Tray")
 	hwndRaw, _, err := procCreateWindowExW.Call(
@@ -253,7 +267,7 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 		uintptr(unsafe.Pointer(wndTitle)),
 		0,
 		0, 0, 0, 0,
-		0, // Top-level hidden window so it receives TaskbarCreated & WM_DEVICECHANGE broadcasts
+		0,
 		0,
 		uintptr(hInst),
 		0,
@@ -263,7 +277,6 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 	}
 	app.hwnd = syscall.Handle(hwndRaw)
 
-	// Subscribe to HID USB arrival/removal broadcasts
 	var dbi devBroadcastDeviceInterfaceW
 	dbi.DbccSize = uint32(unsafe.Sizeof(dbi))
 	dbi.DbccDeviceType = dbtDevtypDeviceInterf
@@ -288,7 +301,6 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 	})
 	defer unsub()
 
-	// Forward context cancellation to the message loop
 	doneCh := make(chan struct{})
 	defer close(doneCh)
 	go func() {
@@ -310,6 +322,9 @@ func Run(ctx context.Context, svc *service.MouseService) error {
 	}
 
 	app.cleanup()
+	if app.userQuit && opts.OnQuit != nil {
+		opts.OnQuit()
+	}
 	return nil
 }
 
@@ -337,8 +352,12 @@ func trayWndProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintpt
 	case wmAppTray:
 		if app != nil {
 			switch uint32(lParam) & 0xFFFF {
-			case wmLButtonUp:
-				app.svc.RefreshNow()
+			case wmLButtonUp, wmLButtonDblClk:
+				if app.opts.OnOpenWindow != nil {
+					app.opts.OnOpenWindow()
+				} else {
+					app.svc.RefreshNow()
+				}
 			case wmRButtonUp, wmContextMenu:
 				app.showPopupMenu()
 			}
@@ -357,8 +376,6 @@ func trayWndProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintpt
 	ret, _, _ := procDefWindowProcW.Call(uintptr(hwnd), uintptr(msg), wParam, lParam)
 	return ret
 }
-
-func wmCloseMsg() uint32 { return wmClose }
 
 func (a *trayApp) syncTrayIcon(forceAdd bool) error {
 	a.mu.Lock()
@@ -408,7 +425,6 @@ func (a *trayApp) syncTrayIcon(forceAdd bool) error {
 	}
 	ok, _, nerr := procShellNotifyIconW.Call(action, uintptr(unsafe.Pointer(&nid)))
 	if ok == 0 && action == nimModify {
-		// Retry as NIM_ADD if shell lost track of icon
 		ok, _, nerr = procShellNotifyIconW.Call(nimAdd, uintptr(unsafe.Pointer(&nid)))
 	}
 	if ok == 0 {
@@ -442,6 +458,15 @@ func (a *trayApp) showPopupMenu() {
 	}
 	appendMenuItem(hMenu, mfSeparator, 0, "")
 
+	if a.opts.OnOpenWindow != nil {
+		lbl := a.opts.OpenMenuLabel
+		if lbl == "" {
+			lbl = "Rapoo Control を開く(&O)"
+		}
+		appendMenuItem(hMenu, mfString, cmdOpenWindow, lbl)
+		appendMenuItem(hMenu, mfSeparator, 0, "")
+	}
+
 	refreshFlags := uintptr(mfString)
 	if st.Mode == service.ModePassiveOnly {
 		refreshFlags |= mfGrayed | mfDisabled
@@ -458,7 +483,7 @@ func (a *trayApp) showPopupMenu() {
 	appendMenuItem(hMenu, mfSeparator, 0, "")
 
 	autoFlags := uintptr(mfString)
-	if isAutoStartEnabled() {
+	if IsAutoStartEnabled(a.opts.RegistryValueName) {
 		autoFlags |= mfChecked
 	}
 	appendMenuItem(hMenu, autoFlags, cmdAutoStart, "Windows起動時に自動起動(&S)")
@@ -481,6 +506,10 @@ func (a *trayApp) showPopupMenu() {
 	procPostMessageW.Call(uintptr(a.hwnd), 0, 0, 0)
 
 	switch int(cmd) {
+	case cmdOpenWindow:
+		if a.opts.OnOpenWindow != nil {
+			a.opts.OnOpenWindow()
+		}
 	case cmdRefresh:
 		a.svc.RefreshNow()
 	case cmdModeNormal:
@@ -490,8 +519,9 @@ func (a *trayApp) showPopupMenu() {
 	case cmdModePassive:
 		a.svc.SetPollingMode(service.ModePassiveOnly)
 	case cmdAutoStart:
-		_ = setAutoStartEnabled(!isAutoStartEnabled())
+		_ = SetAutoStartEnabled(a.opts.RegistryValueName, !IsAutoStartEnabled(a.opts.RegistryValueName))
 	case cmdQuit:
+		a.userQuit = true
 		procPostMessageW.Call(uintptr(a.hwnd), wmClose, 0, 0)
 	}
 }
@@ -589,9 +619,13 @@ func copyUTF16Tip(dst []uint16, s string) {
 	dst[len(enc)] = 0
 }
 
-func isAutoStartEnabled() bool {
+// IsAutoStartEnabled reports whether HKCU\...\Run contains valueName.
+func IsAutoStartEnabled(valueName string) bool {
+	if valueName == "" {
+		valueName = defaultRunRegistryValue
+	}
 	keyPath, _ := syscall.UTF16PtrFromString(runRegistryPath)
-	valName, _ := syscall.UTF16PtrFromString(runRegistryValue)
+	valName, _ := syscall.UTF16PtrFromString(valueName)
 	var hKey syscall.Handle
 	r, _, _ := procRegOpenKeyExW.Call(
 		uintptr(hkeyCurrentUser),
@@ -617,9 +651,13 @@ func isAutoStartEnabled() bool {
 	return r2 == 0 && dataLen > 0
 }
 
-func setAutoStartEnabled(enable bool) error {
+// SetAutoStartEnabled writes or deletes the current executable path in HKCU\...\Run under valueName.
+func SetAutoStartEnabled(valueName string, enable bool) error {
+	if valueName == "" {
+		valueName = defaultRunRegistryValue
+	}
 	keyPath, _ := syscall.UTF16PtrFromString(runRegistryPath)
-	valName, _ := syscall.UTF16PtrFromString(runRegistryValue)
+	valName, _ := syscall.UTF16PtrFromString(valueName)
 	var hKey syscall.Handle
 	r, _, _ := procRegOpenKeyExW.Call(
 		uintptr(hkeyCurrentUser),
