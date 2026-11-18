@@ -55,10 +55,7 @@ export function AppSidebar({
 
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-sidebar-primary text-xs font-bold text-sidebar-primary-foreground">
-          VT9
-        </div>
+      <div className="flex h-14 items-center border-b border-sidebar-border px-4">
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">Rapoo VT9 Pro 4K</p>
           <p className="truncate text-xs text-muted-foreground">
@@ -67,7 +64,7 @@ export function AppSidebar({
         </div>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 p-3">
+      <nav className="flex flex-1 flex-col gap-1 p-2">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.value;
@@ -75,7 +72,7 @@ export function AppSidebar({
             <Button
               key={item.value}
               variant={active ? "secondary" : "ghost"}
-              className="h-9 w-full justify-start gap-2 px-3"
+              className="h-9 w-full justify-start gap-2 px-2"
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.value)}
             >
@@ -86,7 +83,7 @@ export function AppSidebar({
         })}
       </nav>
 
-      <div className="border-t border-sidebar-border p-3">
+      <div className="border-t border-sidebar-border p-4">
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0">
             <p className="truncate text-xs text-muted-foreground">{dpi ?? "—"}</p>

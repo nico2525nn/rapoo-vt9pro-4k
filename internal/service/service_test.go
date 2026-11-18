@@ -106,12 +106,19 @@ func TestMouseServiceDemoModeAndPresets(t *testing.T) {
 		t.Fatalf("unexpected demo snapshot: %+v", snap)
 	}
 
-	// Apply FPS 4K built-in preset
-	applied, err := svc.ApplyPreset("builtin-fps-4k")
+	// Save the demo snapshot, change a setting, then verify ApplyPreset restores it.
+	saved, err := svc.SavePreset("", "Test preset", "")
+	if err != nil {
+		t.Fatalf("SavePreset: %v", err)
+	}
+	if _, err := svc.SetPollingRate(4000); err != nil {
+		t.Fatalf("SetPollingRate: %v", err)
+	}
+	applied, err := svc.ApplyPreset(saved.ID)
 	if err != nil {
 		t.Fatalf("ApplyPreset: %v", err)
 	}
-	if applied.Sensor.PollingRateHz != 4000 || applied.DPI.StageCount != 3 || applied.DPI.Stages[1].X != 800 {
+	if applied.Sensor.PollingRateHz != 1000 || applied.DPI.StageCount != 7 || applied.DPI.Stages[1].X != 800 {
 		t.Fatalf("unexpected state after ApplyPreset: sensor=%+v dpi=%+v", applied.Sensor, applied.DPI)
 	}
 

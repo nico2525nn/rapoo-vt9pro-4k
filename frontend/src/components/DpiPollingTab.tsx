@@ -165,9 +165,9 @@ export function DpiPollingTab({
             </div>
           </div>
 
-          <Table>
+          <Table className="[&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
             <TableHeader>
-              <TableRow>
+              <TableRow className="hover:bg-transparent">
                 <TableHead className="w-28">ステージ</TableHead>
                 <TableHead>X (DPI)</TableHead>
                 {independentXY && <TableHead>Y (DPI)</TableHead>}
@@ -235,6 +235,7 @@ export function DpiPollingTab({
       <Card>
         <CardHeader>
           <CardTitle>ポーリングレート</CardTitle>
+          <CardDescription>応答間隔。高いほど低遅延。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
           <Select

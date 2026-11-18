@@ -152,29 +152,29 @@ export const ACTION_LABEL_MAP: Record<
   forward: { labelJa: "進む (Mouse 5)", category: "mouse" },
   back: { labelJa: "戻る (Mouse 4)", category: "mouse" },
   wheel_default: { labelJa: "標準スクロール", category: "mouse" },
-  fire_triple: { labelJa: "ファイアキー (左3連射)", category: "mouse", hint: "1回押下で左クリックを高速3連打" },
+  fire_triple: { labelJa: "ファイアキー (左3連射)", category: "mouse", hint: "1回で左クリックを3回" },
   dpi_plus: { labelJa: "DPI + (段階を上げる)", category: "dpi" },
   dpi_minus: { labelJa: "DPI - (段階を下げる)", category: "dpi" },
-  dpi_cycle: { labelJa: "DPI ループ切替", category: "dpi", hint: "最終ステージの次にStage 1へ戻る" },
+  dpi_cycle: { labelJa: "DPI ループ切替", category: "dpi", hint: "DPI段階を循環" },
   sniper_dpi: {
     labelJa: "スナイパーボタン (押下中低DPI)",
     category: "dpi",
-    hint: "ボタンを押している間だけ一時的に最低DPIステージへ減速",
+    hint: "押している間だけ低DPI",
   },
   polling_switch: {
     labelJa: "ポーリングレート切替",
     category: "hardware",
-    hint: "押すごとに125/250/500/1000/2000/4000Hzを順送り",
+    hint: "押すごとにレートを切替",
   },
   receiver_switch: {
     labelJa: "レシーバー切替",
     category: "hardware",
-    hint: "ペアリング先レシーバーの接続モード切替（底面DIY初期値）",
+    hint: "レシーバー接続先を切替",
   },
   profile_switch: {
     labelJa: "オンボード設定切替",
     category: "hardware",
-    hint: "マウス内蔵プロファイルスロットを切り替え",
+    hint: "内蔵プロファイルを切替",
   },
   media_play_pause: { labelJa: "再生 / 一時停止", category: "media" },
   media_stop: { labelJa: "停止", category: "media" },
@@ -207,149 +207,6 @@ function makeDefaultButtons(): ButtonMapping[] {
       },
     };
   });
-}
-
-function makeFpsSafeButtons(): ButtonMapping[] {
-  return makeDefaultButtons().map((m) =>
-    m.slot.id === 5 || m.slot.id === 6
-      ? {
-          ...m,
-          action: {
-            type: "disabled",
-            labelJa: "無効 (ボタンOFF)",
-            category: "none",
-          },
-        }
-      : m
-  );
-}
-
-function makeBuiltInPresets(): Preset[] {
-  return [
-    {
-      id: "builtin-fps-4k",
-      name: "FPS 競技用 (4000Hz・超低遅延)",
-      description: "800 DPI・4000Hz・デバウンス 1ms・直線/波紋補正OFF・誤爆防止のため天面DPIボタン無効化",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 4000,
-      dpi: {
-        currentStage: 2,
-        stageCount: 3,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 3200, y: 3200, enabled: false },
-          { index: 5, x: 3200, y: 3200, enabled: false },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1600, y: 1600, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 0,
-        motionSync: false,
-        pressDebounceStep: 1,
-        releaseDebounceStep: 1,
-        sleepMinutes: 15,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-      buttons: makeFpsSafeButtons(),
-    },
-    {
-      id: "builtin-balanced-1k",
-      name: "オールラウンド標準 (1000Hz)",
-      description: "1600 DPI・1000Hz・Motion Sync ON・デバウンス 4ms・バッテリー持続約160時間のバランス設定",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 1000,
-      dpi: {
-        currentStage: 4,
-        stageCount: 5,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1200, y: 1200, enabled: true },
-          { index: 4, x: 1600, y: 1600, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1200, y: 1200, enabled: true },
-          { index: 4, x: 1600, y: 1600, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: true },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1000, y: 1000, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 1,
-        motionSync: true,
-        pressDebounceStep: 3,
-        releaseDebounceStep: 3,
-        sleepMinutes: 10,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-      buttons: makeDefaultButtons(),
-    },
-    {
-      id: "builtin-desktop-eco",
-      name: "デスクトップ省電力 (500Hz・長寿命)",
-      description: "1200 DPI・500Hz・5分スリープ・作業やブラウジングで最大約185時間駆動する省電力設定",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 500,
-      dpi: {
-        currentStage: 2,
-        stageCount: 4,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 800, y: 800, enabled: true },
-          { index: 2, x: 1200, y: 1200, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 2400, y: 2400, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 800, y: 800, enabled: true },
-          { index: 2, x: 1200, y: 1200, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 2400, y: 2400, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: false },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1000, y: 1000, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 2,
-        motionSync: true,
-        pressDebounceStep: 4,
-        releaseDebounceStep: 4,
-        sleepMinutes: 5,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-      buttons: makeDefaultButtons(),
-    },
-  ];
 }
 
 function makeDefaultSnapshot(): DeviceSnapshot {
@@ -432,13 +289,13 @@ class FallbackSimulator {
     autoStart: false,
     platform: "windows",
   };
-  private presets: Preset[] = makeBuiltInPresets();
+  private presets: Preset[] = [];
 
   resetForTests() {
     this.demoMode = false;
     this.mode = "normal";
     this.snap = makeDefaultSnapshot();
-    this.presets = makeBuiltInPresets();
+    this.presets = [];
     this.listeners.clear();
   }
 
@@ -673,17 +530,15 @@ class FallbackSimulator {
     return structuredClone(this.presets);
   }
 
-  savePreset(id: string, name: string, description: string): Preset {
+  savePreset(id: string, name: string, _description: string): Preset {
     if (!name.trim()) throw new Error("プロファイル名を入力してください");
     const sc = this.snap.sensor!;
     const now = new Date().toISOString();
-    const pid = id && !id.startsWith("builtin-") ? id : `preset-${Date.now()}`;
+    const pid = id ? id : `preset-${Date.now()}`;
     const existing = this.presets.find((p) => p.id === pid);
     const preset: Preset = {
       id: pid,
       name: name.trim(),
-      description: description.trim(),
-      builtIn: false,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       pollingHz: sc.pollingRateHz,
@@ -723,7 +578,7 @@ class FallbackSimulator {
   }
 
   deletePreset(id: string) {
-    this.presets = this.presets.filter((p) => p.id !== id || p.builtIn);
+    this.presets = this.presets.filter((p) => p.id !== id);
   }
 
   exportPresetJson(id: string): string {
@@ -748,7 +603,6 @@ class FallbackSimulator {
     const preset: Preset = {
       ...parsed,
       id: `preset-${Date.now()}`,
-      builtIn: false,
       createdAt: now,
       updatedAt: now,
     };

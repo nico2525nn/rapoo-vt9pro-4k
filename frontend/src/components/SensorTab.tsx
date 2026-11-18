@@ -15,10 +15,21 @@ interface SensorTabProps {
 
 const SLEEP_OPTIONS = [2, 5, 10, 15, 30, 60, 120];
 
-function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex min-h-14 items-center justify-between gap-4 border-b py-3 first:pt-0 last:border-0 last:pb-0">
-      <span className="text-sm">{label}</span>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm">{label}</span>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
       <div className="w-44 shrink-0">{children}</div>
     </div>
   );
@@ -64,7 +75,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
           <CardTitle>トラッキング</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="リフトオフディスタンス">
+          <SettingRow label="リフトオフディスタンス" description="センサーが反応する高さ">
             <Select
               value={String(sensor.liftOffLevel)}
               onValueChange={(value) => void onUpdateSensor({ liftOffLevel: Number(value) })}
@@ -83,7 +94,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="センサー角度">
+          <SettingRow label="センサー角度" description="水平軸の補正角度">
             <div className="flex items-center gap-2">
               <Input
                 type="number"
@@ -98,14 +109,21 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
+                className="min-w-0 flex-1"
               />
-              <Button variant="outline" size="sm" onClick={() => void commitAngle(0)} disabled={!writable}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void commitAngle(0)}
+                disabled={!writable}
+                className="shrink-0"
+              >
                 0°
               </Button>
             </div>
           </SettingRow>
 
-          <SettingRow label="Motion Sync">
+          <SettingRow label="Motion Sync" description="ポーリング周期に同期">
             <div className="flex justify-end">
               <Switch
                 checked={sensor.motionSync}
@@ -116,7 +134,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </div>
           </SettingRow>
 
-          <SettingRow label="リップル補正">
+          <SettingRow label="リップル補正" description="高DPI時の揺れを抑制">
             <div className="flex justify-end">
               <Switch
                 checked={sensor.rippleControl}
@@ -127,7 +145,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </div>
           </SettingRow>
 
-          <SettingRow label="直線補正">
+          <SettingRow label="直線補正" description="手ぶれを直線に補正">
             <div className="flex justify-end">
               <Switch
                 checked={sensor.linearCorrection}
@@ -138,7 +156,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </div>
           </SettingRow>
 
-          <SettingRow label="ガラス面モード">
+          <SettingRow label="ガラス面モード" description="ガラス面での追従を改善">
             <div className="flex justify-end">
               <Switch
                 checked={sensor.glassMode}
@@ -149,7 +167,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </div>
           </SettingRow>
 
-          <SettingRow label="LED 省電力">
+          <SettingRow label="LED 省電力" description="LEDの点灯時間を短縮">
             <div className="flex justify-end">
               <Switch
                 checked={sensor.ledLowPowerMode > 0}
@@ -167,7 +185,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
           <CardTitle>スイッチ</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="押下デバウンス">
+          <SettingRow label="押下デバウンス" description="押した時のチャタリング防止">
             <Select
               value={String(
                 debounceSteps.find((step) => selectedDebounce(step, true))?.index ?? sensor.pressDebounceStep
@@ -191,7 +209,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="解放デバウンス">
+          <SettingRow label="解放デバウンス" description="離した時のチャタリング防止">
             <Select
               value={String(
                 debounceSteps.find((step) => selectedDebounce(step, false))?.index ?? sensor.releaseDebounceStep
@@ -215,7 +233,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="スリープ時間">
+          <SettingRow label="スリープ時間" description="無操作時のスリープ移行">
             <Select
               value={String(sensor.sleepMinutes)}
               onValueChange={(value) => void onUpdateSensor({ sleepMinutes: Number(value) })}

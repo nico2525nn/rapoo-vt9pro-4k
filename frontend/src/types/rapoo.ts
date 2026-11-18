@@ -203,8 +203,6 @@ export interface UICatalog {
 export interface Preset {
   id: string;
   name: string;
-  description?: string;
-  builtIn: boolean;
   createdAt: string;
   updatedAt: string;
   dpi: DPIConfig;

@@ -271,9 +271,9 @@ export function ButtonsTab({
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {!writable && readOnlyReason && <p className="text-xs text-muted-foreground">{readOnlyReason}</p>}
-        <Table>
+        <Table className="[&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
           <TableHeader>
-            <TableRow>
+            <TableRow className="hover:bg-transparent">
               <TableHead>ボタン</TableHead>
               <TableHead>割り当て</TableHead>
               <TableHead className="w-24 text-right">操作</TableHead>
@@ -341,6 +341,9 @@ export function ButtonsTab({
                   </SelectGroup>
                 </SelectContent>
               </Select>
+              {ACTION_LABEL_MAP[actionType]?.hint && (
+                <p className="text-xs text-muted-foreground">{ACTION_LABEL_MAP[actionType].hint}</p>
+              )}
             </div>
 
             {actionType === "keyboard" && (

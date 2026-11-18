@@ -14,8 +14,8 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 	}
 
 	initial := store.List()
-	if len(initial) != 3 {
-		t.Fatalf("len(initial) = %d, want 3 built-ins", len(initial))
+	if len(initial) != 0 {
+		t.Fatalf("len(initial) = %d, want 0", len(initial))
 	}
 
 	snap := rapoo.DeviceSnapshot{
@@ -73,17 +73,14 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore reopen: %v", err)
 	}
-	if len(store2.List()) != 5 {
-		t.Fatalf("len(store2.List()) = %d, want 5", len(store2.List()))
+	if len(store2.List()) != 2 {
+		t.Fatalf("len(store2.List()) = %d, want 2", len(store2.List()))
 	}
 
-	if err := store2.Delete("builtin-fps-4k"); err == nil {
-		t.Fatal("expected error deleting built-in preset")
-	}
 	if err := store2.Delete(saved.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if len(store2.List()) != 4 {
-		t.Fatalf("len after delete = %d, want 4", len(store2.List()))
+	if len(store2.List()) != 1 {
+		t.Fatalf("len after delete = %d, want 1", len(store2.List()))
 	}
 }

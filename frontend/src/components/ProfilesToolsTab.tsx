@@ -1,8 +1,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
@@ -60,10 +59,21 @@ function InfoRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
+function SettingRow({
+  label,
+  description,
+  children,
+}: {
+  label: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex min-h-14 items-center justify-between gap-4 border-b py-3 first:pt-0 last:border-0 last:pb-0">
-      <span className="text-sm">{label}</span>
+      <div className="flex flex-col gap-0.5">
+        <span className="text-sm">{label}</span>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
+      </div>
       <div className="w-48 shrink-0">{children}</div>
     </div>
   );
@@ -137,38 +147,40 @@ export function ProfilesToolsTab({
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>プリセット</CardTitle>
+          <div className="flex flex-col gap-1.5">
+            <CardTitle>プリセット</CardTitle>
+            <CardDescription>現在の設定を保存・復元</CardDescription>
+          </div>
           <Button size="sm" disabled={!snapshot?.dpi} onClick={() => setSaveOpen(true)}>
             保存
           </Button>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>名前</TableHead>
-                <TableHead className="w-40 text-right">操作</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {presets.map((preset) => (
-                <TableRow key={preset.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
+          {presets.length === 0 ? (
+            <p className="text-sm text-muted-foreground">保存したプリセットはありません。</p>
+          ) : (
+            <Table className="[&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>名前</TableHead>
+                  <TableHead className="w-40 text-right">操作</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {presets.map((preset) => (
+                  <TableRow key={preset.id}>
+                    <TableCell>
                       <span className="font-medium">{preset.name}</span>
-                      {preset.builtIn && <Badge variant="secondary">標準</Badge>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        disabled={!writable}
-                        onClick={() => void onApplyPreset(preset)}
-                      >
-                        適用
-                      </Button>
-                      {!preset.builtIn && (
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          disabled={!writable}
+                          onClick={() => void onApplyPreset(preset)}
+                        >
+                          適用
+                        </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="outline" size="sm">
@@ -190,13 +202,13 @@ export function ProfilesToolsTab({
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -253,7 +265,7 @@ export function ProfilesToolsTab({
           <CardTitle>アプリ</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="バックグラウンド取得">
+          <SettingRow label="バックグラウンド取得" description="読み取り間隔と設定ロック">
             <Select
               value={state.mode}
               onValueChange={(value) => void onSetPollingMode(value as PollingMode)}
@@ -271,7 +283,7 @@ export function ProfilesToolsTab({
 
           {prefs?.platform === "windows" && (
             <>
-              <SettingRow label="閉じるボタンでトレイに格納">
+              <SettingRow label="閉じるボタンでトレイに格納" description="×で終了せず常駐">
                 <div className="flex justify-end">
                   <Switch
                     checked={prefs.closeToTray}
@@ -280,7 +292,7 @@ export function ProfilesToolsTab({
                   />
                 </div>
               </SettingRow>
-              <SettingRow label="Windows スタートアップ">
+              <SettingRow label="Windows スタートアップ" description="サインイン時に起動">
                 <div className="flex justify-end">
                   <Switch
                     checked={prefs.autoStart}
@@ -293,7 +305,7 @@ export function ProfilesToolsTab({
           )}
 
           {state.demoMode && (
-            <SettingRow label="デモモード">
+            <SettingRow label="デモモード" description="実機なしで試す">
               <div className="flex justify-end">
                 <Button variant="outline" size="sm" onClick={() => onToggleDemoMode(false)}>
                   終了

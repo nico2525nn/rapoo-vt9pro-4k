@@ -446,10 +446,10 @@ func (s *MouseService) FactoryReset() (rapoo.DeviceSnapshot, error) {
 // Profile Preset Library Operations
 // ============================================================================
 
-// ListPresets returns all built-in and user-saved presets.
+// ListPresets returns user-saved presets.
 func (s *MouseService) ListPresets() []profile.Preset {
 	if s.presetStore == nil {
-		return profile.BuiltInPresets()
+		return nil
 	}
 	return s.presetStore.List()
 }

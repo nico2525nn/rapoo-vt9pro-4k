@@ -97,7 +97,8 @@ describe("Rapoo Control", () => {
     await enterDemo(user);
 
     await user.click(screen.getByRole("button", { name: "プロファイル" }));
-    expect(await screen.findByText(/FPS 競技用/)).toBeInTheDocument();
+    expect(screen.getByText("保存したプリセットはありません。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "適用" })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "保存" }));
     const saveDialog = await screen.findByRole("dialog");
