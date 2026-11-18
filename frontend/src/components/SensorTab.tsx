@@ -44,8 +44,8 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
     return (isPress ? sensor.pressDebounceStep : sensor.releaseDebounceStep) === step.index;
   };
 
-  const commitAngle = async () => {
-    const next = Math.max(-30, Math.min(30, Math.round(angle)));
+  const commitAngle = async (nextValue = angle) => {
+    const next = Math.max(-30, Math.min(30, Math.round(nextValue)));
     setAngle(next);
     const ok = await onUpdateSensor({ sensorAngleDeg: next });
     if (!ok) setAngle(sensor.sensorAngleDeg);
@@ -95,8 +95,11 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
                 disabled={!writable}
                 onChange={(event) => setAngle(Number(event.target.value))}
                 onBlur={() => void commitAngle()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
               />
-              <Button variant="outline" size="sm" onClick={() => void commitAngle()} disabled={!writable}>
+              <Button variant="outline" size="sm" onClick={() => void commitAngle(0)} disabled={!writable}>
                 0°
               </Button>
             </div>

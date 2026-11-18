@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
@@ -310,7 +311,13 @@ export function ButtonsTab({
               <label className="text-sm font-medium">動作</label>
               <Select
                 value={actionType}
-                onValueChange={(value) => setActionType(value as ButtonActionType)}
+                onValueChange={(value) => {
+                  const next = value as ButtonActionType;
+                  setActionType(next);
+                  if (next === "keyboard" && keyCode === 0 && !hasModifier(mods)) {
+                    startCapture();
+                  }
+                }}
               >
                 <SelectTrigger aria-label="動作">
                   <SelectValue />
@@ -338,20 +345,29 @@ export function ButtonsTab({
             {actionType === "keyboard" && (
               <div className="space-y-2">
                 <label className="text-sm font-medium">キー</label>
-                <div className="flex gap-2">
-                  <Input readOnly value={formatCombo(mods, keyName)} aria-label="キー" />
-                  <Button variant="outline" onClick={startCapture}>
-                    {capturing ? "入力待ち" : "入力"}
-                  </Button>
-                </div>
+                <Input
+                  readOnly
+                  value={capturing ? "キーを押してください..." : formatCombo(mods, keyName)}
+                  aria-label="キー"
+                  className="cursor-pointer"
+                  onClick={startCapture}
+                  onFocus={startCapture}
+                />
                 <p className="text-xs text-muted-foreground">
-                  キーを押すと確定します。修飾キー単体も設定できます。
+                  {capturing
+                    ? "Esc でキャンセルします。"
+                    : "クリックしてキーを入力します。修飾キー単体も設定できます。"}
                 </p>
               </div>
             )}
 
             {violatesGuard && (
-              <p className="text-xs text-destructive">左クリックは1つ以上のボタンに残す必要があります。</p>
+              <Alert variant="destructive">
+                <AlertTitle>左クリック保護</AlertTitle>
+                <AlertDescription>
+                  左クリックは1つ以上のボタンに残す必要があります。
+                </AlertDescription>
+              </Alert>
             )}
           </div>
 

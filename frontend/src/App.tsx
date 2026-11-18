@@ -8,6 +8,7 @@ import { SensorTab } from "@/components/SensorTab";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { rapooApi } from "@/lib/wails";
 import type {
   AppPreferences,
@@ -258,110 +259,126 @@ export default function App() {
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <HeaderBar
-        state={state}
-        snapshot={snapshot}
-        busy={busy}
-        darkMode={darkMode}
-        onToggleTheme={() => setDarkMode((value) => !value)}
-        onRefresh={() => void handleManualRefresh()}
-      />
+    <TooltipProvider delayDuration={300}>
+      <div className="flex min-h-screen flex-col bg-background">
+        <HeaderBar
+          state={state}
+          snapshot={snapshot}
+          busy={busy}
+          darkMode={darkMode}
+          onToggleTheme={() => setDarkMode((value) => !value)}
+          onRefresh={() => void handleManualRefresh()}
+        />
 
-      <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="dpi">DPI</TabsTrigger>
-            <TabsTrigger value="sensor">センサー</TabsTrigger>
-            <TabsTrigger value="buttons">ボタン</TabsTrigger>
-            <TabsTrigger value="profiles">プロファイル</TabsTrigger>
-          </TabsList>
+        <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-4">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="dpi">DPI</TabsTrigger>
+              <TabsTrigger value="sensor">センサー</TabsTrigger>
+              <TabsTrigger value="buttons">ボタン</TabsTrigger>
+              <TabsTrigger value="profiles">プロファイル</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="dpi">
-            {hasDeviceData && snapshot ? (
-              <DpiPollingTab
+            <TabsContent value="dpi">
+              {hasDeviceData && snapshot ? (
+                <DpiPollingTab
+                  snapshot={snapshot}
+                  writable={writable}
+                  pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
+                  onSaveDpiConfig={(config: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(config))}
+                  onChangePollingRate={(hz: number) =>
+                    runMutation(() => rapooApi.setPollingRate(hz), `${hz} Hz に変更しました`)
+                  }
+                />
+              ) : (
+                unavailable
+              )}
+            </TabsContent>
+
+            <TabsContent value="sensor">
+              {hasDeviceData && snapshot ? (
+                <SensorTab
+                  snapshot={snapshot}
+                  debounceSteps={catalog?.debounceSteps ?? []}
+                  writable={writable}
+                  onUpdateSensor={(patch: SensorPatch) => runMutation(() => rapooApi.updateSensorConfig(patch))}
+                />
+              ) : (
+                unavailable
+              )}
+            </TabsContent>
+
+            <TabsContent value="buttons">
+              {hasDeviceData && snapshot ? (
+                <ButtonsTab
+                  snapshot={snapshot}
+                  supportedKeys={catalog?.supportedKeys ?? []}
+                  writable={writable}
+                  readOnlyReason={
+                    state.mode === "passive_only"
+                      ? "ゲーム中ロック中は変更できません。"
+                      : state.sleeping
+                        ? "マウスがスリープ中です。"
+                        : undefined
+                  }
+                  onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
+                    runMutation(
+                      () => rapooApi.setButtonMapping(buttonId, action),
+                      "ボタン割り当てを変更しました"
+                    )
+                  }
+                  onResetAllButtons={() =>
+                    runMutation(() => rapooApi.resetButtonsToDefault(), "ボタン割り当てを初期化しました")
+                  }
+                />
+              ) : (
+                unavailable
+              )}
+            </TabsContent>
+
+            <TabsContent value="profiles">
+              <ProfilesToolsTab
+                state={state}
                 snapshot={snapshot}
+                catalog={catalog}
+                presets={presets}
+                prefs={prefs}
                 writable={writable}
-                pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
-                onSaveDpiConfig={(config: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(config))}
-                onChangePollingRate={(hz: number) =>
-                  runMutation(() => rapooApi.setPollingRate(hz), `${hz} Hz に変更しました`)
+                onSavePreset={handleSavePreset}
+                onApplyPreset={(preset) =>
+                  runMutation(
+                    () => rapooApi.applyPreset(preset.id),
+                    `プリセット「${preset.name}」を適用しました`
+                  )
                 }
-              />
-            ) : (
-              unavailable
-            )}
-          </TabsContent>
-
-          <TabsContent value="sensor">
-            {hasDeviceData && snapshot ? (
-              <SensorTab
-                snapshot={snapshot}
-                debounceSteps={catalog?.debounceSteps ?? []}
-                writable={writable}
-                onUpdateSensor={(patch: SensorPatch) => runMutation(() => rapooApi.updateSensorConfig(patch))}
-              />
-            ) : (
-              unavailable
-            )}
-          </TabsContent>
-
-          <TabsContent value="buttons">
-            {hasDeviceData && snapshot ? (
-              <ButtonsTab
-                snapshot={snapshot}
-                supportedKeys={catalog?.supportedKeys ?? []}
-                writable={writable}
-                readOnlyReason={
-                  state.mode === "passive_only"
-                    ? "ゲーム中ロック中は変更できません。"
-                    : state.sleeping
-                      ? "マウスがスリープ中です。"
-                      : undefined
-                }
-                onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
-                  runMutation(() => rapooApi.setButtonMapping(buttonId, action))
-                }
-                onResetAllButtons={() => runMutation(() => rapooApi.resetButtonsToDefault())}
-              />
-            ) : (
-              unavailable
-            )}
-          </TabsContent>
-
-          <TabsContent value="profiles">
-            <ProfilesToolsTab
-              state={state}
-              snapshot={snapshot}
-              catalog={catalog}
-              presets={presets}
-              prefs={prefs}
-              writable={writable}
-              onSavePreset={handleSavePreset}
-              onApplyPreset={(preset) => runMutation(() => rapooApi.applyPreset(preset.id))}
-              onDeletePreset={handleDeletePreset}
-              onSetPollingMode={handleSetPollingMode}
-              onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
-              onUpdateCloseToTray={async (enabled) => {
-                const next = await rapooApi.setCloseToTray(enabled);
-                setPrefs(next);
-              }}
-              onUpdateAutoStart={async (enabled) => {
-                try {
-                  const next = await rapooApi.setAutoStart(enabled);
+                onDeletePreset={handleDeletePreset}
+                onSetPollingMode={handleSetPollingMode}
+                onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
+                onUpdateCloseToTray={async (enabled) => {
+                  const next = await rapooApi.setCloseToTray(enabled);
                   setPrefs(next);
-                } catch (error) {
-                  toast.error(error instanceof Error ? error.message : "自動起動の変更に失敗しました");
+                  toast.success(enabled ? "閉じたらトレイに格納します" : "閉じたらアプリを終了します");
+                }}
+                onUpdateAutoStart={async (enabled) => {
+                  try {
+                    const next = await rapooApi.setAutoStart(enabled);
+                    setPrefs(next);
+                    toast.success(enabled ? "スタートアップに登録しました" : "スタートアップから解除しました");
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : "自動起動の変更に失敗しました");
+                  }
+                }}
+                onFactoryReset={() =>
+                  runMutation(() => rapooApi.factoryReset(), "工場出荷時設定に戻しました")
                 }
-              }}
-              onFactoryReset={() => runMutation(() => rapooApi.factoryReset())}
-            />
-          </TabsContent>
-        </Tabs>
-      </main>
+              />
+            </TabsContent>
+          </Tabs>
+        </main>
 
-      <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
-    </div>
+        <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -375,16 +392,17 @@ function DeviceUnavailableCard({
   onRefresh: () => void;
 }) {
   const sleeping = state.connected && state.sleeping;
+  const unavailableMessage = sleeping
+    ? "マウスを動かすと設定を読み込みます。"
+    : state.permissionDenied
+      ? "hidraw へのアクセス権限がありません。プロファイルタブの udev 設定を確認してください。"
+      : "4K レシーバーまたは USB-C ケーブルを接続してください。";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</CardTitle>
-        <CardDescription>
-          {sleeping
-            ? "マウスを動かすと設定を読み込みます。"
-            : "4K レシーバーまたは USB-C ケーブルを接続してください。"}
-        </CardDescription>
+        <CardDescription>{unavailableMessage}</CardDescription>
       </CardHeader>
       <CardContent className="flex gap-2">
         <Button onClick={onEnableDemo}>デモモード</Button>

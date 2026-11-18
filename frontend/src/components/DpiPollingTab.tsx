@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -41,7 +40,6 @@ export function DpiPollingTab({
   const [stageCount, setStageCount] = useState<number>(dpi?.stageCount ?? 1);
   const [currentStage, setCurrentStage] = useState<number>(dpi?.currentStage ?? 1);
   const [independentXY, setIndependentXY] = useState<boolean>(dpi?.independentXY ?? false);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!dpi) return;
@@ -53,53 +51,64 @@ export function DpiPollingTab({
 
   if (!dpi || !sensor) return null;
 
-  const updateStage = (index: number, axis: "x" | "y", value: number) => {
-    setStages((prev) =>
-      prev.map((stage) => (stage.index === index ? { ...stage, [axis]: value } : stage))
-    );
+  const persist = async (
+    nextStages: DPIStage[],
+    nextCount: number,
+    nextCurrent: number,
+    nextIndependent: boolean
+  ) => {
+    const normalized = nextStages.map((stage) => ({
+      ...stage,
+      x: normalizeDpi(stage.x),
+      y: normalizeDpi(nextIndependent ? stage.y : stage.x),
+    }));
+    const config: DPIConfig = {
+      currentStage: Math.min(nextCurrent, nextCount),
+      stageCount: nextCount,
+      independentXY: nextIndependent,
+      stages: normalized
+        .slice(0, nextCount)
+        .map((stage, i) => ({ ...stage, index: i + 1, enabled: true })),
+      allStages: normalized.map((stage, i) => ({ ...stage, index: i + 1, enabled: i < nextCount })),
+    };
+
+    const ok = await onSaveDpiConfig(config);
+    if (!ok) {
+      setStages(allStagesFrom(dpi));
+      setStageCount(dpi.stageCount);
+      setCurrentStage(dpi.currentStage);
+      setIndependentXY(dpi.independentXY);
+    }
   };
 
   const changeStageCount = (value: string) => {
     const next = Number(value);
+    const nextCurrent = Math.min(currentStage, next);
     setStageCount(next);
-    setCurrentStage((prev) => Math.min(prev, next));
+    setCurrentStage(nextCurrent);
+    void persist(stages, next, nextCurrent, independentXY);
+  };
+
+  const changeCurrentStage = (value: string) => {
+    const next = Number(value);
+    setCurrentStage(next);
+    void persist(stages, stageCount, next, independentXY);
   };
 
   const changeIndependentXY = (checked: boolean) => {
+    const nextStages = checked ? stages : stages.map((stage) => ({ ...stage, y: stage.x }));
     setIndependentXY(checked);
-    if (!checked) {
-      setStages((prev) => prev.map((stage) => ({ ...stage, y: stage.x })));
-    }
+    setStages(nextStages);
+    void persist(nextStages, stageCount, currentStage, checked);
   };
 
-  const handleSave = async () => {
-    const normalized = stages.map((stage) => ({
-      ...stage,
-      x: normalizeDpi(stage.x),
-      y: normalizeDpi(independentXY ? stage.y : stage.x),
-    }));
-    const config: DPIConfig = {
-      currentStage,
-      stageCount,
-      independentXY,
-      stages: normalized
-        .slice(0, stageCount)
-        .map((stage, i) => ({ ...stage, index: i + 1, enabled: true })),
-      allStages: normalized.map((stage, i) => ({ ...stage, index: i + 1, enabled: i < stageCount })),
-    };
-
-    setSaving(true);
-    try {
-      const ok = await onSaveDpiConfig(config);
-      if (!ok) {
-        setStages(allStagesFrom(dpi));
-        setStageCount(dpi.stageCount);
-        setCurrentStage(dpi.currentStage);
-        setIndependentXY(dpi.independentXY);
-      }
-    } finally {
-      setSaving(false);
-    }
+  const commitStage = (stage: DPIStage, axis: "x" | "y") => {
+    const normalized = normalizeDpi(stage[axis]);
+    const nextStages = stages.map((item) =>
+      item.index === stage.index ? { ...item, [axis]: normalized } : item
+    );
+    setStages(nextStages);
+    void persist(nextStages, stageCount, currentStage, independentXY);
   };
 
   return (
@@ -107,12 +116,13 @@ export function DpiPollingTab({
       <Card>
         <CardHeader>
           <CardTitle>DPI</CardTitle>
+          <CardDescription>変更は自動で保存されます。</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
               <label className="text-sm font-medium">ステージ数</label>
-              <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable || saving}>
+              <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable}>
                 <SelectTrigger aria-label="ステージ数">
                   <SelectValue />
                 </SelectTrigger>
@@ -128,11 +138,7 @@ export function DpiPollingTab({
 
             <div className="space-y-2">
               <label className="text-sm font-medium">使用ステージ</label>
-              <Select
-                value={String(currentStage)}
-                onValueChange={(value) => setCurrentStage(Number(value))}
-                disabled={!writable || saving}
-              >
+              <Select value={String(currentStage)} onValueChange={changeCurrentStage} disabled={!writable}>
                 <SelectTrigger aria-label="使用ステージ">
                   <SelectValue />
                 </SelectTrigger>
@@ -152,7 +158,7 @@ export function DpiPollingTab({
                 <Switch
                   checked={independentXY}
                   onCheckedChange={changeIndependentXY}
-                  disabled={!writable || saving}
+                  disabled={!writable}
                   aria-label="X/Y 独立"
                 />
               </div>
@@ -164,7 +170,7 @@ export function DpiPollingTab({
               <TableRow>
                 <TableHead className="w-28">ステージ</TableHead>
                 <TableHead>X (DPI)</TableHead>
-                <TableHead>Y (DPI)</TableHead>
+                {independentXY && <TableHead>Y (DPI)</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -179,36 +185,50 @@ export function DpiPollingTab({
                       step={50}
                       value={stage.x}
                       aria-label={`Stage ${stage.index} X`}
-                      disabled={!writable || saving}
-                      onChange={(event) => updateStage(stage.index, "x", Number(event.target.value))}
-                      onBlur={() => updateStage(stage.index, "x", normalizeDpi(stage.x))}
+                      disabled={!writable}
+                      onChange={(event) =>
+                        setStages((prev) =>
+                          prev.map((item) =>
+                            item.index === stage.index ? { ...item, x: Number(event.target.value) } : item
+                          )
+                        )
+                      }
+                      onBlur={() => commitStage(stage, "x")}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
                       className="w-32"
                     />
                   </TableCell>
-                  <TableCell>
-                    <Input
-                      type="number"
-                      min={50}
-                      max={26000}
-                      step={50}
-                      value={independentXY ? stage.y : stage.x}
-                      aria-label={`Stage ${stage.index} Y`}
-                      disabled={!writable || saving || !independentXY}
-                      onChange={(event) => updateStage(stage.index, "y", Number(event.target.value))}
-                      onBlur={() => updateStage(stage.index, "y", normalizeDpi(stage.y))}
-                      className="w-32"
-                    />
-                  </TableCell>
+                  {independentXY && (
+                    <TableCell>
+                      <Input
+                        type="number"
+                        min={50}
+                        max={26000}
+                        step={50}
+                        value={stage.y}
+                        aria-label={`Stage ${stage.index} Y`}
+                        disabled={!writable}
+                        onChange={(event) =>
+                          setStages((prev) =>
+                            prev.map((item) =>
+                              item.index === stage.index ? { ...item, y: Number(event.target.value) } : item
+                            )
+                          )
+                        }
+                        onBlur={() => commitStage(stage, "y")}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        className="w-32"
+                      />
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-
-          <div className="flex justify-end">
-            <Button onClick={() => void handleSave()} disabled={!writable || saving}>
-              保存
-            </Button>
-          </div>
         </CardContent>
       </Card>
 
