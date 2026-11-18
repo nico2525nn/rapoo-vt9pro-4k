@@ -1,3 +1,8 @@
 /dist/
+/build/bin/
+/frontend/node_modules/
+/frontend/dist/
+/frontend/wailsjs/
 *.exe
 *.ico
+!build/windows/icon.ico

@@ -1,0 +1,15 @@
+{
+  "fixed": {
+    "file_version": "1.0.0.0"
+  },
+  "info": {
+    "0000": {
+      "ProductVersion": "1.0.0",
+      "CompanyName": "Rapoo Open Tools",
+      "FileDescription": "Rapoo Control — VT9 Pro 4K Utility",
+      "LegalCopyright": "MIT License",
+      "ProductName": "Rapoo Control",
+      "Comments": "Lightweight configuration & battery utility for Rapoo VT9 Pro 4K"
+    }
+  }
+}

@@ -309,6 +309,21 @@ func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 	if err != nil {
 		if errors.Is(err, rapoo.ErrMouseAsleep) {
 			s.markSleeping()
+			if cached != nil {
+				cp := *cached
+				cp.DemoMode = demo
+				cp.Battery.Online = false
+				cp.Battery.Sleeping = true
+				cp.Battery.Charging = false
+				cp.Battery.Source = rapoo.BatterySourceCached
+				if snap.Firmware != nil && snap.Firmware.DongleRaw != 0 && cp.Firmware != nil {
+					fw := *cp.Firmware
+					fw.DongleRaw = snap.Firmware.DongleRaw
+					fw.DongleStr = snap.Firmware.DongleStr
+					cp.Firmware = &fw
+				}
+				return cp, nil
+			}
 		}
 		return snap, errors.New(friendlyError(err))
 	}
@@ -726,7 +741,8 @@ func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 	case rapoo.EventWake:
 		s.mu.Lock()
 		mode := s.state.Mode
-		shouldRefresh := mode != ModePassiveOnly && time.Since(s.lastWakeAt) >= 2*time.Second
+		emit := s.cfg.OnEventEmit
+		shouldRefresh := mode != ModePassiveOnly && time.Since(s.lastWakeAt) >= 1500*time.Millisecond
 		if shouldRefresh {
 			s.lastWakeAt = time.Now()
 		}
@@ -734,6 +750,9 @@ func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 
 		if shouldRefresh {
 			s.RefreshNow()
+			if emit != nil {
+				emit("rapoo:wake", true)
+			}
 		}
 	}
 }

@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 215 28% 97%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 199 89% 42%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214 25% 91%;
+    --secondary-foreground: 222 47% 14%;
+    --muted: 214 24% 92%;
+    --muted-foreground: 215 18% 38%;
+    --accent: 210 30% 90%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 78% 52%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214 24% 84%;
+    --input: 214 24% 84%;
+    --ring: 199 89% 42%;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 224 36% 6%;
+    --foreground: 210 33% 96%;
+    --card: 223 32% 9.5%;
+    --card-foreground: 210 33% 96%;
+    --popover: 224 34% 10%;
+    --popover-foreground: 210 33% 96%;
+    --primary: 196 94% 52%;
+    --primary-foreground: 224 45% 7%;
+    --secondary: 222 25% 15%;
+    --secondary-foreground: 210 30% 92%;
+    --muted: 222 24% 13.5%;
+    --muted-foreground: 215 18% 67%;
+    --accent: 220 26% 17%;
+    --accent-foreground: 210 33% 96%;
+    --destructive: 0 74% 56%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 22% 18%;
+    --input: 220 22% 18%;
+    --ring: 196 94% 52%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    overflow-x: hidden;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  code,
+  pre {
+    user-select: text;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Subtle custom scrollbars suitable for desktop apps */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
