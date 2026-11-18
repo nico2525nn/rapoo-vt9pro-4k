@@ -41,10 +41,16 @@ interface WailsAppBindings {
   SetCloseToTray(enabled: boolean): Promise<AppPreferences>;
   SetAutoStart(enabled: boolean): Promise<AppPreferences>;
   SetWindowTheme(dark: boolean): Promise<void>;
+  CloseWindow(): Promise<void>;
+  OpenFirmwareUpdater(): Promise<string>;
 }
 
 interface WailsRuntime {
   EventsOn(eventName: string, callback: (...data: unknown[]) => void): () => void;
+  WindowMinimise?(): void;
+  WindowToggleMaximise?(): void;
+  WindowIsMaximised?(): Promise<boolean>;
+  Quit?(): void;
 }
 
 declare global {
@@ -824,6 +830,17 @@ export const rapooApi = {
       }
     }
   },
+  async openFirmwareUpdater(): Promise<string> {
+    const app = getWailsApp();
+    if (!app?.OpenFirmwareUpdater) {
+      throw new Error("ファームウェア更新はWindows版の公式ソフトでのみ利用できます");
+    }
+    try {
+      return await app.OpenFirmwareUpdater();
+    } catch (e) {
+      throw unwrapError(e);
+    }
+  },
   subscribeEvent<T>(eventName: string, handler: (payload: T) => void): () => void {
     const rt = getWailsRuntime();
     if (rt) {
@@ -835,5 +852,27 @@ export const rapooApi = {
     return fallbackSim.on(eventName, (...args: unknown[]) => {
       handler(args[0] as T);
     });
+  },
+};
+
+export const windowApi = {
+  minimise() {
+    getWailsRuntime()?.WindowMinimise?.();
+  },
+  async toggleMaximise(): Promise<boolean> {
+    const rt = getWailsRuntime();
+    rt?.WindowToggleMaximise?.();
+    return (await rt?.WindowIsMaximised?.()) ?? false;
+  },
+  async isMaximised(): Promise<boolean> {
+    return (await getWailsRuntime()?.WindowIsMaximised?.()) ?? false;
+  },
+  async close(): Promise<void> {
+    const app = getWailsApp();
+    if (app?.CloseWindow) {
+      await app.CloseWindow();
+      return;
+    }
+    getWailsRuntime()?.Quit?.();
   },
 };

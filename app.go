@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -190,6 +192,89 @@ func (a *App) SetWindowTheme(dark bool) {
 	} else {
 		wailsRuntime.WindowSetLightTheme(a.ctx)
 	}
+}
+
+// CloseWindow closes the custom title bar window while respecting close-to-tray.
+func (a *App) CloseWindow() {
+	if a.ctx == nil {
+		return
+	}
+	a.prefsMu.RLock()
+	closeToTray := a.prefs.CloseToTray
+	a.prefsMu.RUnlock()
+
+	if runtime.GOOS == "windows" && closeToTray {
+		wailsRuntime.WindowHide(a.ctx)
+		wailsRuntime.EventsEmit(a.ctx, "rapoo:minimized-to-tray", true)
+		return
+	}
+	a.quitting.Store(true)
+	wailsRuntime.Quit(a.ctx)
+}
+
+// OpenFirmwareUpdater launches the official Rapoo software, which performs the
+// actual firmware write. This app only reads firmware versions and never flashes.
+func (a *App) OpenFirmwareUpdater() (string, error) {
+	if runtime.GOOS != "windows" {
+		return "", errors.New("ファームウェア更新はWindows版の公式ソフトでのみ利用できます")
+	}
+
+	roots := []string{
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramFiles"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs"),
+		os.Getenv("LOCALAPPDATA"),
+		os.Getenv("APPDATA"),
+	}
+	seen := make(map[string]bool)
+	var candidates []string
+	for _, exe := range []string{"RapooGameDev.exe", "FirmwareExe.exe"} {
+		for _, root := range roots {
+			if root == "" {
+				continue
+			}
+			path := filepath.Join(root, "Rapoo", "RapooGameDev", exe)
+			if !seen[path] {
+				seen[path] = true
+				candidates = append(candidates, path)
+			}
+		}
+	}
+
+	for _, path := range candidates {
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		cmd := exec.Command(path)
+		cmd.Dir = filepath.Dir(path)
+		if err := cmd.Start(); err != nil {
+			return "", err
+		}
+		return path, nil
+	}
+
+	if a.ctx == nil {
+		return "", errors.New("公式ソフトが見つかりません")
+	}
+	selected, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
+		Title: "Rapoo公式ソフトを選択",
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "RapooGameDev.exe / FirmwareExe.exe", Pattern: "*.exe"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if selected == "" {
+		return "", nil
+	}
+	cmd := exec.Command(selected)
+	cmd.Dir = filepath.Dir(selected)
+	if err := cmd.Start(); err != nil {
+		return "", err
+	}
+	return selected, nil
 }
 
 // SavePresetFile opens a native OS Save File dialog to export a preset JSON file reliably on Windows & Linux.

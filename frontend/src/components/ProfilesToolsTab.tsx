@@ -48,6 +48,7 @@ interface ProfilesToolsTabProps {
   onUpdateCloseToTray: (enabled: boolean) => Promise<void>;
   onUpdateAutoStart: (enabled: boolean) => Promise<void>;
   onFactoryReset: () => Promise<boolean>;
+  onOpenFirmwareUpdater: () => Promise<void>;
 }
 
 function InfoRow({ label, value }: { label: string; value: string }) {
@@ -101,6 +102,7 @@ export function ProfilesToolsTab({
   onUpdateCloseToTray,
   onUpdateAutoStart,
   onFactoryReset,
+  onOpenFirmwareUpdater,
 }: ProfilesToolsTabProps) {
   const [saveOpen, setSaveOpen] = useState(false);
   const [name, setName] = useState("");
@@ -231,6 +233,18 @@ export function ProfilesToolsTab({
                   コピー
                 </Button>
               </div>
+            </div>
+          )}
+
+          {state.platform === "windows" && (
+            <div className="flex items-center justify-between gap-4 border-t pt-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium">ファームウェア更新</span>
+                <p className="text-xs text-muted-foreground">書き込みは公式ソフトで実行</p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void onOpenFirmwareUpdater()}>
+                公式ソフトを開く
+              </Button>
             </div>
           )}
 

@@ -6,6 +6,7 @@ import { ButtonsTab } from "@/components/ButtonsTab";
 import { DpiPollingTab } from "@/components/DpiPollingTab";
 import { ProfilesToolsTab } from "@/components/ProfilesToolsTab";
 import { SensorTab } from "@/components/SensorTab";
+import { TitleBar } from "@/components/TitleBar";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -264,6 +265,15 @@ export default function App() {
     }
   };
 
+  const handleOpenFirmwareUpdater = async () => {
+    try {
+      const path = await rapooApi.openFirmwareUpdater();
+      if (path) toast.success("公式ソフトを起動しました");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "公式ソフトを起動できませんでした");
+    }
+  };
+
   const unavailable = (
     <DeviceUnavailableCard
       state={state}
@@ -274,126 +284,127 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-screen overflow-hidden bg-background">
-        <AppSidebar
-          state={state}
-          snapshot={snapshot}
-          busy={busy}
-          darkMode={darkMode}
-          activeTab={activeTab}
-          onNavigate={setActiveTab}
-          onToggleTheme={() => setDarkMode((value) => !value)}
-          onRefresh={() => void handleManualRefresh()}
-        />
+      <div className="flex h-screen flex-col overflow-hidden bg-background">
+        <TitleBar pageTitle={PAGE_TITLES[activeTab] ?? "DPI"} />
 
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-4xl p-6">
-            <h2 className="mb-4 text-xl font-semibold tracking-tight">
-              {PAGE_TITLES[activeTab] ?? "DPI"}
-            </h2>
+        <div className="flex min-h-0 flex-1">
+          <AppSidebar
+            state={state}
+            snapshot={snapshot}
+            busy={busy}
+            darkMode={darkMode}
+            activeTab={activeTab}
+            onNavigate={setActiveTab}
+            onToggleTheme={() => setDarkMode((value) => !value)}
+            onRefresh={() => void handleManualRefresh()}
+          />
 
-            {state.lastError && (
-              <div
-                role="alert"
-                className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
-                {state.lastError}
-              </div>
-            )}
+          <main className="min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-4xl p-6">
+              {state.lastError && (
+                <div
+                  role="alert"
+                  className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                >
+                  {state.lastError}
+                </div>
+              )}
 
-            {activeTab === "dpi" &&
-              (hasDeviceData && snapshot ? (
-                <DpiPollingTab
+              {activeTab === "dpi" &&
+                (hasDeviceData && snapshot ? (
+                  <DpiPollingTab
+                    snapshot={snapshot}
+                    writable={writable}
+                    pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
+                    onSaveDpiConfig={(config: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(config))}
+                    onChangePollingRate={(hz: number) =>
+                      runMutation(() => rapooApi.setPollingRate(hz), `${hz} Hz に変更しました`)
+                    }
+                  />
+                ) : (
+                  unavailable
+                ))}
+
+              {activeTab === "sensor" &&
+                (hasDeviceData && snapshot ? (
+                  <SensorTab
+                    snapshot={snapshot}
+                    debounceSteps={catalog?.debounceSteps ?? []}
+                    writable={writable}
+                    onUpdateSensor={(patch: SensorPatch) => runMutation(() => rapooApi.updateSensorConfig(patch))}
+                  />
+                ) : (
+                  unavailable
+                ))}
+
+              {activeTab === "buttons" &&
+                (hasDeviceData && snapshot ? (
+                  <ButtonsTab
+                    snapshot={snapshot}
+                    supportedKeys={catalog?.supportedKeys ?? []}
+                    writable={writable}
+                    readOnlyReason={
+                      state.mode === "passive_only"
+                        ? "ゲーム中ロック中は変更できません。"
+                        : state.sleeping
+                          ? "マウスがスリープ中です。"
+                          : undefined
+                    }
+                    onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
+                      runMutation(
+                        () => rapooApi.setButtonMapping(buttonId, action),
+                        "ボタン割り当てを変更しました"
+                      )
+                    }
+                    onResetAllButtons={() =>
+                      runMutation(() => rapooApi.resetButtonsToDefault(), "ボタン割り当てを初期化しました")
+                    }
+                  />
+                ) : (
+                  unavailable
+                ))}
+
+              {activeTab === "profiles" && (
+                <ProfilesToolsTab
+                  state={state}
                   snapshot={snapshot}
+                  catalog={catalog}
+                  presets={presets}
+                  prefs={prefs}
                   writable={writable}
-                  pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
-                  onSaveDpiConfig={(config: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(config))}
-                  onChangePollingRate={(hz: number) =>
-                    runMutation(() => rapooApi.setPollingRate(hz), `${hz} Hz に変更しました`)
-                  }
-                />
-              ) : (
-                unavailable
-              ))}
-
-            {activeTab === "sensor" &&
-              (hasDeviceData && snapshot ? (
-                <SensorTab
-                  snapshot={snapshot}
-                  debounceSteps={catalog?.debounceSteps ?? []}
-                  writable={writable}
-                  onUpdateSensor={(patch: SensorPatch) => runMutation(() => rapooApi.updateSensorConfig(patch))}
-                />
-              ) : (
-                unavailable
-              ))}
-
-            {activeTab === "buttons" &&
-              (hasDeviceData && snapshot ? (
-                <ButtonsTab
-                  snapshot={snapshot}
-                  supportedKeys={catalog?.supportedKeys ?? []}
-                  writable={writable}
-                  readOnlyReason={
-                    state.mode === "passive_only"
-                      ? "ゲーム中ロック中は変更できません。"
-                      : state.sleeping
-                        ? "マウスがスリープ中です。"
-                        : undefined
-                  }
-                  onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
+                  onSavePreset={handleSavePreset}
+                  onApplyPreset={(preset) =>
                     runMutation(
-                      () => rapooApi.setButtonMapping(buttonId, action),
-                      "ボタン割り当てを変更しました"
+                      () => rapooApi.applyPreset(preset.id),
+                      `プリセット「${preset.name}」を適用しました`
                     )
                   }
-                  onResetAllButtons={() =>
-                    runMutation(() => rapooApi.resetButtonsToDefault(), "ボタン割り当てを初期化しました")
-                  }
-                />
-              ) : (
-                unavailable
-              ))}
-
-            {activeTab === "profiles" && (
-              <ProfilesToolsTab
-                state={state}
-                snapshot={snapshot}
-                catalog={catalog}
-                presets={presets}
-                prefs={prefs}
-                writable={writable}
-                onSavePreset={handleSavePreset}
-                onApplyPreset={(preset) =>
-                  runMutation(
-                    () => rapooApi.applyPreset(preset.id),
-                    `プリセット「${preset.name}」を適用しました`
-                  )
-                }
-                onDeletePreset={handleDeletePreset}
-                onSetPollingMode={handleSetPollingMode}
-                onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
-                onUpdateCloseToTray={async (enabled) => {
-                  const next = await rapooApi.setCloseToTray(enabled);
-                  setPrefs(next);
-                  toast.success(enabled ? "閉じたらトレイに格納します" : "閉じたらアプリを終了します");
-                }}
-                onUpdateAutoStart={async (enabled) => {
-                  try {
-                    const next = await rapooApi.setAutoStart(enabled);
+                  onDeletePreset={handleDeletePreset}
+                  onSetPollingMode={handleSetPollingMode}
+                  onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
+                  onUpdateCloseToTray={async (enabled) => {
+                    const next = await rapooApi.setCloseToTray(enabled);
                     setPrefs(next);
-                    toast.success(enabled ? "スタートアップに登録しました" : "スタートアップから解除しました");
-                  } catch (error) {
-                    toast.error(error instanceof Error ? error.message : "自動起動の変更に失敗しました");
+                    toast.success(enabled ? "閉じたらトレイに格納します" : "閉じたらアプリを終了します");
+                  }}
+                  onUpdateAutoStart={async (enabled) => {
+                    try {
+                      const next = await rapooApi.setAutoStart(enabled);
+                      setPrefs(next);
+                      toast.success(enabled ? "スタートアップに登録しました" : "スタートアップから解除しました");
+                    } catch (error) {
+                      toast.error(error instanceof Error ? error.message : "自動起動の変更に失敗しました");
+                    }
+                  }}
+                  onFactoryReset={() =>
+                    runMutation(() => rapooApi.factoryReset(), "工場出荷時設定に戻しました")
                   }
-                }}
-                onFactoryReset={() =>
-                  runMutation(() => rapooApi.factoryReset(), "工場出荷時設定に戻しました")
-                }
-              />
-            )}
-          </div>
-        </main>
+                  onOpenFirmwareUpdater={handleOpenFirmwareUpdater}
+                />
+              )}
+            </div>
+          </main>
+        </div>
 
         <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
       </div>
