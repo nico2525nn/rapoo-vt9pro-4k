@@ -38,7 +38,11 @@ export function TitleBar({ pageTitle }: { pageTitle: string }) {
         <span className="truncate text-xs text-muted-foreground">{pageTitle}</span>
       </div>
 
-      <div className="flex h-full items-center" style={noDragStyle}>
+      <div
+        className="flex h-full items-center"
+        style={noDragStyle}
+        onDoubleClick={(event) => event.stopPropagation()}
+      >
         <Button
           variant="ghost"
           size="icon"
