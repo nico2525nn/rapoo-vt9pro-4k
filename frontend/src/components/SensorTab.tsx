@@ -58,7 +58,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle>センサー</CardTitle>

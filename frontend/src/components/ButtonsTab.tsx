@@ -21,6 +21,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Select,
   SelectContent,
@@ -244,7 +245,7 @@ export function ButtonsTab({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between space-y-0">
+      <CardHeader className="flex-row items-center justify-between ">
         <CardTitle>ボタン</CardTitle>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -268,7 +269,7 @@ export function ButtonsTab({
           </AlertDialogContent>
         </AlertDialog>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="flex flex-col gap-3">
         {!writable && readOnlyReason && <p className="text-xs text-muted-foreground">{readOnlyReason}</p>}
         <Table>
           <TableHeader>
@@ -306,8 +307,8 @@ export function ButtonsTab({
             <DialogTitle>{editing?.slot.nameJa}</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">動作</label>
               <Select
                 value={actionType}
@@ -343,7 +344,7 @@ export function ButtonsTab({
             </div>
 
             {actionType === "keyboard" && (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium">キー</label>
                 <Input
                   readOnly
@@ -354,9 +355,13 @@ export function ButtonsTab({
                   onFocus={startCapture}
                 />
                 <p className="text-xs text-muted-foreground">
-                  {capturing
-                    ? "Esc でキャンセルします。"
-                    : "クリックしてキーを入力します。修飾キー単体も設定できます。"}
+                  {capturing ? (
+                    <>
+                      <Kbd>Esc</Kbd> でキャンセルします。
+                    </>
+                  ) : (
+                    "クリックしてキーを入力します。修飾キー単体も設定できます。"
+                  )}
                 </p>
               </div>
             )}

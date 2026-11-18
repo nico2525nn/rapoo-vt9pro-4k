@@ -134,9 +134,9 @@ export function ProfilesToolsTab({
       : "—";
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader className="flex-row items-center justify-between space-y-0">
+        <CardHeader className="flex-row items-center justify-between ">
           <CardTitle>プリセット</CardTitle>
           <Button size="sm" disabled={!snapshot?.dpi} onClick={() => setSaveOpen(true)}>
             保存
@@ -211,10 +211,10 @@ export function ProfilesToolsTab({
           <InfoRow label="電池" value={batteryText} />
 
           {(catalog?.platform === "linux" || state.permissionDenied) && catalog?.linuxUdevInstallCmd && (
-            <div className="space-y-2 border-t pt-4">
+            <div className="flex flex-col gap-2 border-t pt-4">
               <label className="text-sm font-medium">udev 設定</label>
               <div className="flex gap-2">
-                <Input readOnly value={catalog.linuxUdevInstallCmd} className="font-mono text-xs" />
+                <Input readOnly value={catalog.linuxUdevInstallCmd} className="font-mono" />
                 <Button variant="outline" onClick={() => void copyUdev()}>
                   コピー
                 </Button>
@@ -306,11 +306,11 @@ export function ProfilesToolsTab({
 
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent>
-          <form onSubmit={(event) => void handleSave(event)} className="space-y-4">
+          <form onSubmit={(event) => void handleSave(event)} className="flex flex-col gap-4">
             <DialogHeader>
               <DialogTitle>プリセットを保存</DialogTitle>
             </DialogHeader>
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <label htmlFor="preset-name" className="text-sm font-medium">
                 名前
               </label>

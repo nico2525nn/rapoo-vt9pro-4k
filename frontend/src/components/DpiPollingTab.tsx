@@ -112,15 +112,15 @@ export function DpiPollingTab({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
           <CardTitle>DPI</CardTitle>
           <CardDescription>変更は自動で保存されます。</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-3">
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">ステージ数</label>
               <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable}>
                 <SelectTrigger aria-label="ステージ数">
@@ -136,7 +136,7 @@ export function DpiPollingTab({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">使用ステージ</label>
               <Select value={String(currentStage)} onValueChange={changeCurrentStage} disabled={!writable}>
                 <SelectTrigger aria-label="使用ステージ">
@@ -152,7 +152,7 @@ export function DpiPollingTab({
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">X/Y 独立</label>
               <div className="flex h-10 items-center">
                 <Switch
@@ -236,7 +236,7 @@ export function DpiPollingTab({
         <CardHeader>
           <CardTitle>ポーリングレート</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2">
+        <CardContent className="flex flex-col gap-2">
           <Select
             value={String(sensor.pollingRateHz)}
             onValueChange={(value) => void onChangePollingRate(Number(value))}

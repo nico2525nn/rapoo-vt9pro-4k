@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Moon, WifiOff } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { ButtonsTab } from "@/components/ButtonsTab";
 import { DpiPollingTab } from "@/components/DpiPollingTab";
@@ -6,7 +7,14 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { ProfilesToolsTab } from "@/components/ProfilesToolsTab";
 import { SensorTab } from "@/components/SensorTab";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { rapooApi } from "@/lib/wails";
@@ -399,17 +407,22 @@ function DeviceUnavailableCard({
       : "4K レシーバーまたは USB-C ケーブルを接続してください。";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</CardTitle>
-        <CardDescription>{unavailableMessage}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex gap-2">
-        <Button onClick={onEnableDemo}>デモモード</Button>
-        <Button variant="outline" onClick={onRefresh}>
-          再読み込み
-        </Button>
-      </CardContent>
-    </Card>
+    <Empty className="border">
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          {sleeping ? <Moon /> : <WifiOff />}
+        </EmptyMedia>
+        <EmptyTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</EmptyTitle>
+        <EmptyDescription>{unavailableMessage}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <div className="flex gap-2">
+          <Button onClick={onEnableDemo}>デモモード</Button>
+          <Button variant="outline" onClick={onRefresh}>
+            再読み込み
+          </Button>
+        </div>
+      </EmptyContent>
+    </Empty>
   );
 }

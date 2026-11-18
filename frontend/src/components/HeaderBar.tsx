@@ -1,4 +1,4 @@
-import { Loader2, Moon, RefreshCw, Sun } from "lucide-react";
+import { Moon, RefreshCw, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -58,7 +58,6 @@ export function HeaderBar({
         <div className="flex min-w-0 items-baseline gap-3">
           <h1 className="shrink-0 text-sm font-semibold">Rapoo VT9 Pro 4K</h1>
           <p className="truncate text-xs text-muted-foreground">{summary}</p>
-          {busy && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" aria-label="読み込み中" />}
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
@@ -71,7 +70,7 @@ export function HeaderBar({
                 disabled={busy || !state.connected}
                 aria-label="再読み込み"
               >
-                <RefreshCw className={cn("h-4 w-4", busy && "animate-spin")} />
+                <RefreshCw className={cn("size-4", busy && "animate-spin")} />
               </Button>
             </TooltipTrigger>
             <TooltipContent>再読み込み</TooltipContent>
@@ -84,7 +83,7 @@ export function HeaderBar({
                 onClick={onToggleTheme}
                 aria-label={darkMode ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
               >
-                {darkMode ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {darkMode ? <Sun className="size-4" /> : <Moon className="size-4" />}
               </Button>
             </TooltipTrigger>
             <TooltipContent>{darkMode ? "ライトテーマ" : "ダークテーマ"}</TooltipContent>
