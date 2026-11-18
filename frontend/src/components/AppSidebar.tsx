@@ -1,8 +1,25 @@
-import { Cpu, Crosshair, FolderCog, Moon, MousePointer, RefreshCw, Sun } from "lucide-react";
+import { useEffect, useState, type CSSProperties } from "react";
+import {
+  Copy,
+  Cpu,
+  Crosshair,
+  FolderCog,
+  Minus,
+  Moon,
+  MousePointer,
+  RefreshCw,
+  Square,
+  Sun,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { windowApi } from "@/lib/wails";
 import type { DeviceSnapshot, ServiceState } from "@/types/rapoo";
+
+const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
+const noDragStyle = { "--wails-draggable": "no-drag" } as CSSProperties;
 
 interface AppSidebarProps {
   state: ServiceState;
@@ -47,21 +64,79 @@ export function AppSidebar({
   onToggleTheme,
   onRefresh,
 }: AppSidebarProps) {
+  const [maximised, setMaximised] = useState(false);
   const percentage = snapshot?.battery.percentage ?? state.percentage;
   const hasBattery = Boolean(snapshot) || state.hasBattery;
   const batteryText = hasBattery ? `${percentage}%` : "--%";
   const rate = snapshot?.sensor?.pollingRateHz ?? state.pollingRateHz;
   const dpi = activeDpiLabel(snapshot);
 
+  useEffect(() => {
+    let active = true;
+    const update = async () => {
+      const value = await windowApi.isMaximised();
+      if (active) setMaximised(value);
+    };
+    void update();
+    window.addEventListener("resize", update);
+    return () => {
+      active = false;
+      window.removeEventListener("resize", update);
+    };
+  }, []);
+
+  const toggleMaximise = async () => {
+    setMaximised(await windowApi.toggleMaximise());
+  };
+
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center border-b border-sidebar-border px-4">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold">Rapoo VT9 Pro 4K</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {connectionLabel(state)} · 電池 {batteryText}
-          </p>
+      <div
+        className="flex h-8 items-center justify-end border-b border-sidebar-border pr-1"
+        style={dragStyle}
+        onDoubleClick={() => void toggleMaximise()}
+      >
+        <div
+          className="flex shrink-0 items-center"
+          style={noDragStyle}
+          onDoubleClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={() => windowApi.minimise()}
+            aria-label="最小化"
+          >
+            <Minus className="size-4" />
+          </button>
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={() => void toggleMaximise()}
+            aria-label={maximised ? "元に戻す" : "最大化"}
+          >
+            {maximised ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}
+          </button>
+          <button
+            type="button"
+            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
+            onClick={() => void windowApi.close()}
+            aria-label="閉じる"
+          >
+            <X className="size-4" />
+          </button>
         </div>
+      </div>
+
+      <div
+        className="border-b border-sidebar-border px-4 py-2.5"
+        style={dragStyle}
+        onDoubleClick={() => void toggleMaximise()}
+      >
+        <p className="truncate text-sm font-semibold">Rapoo VT9 Pro 4K</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {connectionLabel(state)} · 電池 {batteryText}
+        </p>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 p-2">
@@ -69,16 +144,21 @@ export function AppSidebar({
           const Icon = item.icon;
           const active = activeTab === item.value;
           return (
-            <Button
+            <button
               key={item.value}
-              variant={active ? "secondary" : "ghost"}
-              className="h-9 w-full justify-start gap-2 px-2"
+              type="button"
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.value)}
+              className={cn(
+                "flex h-9 w-full items-center gap-2 rounded-md px-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+              )}
             >
               <Icon className="size-4" />
               {item.label}
-            </Button>
+            </button>
           );
         })}
       </nav>
@@ -98,6 +178,7 @@ export function AppSidebar({
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="size-8"
                   onClick={onRefresh}
                   disabled={busy || !state.connected}
                   aria-label="再読み込み"
@@ -112,6 +193,7 @@ export function AppSidebar({
                 <Button
                   variant="ghost"
                   size="icon"
+                  className="size-8"
                   onClick={onToggleTheme}
                   aria-label={darkMode ? "ライトテーマに切り替え" : "ダークテーマに切り替え"}
                 >
