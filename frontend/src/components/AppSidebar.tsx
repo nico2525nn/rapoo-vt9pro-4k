@@ -1,16 +1,12 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 import {
-  Copy,
   Cpu,
   Crosshair,
   FolderCog,
-  Minus,
   Moon,
   MousePointer,
   RefreshCw,
-  Square,
   Sun,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,7 +15,6 @@ import { windowApi } from "@/lib/wails";
 import type { DeviceSnapshot, ServiceState } from "@/types/rapoo";
 
 const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
-const noDragStyle = { "--wails-draggable": "no-drag" } as CSSProperties;
 
 interface AppSidebarProps {
   state: ServiceState;
@@ -64,74 +59,18 @@ export function AppSidebar({
   onToggleTheme,
   onRefresh,
 }: AppSidebarProps) {
-  const [maximised, setMaximised] = useState(false);
   const percentage = snapshot?.battery.percentage ?? state.percentage;
   const hasBattery = Boolean(snapshot) || state.hasBattery;
   const batteryText = hasBattery ? `${percentage}%` : "--%";
   const rate = snapshot?.sensor?.pollingRateHz ?? state.pollingRateHz;
   const dpi = activeDpiLabel(snapshot);
 
-  useEffect(() => {
-    let active = true;
-    const update = async () => {
-      const value = await windowApi.isMaximised();
-      if (active) setMaximised(value);
-    };
-    void update();
-    window.addEventListener("resize", update);
-    return () => {
-      active = false;
-      window.removeEventListener("resize", update);
-    };
-  }, []);
-
-  const toggleMaximise = async () => {
-    setMaximised(await windowApi.toggleMaximise());
-  };
-
   return (
     <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
       <div
-        className="flex h-8 items-center justify-end border-b border-sidebar-border pr-1"
-        style={dragStyle}
-        onDoubleClick={() => void toggleMaximise()}
-      >
-        <div
-          className="flex shrink-0 items-center"
-          style={noDragStyle}
-          onDoubleClick={(event) => event.stopPropagation()}
-        >
-          <button
-            type="button"
-            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={() => windowApi.minimise()}
-            aria-label="最小化"
-          >
-            <Minus className="size-4" />
-          </button>
-          <button
-            type="button"
-            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={() => void toggleMaximise()}
-            aria-label={maximised ? "元に戻す" : "最大化"}
-          >
-            {maximised ? <Copy className="size-3.5" /> : <Square className="size-3.5" />}
-          </button>
-          <button
-            type="button"
-            className="flex size-8 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-destructive hover:text-destructive-foreground"
-            onClick={() => void windowApi.close()}
-            aria-label="閉じる"
-          >
-            <X className="size-4" />
-          </button>
-        </div>
-      </div>
-
-      <div
         className="border-b border-sidebar-border px-4 py-2.5"
         style={dragStyle}
-        onDoubleClick={() => void toggleMaximise()}
+        onDoubleClick={() => void windowApi.toggleMaximise()}
       >
         <p className="truncate text-sm font-semibold">Rapoo VT9 Pro 4K</p>
         <p className="truncate text-xs text-muted-foreground">

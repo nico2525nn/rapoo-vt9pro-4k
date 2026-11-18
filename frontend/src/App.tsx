@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Moon, WifiOff } from "lucide-react";
 import { Toaster, toast } from "sonner";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -6,6 +6,7 @@ import { ButtonsTab } from "@/components/ButtonsTab";
 import { DpiPollingTab } from "@/components/DpiPollingTab";
 import { ProfilesToolsTab } from "@/components/ProfilesToolsTab";
 import { SensorTab } from "@/components/SensorTab";
+import { WindowControls } from "@/components/WindowControls";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -16,7 +17,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { rapooApi } from "@/lib/wails";
+import { rapooApi, windowApi } from "@/lib/wails";
 import type {
   AppPreferences,
   ButtonAction,
@@ -43,6 +44,8 @@ const INITIAL_STATE: ServiceState = {
   platform: "windows",
   updatedAt: "",
 };
+
+const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
 
 export default function App() {
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -276,7 +279,7 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="relative flex h-screen overflow-hidden bg-background">
         <AppSidebar
           state={state}
           snapshot={snapshot}
@@ -288,8 +291,13 @@ export default function App() {
           onRefresh={() => void handleManualRefresh()}
         />
 
-        <main className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-4xl p-6">
+        <main className="relative min-w-0 flex-1 overflow-y-auto">
+          <div
+            className="absolute inset-x-0 top-0 z-10 h-10"
+            style={dragStyle}
+            onDoubleClick={() => void windowApi.toggleMaximise()}
+          />
+          <div className="mx-auto w-full max-w-4xl p-6 pt-12">
             {state.lastError && (
               <div
                 role="alert"
@@ -394,6 +402,7 @@ export default function App() {
           </div>
         </main>
 
+        <WindowControls />
         <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
       </div>
     </TooltipProvider>
