@@ -14,7 +14,7 @@ describe("Rapoo Control — VT9 Pro 4K Desktop UI", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByText(/Rapoo VT9 Pro 4K が検出されていません/)).toBeInTheDocument();
+    expect(await screen.findByText(/Rapoo VT9 Pro 4K を接続してください/)).toBeInTheDocument();
 
     const demoButtons = screen.getAllByRole("button", { name: /デモモードで全機能を試す/ });
     await user.click(demoButtons[0]);

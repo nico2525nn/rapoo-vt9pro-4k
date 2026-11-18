@@ -1,4 +1,4 @@
-import { Compass, Cpu, HelpCircle, Moon, RotateCcw, Sparkles, Timer } from "lucide-react";
+import { Compass, Cpu, HelpCircle, Lightbulb, Moon, RotateCcw, Sparkles, Timer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,14 +13,15 @@ interface SensorTabProps {
   snapshot: DeviceSnapshot;
   debounceSteps: DebounceStep[];
   writable: boolean;
-  busy: boolean;
-  onUpdateSensor: (patch: SensorPatch) => Promise<void>;
+  onUpdateSensor: (patch: SensorPatch) => Promise<boolean>;
 }
 
 const SLEEP_PRESETS = [5, 10, 15, 30, 60] as const;
 
-export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSensor }: SensorTabProps) {
+export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }: SensorTabProps) {
   const sensor = snapshot.sensor;
+  const isGenB = snapshot.model.protocolGen === 2;
+  const isWired = snapshot.model.connection === "wired";
 
   const [lodLevel, setLodLevel] = useState<number>(() => sensor?.liftOffLevel ?? 1);
   const [angleDeg, setAngleDeg] = useState<number>(() => sensor?.sensorAngleDeg ?? 0);
@@ -37,10 +38,40 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
 
   const lodMm = (1.0 + lodLevel * 0.1).toFixed(1);
 
+  const commitLod = async (nextLevel: number) => {
+    setLodLevel(nextLevel);
+    const ok = await onUpdateSensor({ liftOffLevel: nextLevel });
+    if (!ok) setLodLevel(sensor.liftOffLevel);
+  };
+
+  const commitAngle = async (nextAngle: number) => {
+    setAngleDeg(nextAngle);
+    const ok = await onUpdateSensor({ sensorAngleDeg: nextAngle });
+    if (!ok) setAngleDeg(sensor.sensorAngleDeg);
+  };
+
+  const commitSleep = async (nextSleep: number) => {
+    setSleepMin(nextSleep);
+    const ok = await onUpdateSensor({ sleepMinutes: nextSleep });
+    if (!ok) setSleepMin(sensor.sleepMinutes);
+  };
+
+  const getDebouncePatchValue = (step: DebounceStep): number => {
+    return isGenB ? (step.index === 0 ? 0 : Math.round(step.ms)) : step.index;
+  };
+
+  const isDebounceStepSelected = (step: DebounceStep, isPress: boolean): boolean => {
+    if (isGenB) {
+      const targetMs = step.index === 0 ? 0 : Math.round(step.ms);
+      return (isPress ? sensor.pressDebounceMs : sensor.releaseDebounceMs) === targetMs;
+    }
+    return (isPress ? sensor.pressDebounceStep : sensor.releaseDebounceStep) === step.index;
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-12">
+    <div className="grid gap-4 md:grid-cols-12">
       {/* Left 6 cols: PAW3395 Tracking & LOD & Sensor Angle */}
-      <div className="space-y-4 lg:col-span-6">
+      <div className="space-y-4 md:col-span-6">
         {/* Lift-Off Distance */}
         <Card>
           <CardHeader className="pb-3">
@@ -75,9 +106,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                 aria-hidden="true"
                 className="shrink-0 text-primary"
               >
-                {/* Mouse pad surface */}
                 <line x1="6" y1="36" x2="70" y2="36" stroke="currentColor" strokeOpacity="0.4" strokeWidth="2" />
-                {/* Animated mouse body floating according to LOD */}
                 <g transform={`translate(0, ${-(lodLevel * 1.1)})`}>
                   <rect
                     x="18"
@@ -108,10 +137,10 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
               min={0}
               max={10}
               step={1}
-              disabled={!writable || busy}
+              disabled={!writable}
               value={[lodLevel]}
               onValueChange={([v]) => setLodLevel(v)}
-              onValueCommit={([v]) => void onUpdateSensor({ liftOffLevel: v })}
+              onValueCommit={([v]) => void commitLod(v)}
             />
 
             <div className="flex items-center justify-between gap-2">
@@ -127,12 +156,9 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                     key={opt.level}
                     size="sm"
                     variant={lodLevel === opt.level ? "default" : "outline"}
-                    disabled={!writable || busy}
+                    disabled={!writable}
                     className="h-7 px-2 text-xs tabular-nums"
-                    onClick={() => {
-                      setLodLevel(opt.level);
-                      void onUpdateSensor({ liftOffLevel: opt.level });
-                    }}
+                    onClick={() => void commitLod(opt.level)}
                   >
                     {opt.label}
                   </Button>
@@ -159,12 +185,9 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="h-6 px-2 text-xs"
-                    disabled={!writable || busy}
-                    onClick={() => {
-                      setAngleDeg(0);
-                      void onUpdateSensor({ sensorAngleDeg: 0 });
-                    }}
+                    className="h-7 px-2 text-xs"
+                    disabled={!writable}
+                    onClick={() => void commitAngle(0)}
                   >
                     <RotateCcw className="h-3 w-3" />
                     0°に戻す
@@ -177,7 +200,6 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* Crosshair Rotation Preview */}
             <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/35 p-3">
               <div className="text-xs space-y-1">
                 <div className="font-medium">水平スワイプ軸プレビュー</div>
@@ -208,10 +230,10 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
               min={-30}
               max={30}
               step={1}
-              disabled={!writable || busy}
+              disabled={!writable}
               value={[angleDeg]}
               onValueChange={([v]) => setAngleDeg(v)}
-              onValueCommit={([v]) => void onUpdateSensor({ sensorAngleDeg: v })}
+              onValueCommit={([v]) => void commitAngle(v)}
             />
             <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
               <span>-30° (反時計回り)</span>
@@ -222,8 +244,8 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
         </Card>
       </div>
 
-      {/* Right 6 cols: Sensor DSP Toggles + Switch Debounce + Idle Sleep */}
-      <div className="space-y-4 lg:col-span-6">
+      {/* Right 6 cols: Sensor DSP Toggles + Switch Debounce + Idle Sleep & LED */}
+      <div className="space-y-4 md:col-span-6">
         {/* Sensor Processing Toggles */}
         <Card>
           <CardHeader className="pb-3">
@@ -237,10 +259,11 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
             <SensorSwitchRow
               id="sw-motion-sync"
               title="Motion Sync (モーションシンク)"
-              description="センサー計測タイミングをUSBポーリング周期に完全同期し、滑らかな視点移動を実現します。"
-              tooltip="1000Hz以下では有効化が人気です。4000Hz環境でわずかな同期遅延(約0.1ms)も避けたい競技プレイヤーはOFFを選ぶこともあります。"
+              badge="追いエイム重視 / 4K最速はOFF"
+              description="センサー計測タイミングをUSBポーリング周期に同期し、滑らかで均一な視点移動を実現します。"
+              tooltip="同期処理により 1000Hz時は平均約0.5ms、4000Hz時は平均約0.12ms の待機が生じます。トラッキング重視タイトルではON、初動最速重視のフリック系FPSではOFFも選ばれます。"
               checked={sensor.motionSync}
-              disabled={!writable || busy}
+              disabled={!writable}
               onCheckedChange={(v) => void onUpdateSensor({ motionSync: v })}
             />
             <SensorSwitchRow
@@ -249,7 +272,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
               badge="FPSではOFF推奨"
               description="水平・垂直に近いマウス移動を直線に補正します。イラスト・CAD作業向けです。"
               checked={sensor.linearCorrection}
-              disabled={!writable || busy}
+              disabled={!writable}
               onCheckedChange={(v) => void onUpdateSensor({ linearCorrection: v })}
             />
             <SensorSwitchRow
@@ -258,7 +281,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
               badge="9000DPI未満はOFF推奨"
               description="超高DPI設定時の細かなジッター（揺れ）を平滑化します。"
               checked={sensor.rippleControl}
-              disabled={!writable || busy}
+              disabled={!writable}
               onCheckedChange={(v) => void onUpdateSensor({ rippleControl: v })}
             />
             <SensorSwitchRow
@@ -266,7 +289,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
               title="ガラス面モード"
               description="ガラス製マウスパッドや光沢のあるデスク面でのトラッキング感度を最適化します。"
               checked={sensor.glassMode}
-              disabled={!writable || busy}
+              disabled={!writable}
               onCheckedChange={(v) => void onUpdateSensor({ glassMode: v })}
             />
           </CardContent>
@@ -277,10 +300,10 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <Timer className="h-4 w-4 text-primary" />
-              クリックデバウンス & スリープ省電力
+              クリックデバウンス & 省電力設定
             </CardTitle>
             <CardDescription>
-              スイッチの応答速度（チャタリング抑制時間）と無操作時のスリープ移行時間を設定します。
+              スイッチの応答速度（押下・解放個別）と省電力動作を設定します。
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -292,24 +315,28 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                   {sensor.pressDebounceLabel}
                 </span>
               </div>
-              <div className="grid grid-cols-7 gap-1">
+              <div className="grid grid-cols-7 gap-1" role="group" aria-label="押下デバウンス時間選択">
                 {debounceSteps.map((step) => {
-                  const selected = sensor.pressDebounceStep === step.index;
+                  const selected = isDebounceStepSelected(step, true);
+                  const displayVal = isGenB && step.index === 0 ? "0" : String(step.ms);
                   return (
                     <button
                       key={step.index}
                       type="button"
-                      disabled={!writable || busy}
-                      onClick={() => void onUpdateSensor({ pressDebounceStep: step.index })}
+                      disabled={!writable}
+                      aria-label={`押下デバウンス ${displayVal} ms`}
+                      onClick={() =>
+                        void onUpdateSensor({ pressDebounceStep: getDebouncePatchValue(step) })
+                      }
                       aria-pressed={selected}
                       className={cn(
-                        "rounded-md border py-1.5 text-center text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
+                        "rounded-md border py-1.5 text-center text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40",
                         selected
                           ? "border-primary bg-primary text-primary-foreground"
                           : "bg-background/50 hover:bg-accent"
                       )}
                     >
-                      {step.ms}
+                      {displayVal}
                     </button>
                   );
                 })}
@@ -324,40 +351,48 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                   {sensor.releaseDebounceLabel}
                 </span>
               </div>
-              <div className="grid grid-cols-7 gap-1">
+              <div className="grid grid-cols-7 gap-1" role="group" aria-label="解放デバウンス時間選択">
                 {debounceSteps.map((step) => {
-                  const selected = sensor.releaseDebounceStep === step.index;
+                  const selected = isDebounceStepSelected(step, false);
+                  const displayVal = isGenB && step.index === 0 ? "0" : String(step.ms);
                   return (
                     <button
                       key={step.index}
                       type="button"
-                      disabled={!writable || busy}
-                      onClick={() => void onUpdateSensor({ releaseDebounceStep: step.index })}
+                      disabled={!writable}
+                      aria-label={`解放デバウンス ${displayVal} ms`}
+                      onClick={() =>
+                        void onUpdateSensor({ releaseDebounceStep: getDebouncePatchValue(step) })
+                      }
                       aria-pressed={selected}
                       className={cn(
-                        "rounded-md border py-1.5 text-center text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40",
+                        "rounded-md border py-1.5 text-center text-xs font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40",
                         selected
                           ? "border-primary bg-primary text-primary-foreground"
                           : "bg-background/50 hover:bg-accent"
                       )}
                     >
-                      {step.ms}
+                      {displayVal}
                     </button>
                   );
                 })}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                単位: ms • 競技用途は <strong>1〜2 ms</strong>、標準は <strong>4 ms</strong>。0.5 ms
-                は個体差により二重クリックが発生する場合があります（診断タブでテスト可能）。
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                単位: ms • 初弾を最速化しつつ指離し時のチャタリングを防ぐ <strong>押下 1ms + 解放 2〜4ms</strong> の組み合わせも競技FPSで人気です。
               </p>
             </div>
 
             {/* Idle Sleep Timer */}
             <div className="space-y-2 border-t border-border/60 pt-3">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                 <span className="font-medium flex items-center gap-1.5">
                   <Moon className="h-3.5 w-3.5 text-muted-foreground" />
                   ワイヤレス自動スリープ移行時間
+                  {isWired && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
+                      有線中は常時ON（無線用として保存）
+                    </Badge>
+                  )}
                 </span>
                 <span className="font-mono font-semibold text-primary tabular-nums">{sleepMin} 分</span>
               </div>
@@ -367,10 +402,10 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                 min={2}
                 max={120}
                 step={1}
-                disabled={!writable || busy}
+                disabled={!writable}
                 value={[sleepMin]}
                 onValueChange={([v]) => setSleepMin(v)}
-                onValueCommit={([v]) => void onUpdateSensor({ sleepMinutes: v })}
+                onValueCommit={([v]) => void commitSleep(v)}
               />
 
               <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5">
@@ -381,18 +416,35 @@ export function SensorTab({ snapshot, debounceSteps, writable, busy, onUpdateSen
                       key={m}
                       size="sm"
                       variant={sleepMin === m ? "default" : "outline"}
-                      disabled={!writable || busy}
+                      disabled={!writable}
                       className="h-7 px-2.5 text-xs tabular-nums"
-                      onClick={() => {
-                        setSleepMin(m);
-                        void onUpdateSensor({ sleepMinutes: m });
-                      }}
+                      onClick={() => void commitSleep(m)}
                     >
                       {m}分
                     </Button>
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Onboard LED Low-Power Mode (0x08C6) */}
+            <div className="flex items-start justify-between gap-3 border-t border-border/60 pt-3">
+              <div className="space-y-0.5">
+                <label htmlFor="sw-led-eco" className="text-xs font-medium cursor-pointer flex items-center gap-1.5">
+                  <Lightbulb className="h-3.5 w-3.5 text-muted-foreground" />
+                  本体インジケーター省電力モード
+                </label>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  マウス天面のステータスLED点灯時間を抑えてバッテリー消費を節約します。
+                </p>
+              </div>
+              <Switch
+                id="sw-led-eco"
+                checked={sensor.ledLowPowerMode > 0}
+                disabled={!writable}
+                onCheckedChange={(v) => void onUpdateSensor({ ledLowPowerMode: v ? 1 : 0 })}
+                className="mt-0.5"
+              />
             </div>
           </CardContent>
         </Card>
@@ -440,7 +492,7 @@ function SensorSwitchRow({
                 <button
                   type="button"
                   aria-label={`${title} の詳細説明`}
-                  className="text-muted-foreground hover:text-foreground"
+                  className="inline-flex h-6 w-6 -my-1 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <HelpCircle className="h-3.5 w-3.5" />
                 </button>

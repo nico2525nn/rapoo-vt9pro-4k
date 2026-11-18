@@ -1,5 +1,5 @@
 import { Check, Crosshair, Gauge, Minus, Plus, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,11 +22,10 @@ import type { DeviceSnapshot, DPIConfig, DPIStage } from "@/types/rapoo";
 interface DpiPollingTabProps {
   snapshot: DeviceSnapshot;
   writable: boolean;
-  busy: boolean;
   pollingRates: number[];
-  onSaveDpiConfig: (cfg: DPIConfig) => Promise<void>;
-  onSelectActiveStage: (stage: number) => Promise<void>;
-  onChangePollingRate: (hz: number) => Promise<void>;
+  onSaveDpiConfig: (cfg: DPIConfig) => Promise<boolean>;
+  onSelectActiveStage: (stage: number) => Promise<boolean>;
+  onChangePollingRate: (hz: number) => Promise<boolean>;
 }
 
 const POLLING_META: Record<number, { intervalMs: string; tag: string }> = {
@@ -49,7 +48,6 @@ function ensureAllStages(dpi: DPIConfig): DPIStage[] {
 export function DpiPollingTab({
   snapshot,
   writable,
-  busy,
   pollingRates,
   onSaveDpiConfig,
   onSelectActiveStage,
@@ -64,12 +62,33 @@ export function DpiPollingTab({
   const [xInputText, setXInputText] = useState<string>("800");
   const [yInputText, setYInputText] = useState<string>("800");
 
+  // Track whether the user manually unlocked X/Y on the current stage while X === Y
+  const userUnlockedXYRef = useRef<boolean>(false);
+  const prevHardwareStageRef = useRef<number>(dpi?.currentStage ?? 1);
+  const stepperDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (stepperDebounceRef.current) clearTimeout(stepperDebounceRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (!dpi) return;
-    const stages = ensureAllStages(dpi);
-    setLocalStages(stages);
-    setIndependentXY((prev) => dpi.independentXY || prev);
-    setEditingStage((prev) => (prev >= 1 && prev <= dpi.stageCount ? prev : dpi.currentStage));
+    setLocalStages(ensureAllStages(dpi));
+    if (dpi.independentXY) {
+      setIndependentXY(true);
+    } else if (!userUnlockedXYRef.current) {
+      setIndependentXY(false);
+    }
+
+    // If hardware stage changed externally (e.g. physical DPI+/DPI- button or preset), follow it
+    if (dpi.currentStage !== prevHardwareStageRef.current) {
+      prevHardwareStageRef.current = dpi.currentStage;
+      setEditingStage(dpi.currentStage);
+    } else {
+      setEditingStage((prev) => (prev >= 1 && prev <= dpi.stageCount ? prev : dpi.currentStage));
+    }
   }, [dpi]);
 
   const currentStageObj = localStages[editingStage - 1];
@@ -87,7 +106,23 @@ export function DpiPollingTab({
   const activeStage = dpi.currentStage;
   const maxRateHz = snapshot.model.maxRateHz || 4000;
 
-  const buildConfig = (nextAll: DPIStage[], nextCount = stageCount, nextActive = activeStage, nextXY = independentXY): DPIConfig => {
+  const rollbackToHardware = () => {
+    const clean = ensureAllStages(dpi);
+    setLocalStages(clean);
+    setIndependentXY(dpi.independentXY);
+    const cur = clean[editingStage - 1];
+    if (cur) {
+      setXInputText(String(cur.x));
+      setYInputText(String(cur.y));
+    }
+  };
+
+  const buildConfig = (
+    nextAll: DPIStage[],
+    nextCount = stageCount,
+    nextActive = activeStage,
+    nextXY = independentXY
+  ): DPIConfig => {
     const clampedCount = Math.max(1, Math.min(7, nextCount));
     const clampedActive = Math.max(1, Math.min(clampedCount, nextActive));
     const normalizedAll = nextAll.map((s, idx) => {
@@ -124,13 +159,38 @@ export function DpiPollingTab({
   };
 
   const commitStageDpi = async (stageIdx: number, rawX: number, rawY?: number) => {
+    if (stepperDebounceRef.current) {
+      clearTimeout(stepperDebounceRef.current);
+      stepperDebounceRef.current = null;
+    }
     const nx = normalizeDpi(rawX);
     const ny = independentXY ? normalizeDpi(rawY ?? currentStageObj?.y ?? nx) : nx;
     const nextAll = localStages.map((s) => (s.index === stageIdx ? { ...s, x: nx, y: ny } : s));
     setLocalStages(nextAll);
     setXInputText(String(nx));
     setYInputText(String(ny));
-    await onSaveDpiConfig(buildConfig(nextAll, stageCount, activeStage, independentXY));
+    const ok = await onSaveDpiConfig(buildConfig(nextAll, stageCount, activeStage, independentXY));
+    if (!ok) {
+      rollbackToHardware();
+    }
+  };
+
+  // Coalesce rapid +/- stepper clicks or keyboard arrow nudges without dropping focus
+  const scheduleCoalescedDpiCommit = (stageIdx: number, rawX: number, rawY?: number) => {
+    const nx = normalizeDpi(rawX);
+    const ny = independentXY ? normalizeDpi(rawY ?? currentStageObj?.y ?? nx) : nx;
+    const nextAll = localStages.map((s) => (s.index === stageIdx ? { ...s, x: nx, y: ny } : s));
+    setLocalStages(nextAll);
+    setXInputText(String(nx));
+    setYInputText(String(ny));
+
+    if (stepperDebounceRef.current) clearTimeout(stepperDebounceRef.current);
+    stepperDebounceRef.current = setTimeout(() => {
+      stepperDebounceRef.current = null;
+      void onSaveDpiConfig(buildConfig(nextAll, stageCount, activeStage, independentXY)).then((ok) => {
+        if (!ok) rollbackToHardware();
+      });
+    }, 150);
   };
 
   const handleStageCountChange = async (value: string) => {
@@ -139,27 +199,41 @@ export function DpiPollingTab({
     if (editingStage > nextCount) {
       setEditingStage(nextCount);
     }
-    await onSaveDpiConfig(buildConfig(localStages, nextCount, nextActive, independentXY));
+    const ok = await onSaveDpiConfig(buildConfig(localStages, nextCount, nextActive, independentXY));
+    if (!ok) rollbackToHardware();
   };
 
   const handleToggleIndependentXY = async (checked: boolean) => {
+    userUnlockedXYRef.current = checked;
     setIndependentXY(checked);
     if (!checked) {
       const synced = localStages.map((s) => ({ ...s, y: s.x }));
       setLocalStages(synced);
       const hadMismatch = localStages.slice(0, stageCount).some((s) => s.x !== s.y);
       if (hadMismatch && writable) {
-        await onSaveDpiConfig(buildConfig(synced, stageCount, activeStage, false));
+        const ok = await onSaveDpiConfig(buildConfig(synced, stageCount, activeStage, false));
+        if (!ok) rollbackToHardware();
       }
     }
   };
 
+  const handleTileClick = async (stageIndex: number) => {
+    setEditingStage(stageIndex);
+    if (writable && stageIndex !== activeStage) {
+      prevHardwareStageRef.current = stageIndex;
+      await onSelectActiveStage(stageIndex);
+    }
+  };
+
   const editingColor = STAGE_COLORS[(editingStage - 1) % STAGE_COLORS.length];
+  const batteryPctForEstimate =
+    snapshot.battery.online || snapshot.battery.percentage > 0 ? snapshot.battery.percentage : 100;
+  const hasRealBatteryPct = snapshot.battery.online || snapshot.battery.percentage > 0;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-12">
+    <div className="grid gap-4 md:grid-cols-12">
       {/* Left 7 cols: DPI Stages + Fine Editor */}
-      <div className="space-y-4 lg:col-span-7">
+      <div className="space-y-4 md:col-span-7">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -169,7 +243,7 @@ export function DpiPollingTab({
                   オンボード DPI ステージ設定
                 </CardTitle>
                 <CardDescription>
-                  50 〜 26,000 DPI を 50 DPI 刻みで本体メモリに保存します。カードをクリックして編集・適用できます。
+                  50 〜 26,000 DPI を 50 DPI 刻みで本体メモリに保存します。ステージをクリックすると即座に切り替わります。
                 </CardDescription>
               </div>
               <div className="flex items-center gap-3">
@@ -177,10 +251,10 @@ export function DpiPollingTab({
                   <span className="text-xs text-muted-foreground whitespace-nowrap">ステージ数</span>
                   <Select
                     value={String(stageCount)}
-                    onValueChange={handleStageCountChange}
-                    disabled={!writable || busy}
+                    onValueChange={(v) => void handleStageCountChange(v)}
+                    disabled={!writable}
                   >
-                    <SelectTrigger className="h-8 w-[96px] text-xs" aria-label="有効なDPIステージ数">
+                    <SelectTrigger className="h-8 w-[96px] text-xs tabular-nums" aria-label="有効なDPIステージ数">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -196,8 +270,8 @@ export function DpiPollingTab({
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer">
                   <Switch
                     checked={independentXY}
-                    onCheckedChange={handleToggleIndependentXY}
-                    disabled={!writable || busy}
+                    onCheckedChange={(v) => void handleToggleIndependentXY(v)}
+                    disabled={!writable}
                     aria-label="X軸とY軸のDPIを個別に設定"
                   />
                   <span>X/Y 独立</span>
@@ -207,32 +281,26 @@ export function DpiPollingTab({
           </CardHeader>
 
           <CardContent className="space-y-4">
-            {/* Stage Grid */}
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {/* Semantic Single-Button Stage Grid (Zero nested buttons; 1-click activate + edit) */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="DPIステージ一覧">
               {localStages.slice(0, stageCount).map((st) => {
                 const color = STAGE_COLORS[(st.index - 1) % STAGE_COLORS.length];
                 const isActive = st.index === activeStage;
                 const isEditing = st.index === editingStage;
                 return (
-                  <div
+                  <button
                     key={st.index}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setEditingStage(st.index)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        setEditingStage(st.index);
-                      }
-                    }}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => void handleTileClick(st.index)}
                     className={cn(
-                      "group relative flex flex-col justify-between rounded-lg border p-2.5 text-left transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "group relative flex flex-col justify-between rounded-lg border p-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
                       isEditing
-                        ? "border-primary bg-primary/5 ring-1 ring-primary/40"
-                        : "hover:border-muted-foreground/40 bg-background/40"
+                        ? "border-primary bg-primary/10 ring-1 ring-primary/40"
+                        : "hover:border-muted-foreground/50 bg-background/45"
                     )}
                   >
-                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                    <div className="flex items-center justify-between gap-1 mb-1.5 w-full">
                       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                         <span
                           className="h-2.5 w-2.5 rounded-full shrink-0"
@@ -241,24 +309,15 @@ export function DpiPollingTab({
                         Stage {st.index}
                       </span>
                       {isActive ? (
-                        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-500">
+                        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
                           <Check className="h-2.5 w-2.5" />
                           適用中
                         </span>
-                      ) : (
-                        <button
-                          type="button"
-                          disabled={!writable || busy}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingStage(st.index);
-                            void onSelectActiveStage(st.index);
-                          }}
-                          className="rounded border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-40 transition-colors"
-                        >
-                          切替
-                        </button>
-                      )}
+                      ) : writable ? (
+                        <span className="rounded border border-border/80 bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground group-hover:border-primary/60 group-hover:text-primary transition-colors">
+                          適用
+                        </span>
+                      ) : null}
                     </div>
 
                     <div className="tabular-nums">
@@ -275,7 +334,7 @@ export function DpiPollingTab({
                         </div>
                       )}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -299,10 +358,10 @@ export function DpiPollingTab({
                         size="sm"
                         variant="secondary"
                         className="h-7 text-xs"
-                        disabled={!writable || busy}
+                        disabled={!writable}
                         onClick={() => void onSelectActiveStage(editingStage)}
                       >
-                        Stage {editingStage} を今すぐ適用
+                        Stage {editingStage} を適用
                       </Button>
                     )}
                   </div>
@@ -320,9 +379,9 @@ export function DpiPollingTab({
                         variant="outline"
                         size="icon"
                         className="h-7 w-7"
-                        disabled={!writable || busy || currentStageObj.x <= MIN_DPI}
+                        disabled={!writable || currentStageObj.x <= MIN_DPI}
                         aria-label="DPIを50下げる"
-                        onClick={() => void commitStageDpi(editingStage, currentStageObj.x - DPI_STEP)}
+                        onClick={() => scheduleCoalescedDpiCommit(editingStage, currentStageObj.x - DPI_STEP)}
                       >
                         <Minus className="h-3 w-3" />
                       </Button>
@@ -332,7 +391,7 @@ export function DpiPollingTab({
                         min={MIN_DPI}
                         max={MAX_DPI}
                         step={DPI_STEP}
-                        disabled={!writable || busy}
+                        disabled={!writable}
                         value={xInputText}
                         onChange={(e) => setXInputText(e.target.value)}
                         onBlur={() => {
@@ -348,15 +407,15 @@ export function DpiPollingTab({
                             e.currentTarget.blur();
                           }
                         }}
-                        className="h-7 w-24 text-right font-mono text-xs tabular-nums"
+                        className="h-7 w-24 text-right font-mono text-xs tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                       <Button
                         variant="outline"
                         size="icon"
                         className="h-7 w-7"
-                        disabled={!writable || busy || currentStageObj.x >= MAX_DPI}
+                        disabled={!writable || currentStageObj.x >= MAX_DPI}
                         aria-label="DPIを50上げる"
-                        onClick={() => void commitStageDpi(editingStage, currentStageObj.x + DPI_STEP)}
+                        onClick={() => scheduleCoalescedDpiCommit(editingStage, currentStageObj.x + DPI_STEP)}
                       >
                         <Plus className="h-3 w-3" />
                       </Button>
@@ -368,14 +427,14 @@ export function DpiPollingTab({
                     min={MIN_DPI}
                     max={MAX_DPI}
                     step={DPI_STEP}
-                    disabled={!writable || busy}
+                    disabled={!writable}
                     value={[currentStageObj.x]}
                     onValueChange={([val]) => {
                       previewStageDpi(editingStage, val);
                       setXInputText(String(val));
                     }}
                     onValueCommit={([val]) => {
-                      void commitStageDpi(editingStage, val);
+                      scheduleCoalescedDpiCommit(editingStage, val);
                     }}
                   />
                 </div>
@@ -392,10 +451,10 @@ export function DpiPollingTab({
                           variant="outline"
                           size="icon"
                           className="h-7 w-7"
-                          disabled={!writable || busy || currentStageObj.y <= MIN_DPI}
+                          disabled={!writable || currentStageObj.y <= MIN_DPI}
                           aria-label="Y軸DPIを50下げる"
                           onClick={() =>
-                            void commitStageDpi(editingStage, currentStageObj.x, currentStageObj.y - DPI_STEP)
+                            scheduleCoalescedDpiCommit(editingStage, currentStageObj.x, currentStageObj.y - DPI_STEP)
                           }
                         >
                           <Minus className="h-3 w-3" />
@@ -406,7 +465,7 @@ export function DpiPollingTab({
                           min={MIN_DPI}
                           max={MAX_DPI}
                           step={DPI_STEP}
-                          disabled={!writable || busy}
+                          disabled={!writable}
                           value={yInputText}
                           onChange={(e) => setYInputText(e.target.value)}
                           onBlur={() => {
@@ -422,16 +481,16 @@ export function DpiPollingTab({
                               e.currentTarget.blur();
                             }
                           }}
-                          className="h-7 w-24 text-right font-mono text-xs tabular-nums"
+                          className="h-7 w-24 text-right font-mono text-xs tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <Button
                           variant="outline"
                           size="icon"
                           className="h-7 w-7"
-                          disabled={!writable || busy || currentStageObj.y >= MAX_DPI}
+                          disabled={!writable || currentStageObj.y >= MAX_DPI}
                           aria-label="Y軸DPIを50上げる"
                           onClick={() =>
-                            void commitStageDpi(editingStage, currentStageObj.x, currentStageObj.y + DPI_STEP)
+                            scheduleCoalescedDpiCommit(editingStage, currentStageObj.x, currentStageObj.y + DPI_STEP)
                           }
                         >
                           <Plus className="h-3 w-3" />
@@ -444,14 +503,14 @@ export function DpiPollingTab({
                       min={MIN_DPI}
                       max={MAX_DPI}
                       step={DPI_STEP}
-                      disabled={!writable || busy}
+                      disabled={!writable}
                       value={[currentStageObj.y]}
                       onValueChange={([val]) => {
                         previewStageDpi(editingStage, currentStageObj.x, val);
                         setYInputText(String(val));
                       }}
                       onValueCommit={([val]) => {
-                        void commitStageDpi(editingStage, currentStageObj.x, val);
+                        scheduleCoalescedDpiCommit(editingStage, currentStageObj.x, val);
                       }}
                     />
                   </div>
@@ -469,7 +528,7 @@ export function DpiPollingTab({
                           key={presetVal}
                           size="sm"
                           variant={selected ? "default" : "outline"}
-                          disabled={!writable || busy}
+                          disabled={!writable}
                           className="h-7 px-2.5 text-xs tabular-nums"
                           onClick={() => void commitStageDpi(editingStage, presetVal, presetVal)}
                         >
@@ -486,7 +545,7 @@ export function DpiPollingTab({
       </div>
 
       {/* Right 5 cols: Polling Rate & Battery Impact */}
-      <div className="space-y-4 lg:col-span-5">
+      <div className="space-y-4 md:col-span-5">
         <Card className="h-full">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
@@ -500,7 +559,7 @@ export function DpiPollingTab({
 
           <CardContent className="space-y-3">
             {maxRateHz < 4000 && (
-              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+              <div className="rounded-md border border-amber-500/35 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-300">
                 USB-C 有線接続中はハードウェア仕様により最大 <strong>1000 Hz</strong> までとなります。
                 <strong>2000 / 4000 Hz</strong> は付属の 4K ワイヤレスレシーバー接続時に選択できます。
               </div>
@@ -511,20 +570,20 @@ export function DpiPollingTab({
                 const meta = POLLING_META[hz] ?? { intervalMs: "-", tag: "" };
                 const isSelected = sensor.pollingRateHz === hz;
                 const unsupported = hz > maxRateHz;
-                const estH = estimateBatteryHours(snapshot.battery.percentage || 100, hz);
+                const estH = estimateBatteryHours(batteryPctForEstimate, hz);
 
                 return (
                   <button
                     key={hz}
                     type="button"
-                    disabled={!writable || busy || unsupported}
+                    disabled={!writable || unsupported}
                     onClick={() => void onChangePollingRate(hz)}
                     aria-pressed={isSelected}
                     className={cn(
-                      "flex flex-col justify-between rounded-lg border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40 disabled:cursor-not-allowed",
+                      "flex flex-col justify-between rounded-lg border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:opacity-40 disabled:cursor-not-allowed",
                       isSelected
                         ? "border-primary bg-primary/10 ring-1 ring-primary/40"
-                        : "bg-background/40 hover:border-muted-foreground/40"
+                        : "bg-background/45 hover:border-muted-foreground/50"
                     )}
                   >
                     <div className="flex items-center justify-between gap-1 w-full">
@@ -542,7 +601,9 @@ export function DpiPollingTab({
                         {meta.tag}
                       </span>
                       {snapshot.model.connection !== "wired" && (
-                        <span className="text-muted-foreground tabular-nums">約 {estH}h</span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {hasRealBatteryPct ? `残り約${estH}h` : `満充電${estH}h`}
+                        </span>
                       )}
                     </div>
                   </button>
@@ -550,13 +611,13 @@ export function DpiPollingTab({
               })}
             </div>
 
-            <div className="rounded-lg border bg-muted/35 p-3 text-xs text-muted-foreground space-y-1 leading-relaxed">
-              <p className="font-medium text-foreground">レート選びの目安</p>
+            <div className="rounded-lg border bg-muted/35 p-3 text-xs text-muted-foreground space-y-1.5 leading-relaxed">
+              <p className="font-medium text-foreground">レート選びの目安（800mAh バッテリー）</p>
               <p>
-                • <strong>4000 Hz (0.25ms):</strong> 240Hz以上の高リフレッシュレートモニターでの競技FPSに最適。
+                • <strong>4000 Hz (0.25ms):</strong> 240Hz以上の高リフレッシュレート環境向け（満充電で約48時間 • ゲーム内「Raw Input」ON推奨）。
               </p>
               <p>
-                • <strong>1000 Hz (1.0ms):</strong> あらゆるゲームと日常作業で安定した電力効率と応答性を両立（約160時間駆動）。
+                • <strong>1000 Hz (1.0ms):</strong> 競技性と省電力を高次元で両立（満充電で約160時間駆動）。
               </p>
             </div>
           </CardContent>

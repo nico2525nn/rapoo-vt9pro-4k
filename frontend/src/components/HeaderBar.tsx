@@ -27,7 +27,10 @@ interface HeaderBarProps {
   state: ServiceState;
   snapshot: DeviceSnapshot | null;
   catalog: UICatalog | null;
+  hasDeviceData: boolean;
+  activeTab: string;
   busy: boolean;
+  savedRecently: boolean;
   darkMode: boolean;
   onToggleTheme: () => void;
   onRefresh: () => void;
@@ -40,7 +43,10 @@ export function HeaderBar({
   state,
   snapshot,
   catalog,
+  hasDeviceData,
+  activeTab,
   busy,
+  savedRecently,
   darkMode,
   onToggleTheme,
   onRefresh,
@@ -66,14 +72,21 @@ export function HeaderBar({
   })();
 
   const activeRate = snapshot?.sensor?.pollingRateHz ?? state.pollingRateHz ?? null;
+  const sensorSummary = snapshot?.sensor
+    ? {
+        lodMm: snapshot.sensor.liftOffDistanceMm.toFixed(1),
+        debounce: snapshot.sensor.pressDebounceLabel,
+      }
+    : null;
 
+  // High-contrast colors in both Light & Dark themes (WCAG AA >= 4.5:1)
   const batteryTone = !hasBat
     ? "text-muted-foreground"
     : pct <= 15
-      ? "text-red-500 dark:text-red-400"
+      ? "text-red-700 dark:text-red-400"
       : pct <= 30
-        ? "text-amber-500 dark:text-amber-400"
-        : "text-emerald-600 dark:text-emerald-400";
+        ? "text-amber-700 dark:text-amber-400"
+        : "text-emerald-700 dark:text-emerald-400";
 
   const batteryFillColor = !hasBat
     ? "bg-muted-foreground/40"
@@ -91,9 +104,15 @@ export function HeaderBar({
       toast.success("udev 設定コマンドをクリップボードにコピーしました");
       setTimeout(() => setCopiedUdev(false), 2000);
     } catch {
-      toast.error("コピーに失敗しました。システム設定タブから手動でコピーしてください。");
+      toast.error("コピーに失敗しました。プロファイル＆診断タブから手動でコピーしてください。");
     }
   };
+
+  // Avoid duplicate full-width banners when DeviceUnavailableCard is already centered right below
+  const showDisconnectedBanner =
+    !state.connected && !state.permissionDenied && !state.lastError && activeTab === "profiles";
+  const showSleepingBanner =
+    state.connected && state.sleeping && !state.demoMode && (hasDeviceData || activeTab === "profiles");
 
   return (
     <header className="border-b bg-card/85 backdrop-blur-md sticky top-0 z-30">
@@ -135,7 +154,7 @@ export function HeaderBar({
                 </Badge>
               )}
 
-              {busy && (
+              {busy ? (
                 <span
                   aria-live="polite"
                   className="inline-flex items-center gap-1 text-[11px] text-primary font-medium"
@@ -143,7 +162,15 @@ export function HeaderBar({
                   <Loader2 className="h-3 w-3 animate-spin" />
                   同期中...
                 </span>
-              )}
+              ) : savedRecently ? (
+                <span
+                  aria-live="polite"
+                  className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-medium"
+                >
+                  <Check className="h-3 w-3" />
+                  保存済み
+                </span>
+              ) : null}
             </div>
             <p className="text-[11px] text-muted-foreground truncate">
               PAW3395 光学センサー • オンボードメモリ直結コントロール
@@ -163,7 +190,7 @@ export function HeaderBar({
                     aria-label={hasBat ? `バッテリー残量 ${pct}%` : "バッテリー未取得"}
                   >
                     {charging ? (
-                      <BatteryCharging className="h-4 w-4 text-emerald-500 shrink-0" />
+                      <BatteryCharging className="h-4 w-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
                     ) : (
                       <div className="relative flex h-3.5 w-6 items-center rounded-[3px] border border-current p-[1.5px] text-muted-foreground">
                         <div
@@ -178,11 +205,11 @@ export function HeaderBar({
                     </span>
                     {hasBat && state.connection !== "wired" && !charging && estHours > 0 && (
                       <span className="hidden md:inline text-[11px] text-muted-foreground">
-                        (約{estHours}h)
+                        (残り約{estHours}h)
                       </span>
                     )}
                     {charging && (
-                      <span className="hidden sm:inline text-[11px] text-emerald-500 font-medium">
+                      <span className="hidden sm:inline text-[11px] text-emerald-700 dark:text-emerald-400 font-medium">
                         充電中
                       </span>
                     )}
@@ -193,7 +220,9 @@ export function HeaderBar({
                     ? `USB充電中 (${pct}%)`
                     : hasBat
                       ? `バッテリー残量 ${pct}%${
-                          state.connection !== "wired" ? ` • 現在のポーリングレートで残り約 ${estHours} 時間駆動` : ""
+                          state.connection !== "wired"
+                            ? ` • 現在のポーリングレートで残り約 ${estHours} 時間駆動`
+                            : ""
                         }`
                       : "バッテリー情報を待機中"}
                 </TooltipContent>
@@ -206,7 +235,7 @@ export function HeaderBar({
                     <button
                       type="button"
                       onClick={() => onNavigateTab("dpi")}
-                      className="hidden sm:flex items-center gap-1.5 rounded-md border bg-background/70 px-2.5 py-1 text-xs tabular-nums hover:bg-accent transition-colors"
+                      className="hidden sm:flex items-center gap-1.5 rounded-md border bg-background/70 px-2.5 py-1 text-xs tabular-nums hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
                     >
                       {activeDpi && <span className="font-semibold">{activeDpi} DPI</span>}
                       {activeDpi && activeRate && <span className="text-muted-foreground">•</span>}
@@ -214,6 +243,25 @@ export function HeaderBar({
                     </button>
                   </TooltipTrigger>
                   <TooltipContent>クリックして DPI・ポーリングレート設定を開く</TooltipContent>
+                </Tooltip>
+              )}
+
+              {/* Quick Sensor (LOD & Debounce) Summary Pill */}
+              {sensorSummary && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => onNavigateTab("sensor")}
+                      className="hidden lg:flex items-center gap-1.5 rounded-md border bg-background/70 px-2.5 py-1 text-xs tabular-nums hover:bg-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background"
+                    >
+                      <span className="text-muted-foreground">LOD</span>
+                      <span className="font-semibold">{sensorSummary.lodMm}mm</span>
+                      <span className="text-muted-foreground">•</span>
+                      <span className="font-semibold">{sensorSummary.debounce}</span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>クリックして センサー・デバウンス設定を開く</TooltipContent>
                 </Tooltip>
               )}
             </>
@@ -239,7 +287,7 @@ export function HeaderBar({
             <TooltipContent>
               <p className="font-semibold mb-0.5">ゲーム優先・完全受動モード (0-TX)</p>
               <p>
-                ONにするとアプリからマウスへのポーリング送信を完全停止し、誤操作による設定変更もロックします（マウス側からの受動バッテリー通知のみ受信）。
+                ONにするとアプリからマウスへの定期通信を完全停止し、誤操作による設定変更もロックします（マウス側からの受動バッテリー通知のみ受信）。
               </p>
             </TooltipContent>
           </Tooltip>
@@ -251,7 +299,7 @@ export function HeaderBar({
                 variant="outline"
                 size="icon"
                 onClick={onRefresh}
-                disabled={busy || isGamingLocked}
+                disabled={isGamingLocked}
                 aria-label="マウス設定を再読み込み"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />
@@ -305,22 +353,34 @@ export function HeaderBar({
         </div>
       )}
 
-      {!state.connected && !state.permissionDenied && (
-        <div className="border-t bg-muted/60 px-4 py-2.5">
+      {!state.permissionDenied && state.lastError && (
+        <div role="alert" className="border-t border-destructive/30 bg-destructive/10 px-4 py-2">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 text-destructive font-medium">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>{state.lastError}</span>
+            </div>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={onRefresh}>
+              再接続を試す
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {showDisconnectedBanner && (
+        <div className="border-t bg-muted/60 px-4 py-2">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-2 text-muted-foreground">
               <WifiOff className="h-4 w-4 shrink-0 text-primary" />
               <span>
                 <strong className="text-foreground">Rapoo VT9 Pro 4K が検出されていません。</strong>{" "}
-                4KワイヤレスレシーバーまたはUSB-Cケーブルを接続すると自動で認識します。実機なしでもデモモードで全機能をお試しいただけます。
+                実機なしでもデモモードで全機能をお試しいただけます。
               </span>
             </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={() => onToggleDemoMode(true)}>
-                <Sparkles className="h-3.5 w-3.5" />
-                デモモードで全機能を試す
-              </Button>
-            </div>
+            <Button size="sm" className="h-7 text-xs" onClick={() => onToggleDemoMode(true)}>
+              <Sparkles className="h-3.5 w-3.5" />
+              デモモードで全機能を試す
+            </Button>
           </div>
         </div>
       )}
@@ -342,14 +402,15 @@ export function HeaderBar({
         </div>
       )}
 
-      {state.connected && state.sleeping && !state.demoMode && (
-        <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-2">
+      {showSleepingBanner && (
+        <div className="border-t border-amber-500/35 bg-amber-500/10 px-4 py-2">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300">
               <Moon className="h-3.5 w-3.5 shrink-0" />
               <span>
                 <strong>ワイヤレスマウスがスリープ中です。</strong>{" "}
-                マウスを軽く動かすと自動的に復帰し、設定変更が可能になります{snapshot?.dpi ? "（前回の設定を表示中）" : ""}。
+                マウスを軽く動かすと自動復帰し、設定変更が可能になります
+                {hasDeviceData ? "（直前の設定を表示中）" : ""}。
               </span>
             </div>
           </div>
@@ -357,9 +418,9 @@ export function HeaderBar({
       )}
 
       {isGamingLocked && (
-        <div className="border-t border-amber-500/30 bg-amber-500/10 px-4 py-1.5">
+        <div className="border-t border-amber-500/35 bg-amber-500/10 px-4 py-1.5">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 text-xs">
-            <span className="text-amber-700 dark:text-amber-300">
+            <span className="text-amber-800 dark:text-amber-300">
               <strong>ゲーム中ロック有効:</strong>{" "}
               4000Hzポーリングの安定性を最優先するため、USBコマンド送信と設定変更を一時ロックしています。
             </span>

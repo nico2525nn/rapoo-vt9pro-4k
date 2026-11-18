@@ -1,13 +1,14 @@
 import {
   AlertTriangle,
+  Ban,
   Keyboard,
+  Lock,
   MousePointer,
   RotateCcw,
   Sliders,
   Volume2,
-  Ban,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,9 +48,9 @@ interface ButtonsTabProps {
   snapshot: DeviceSnapshot;
   supportedKeys: HIDKeyInfo[];
   writable: boolean;
-  busy: boolean;
-  onSaveButtonMapping: (buttonId: number, action: ButtonAction) => Promise<void>;
-  onResetAllButtons: () => Promise<void>;
+  readOnlyReason?: string;
+  onSaveButtonMapping: (buttonId: number, action: ButtonAction) => Promise<boolean>;
+  onResetAllButtons: () => Promise<boolean>;
 }
 
 const MOUSE_ACTIONS: ButtonActionType[] = [
@@ -93,7 +94,7 @@ function formatCombo(mods: KeyModifiers, keyName: string): string {
   if (mods.alt) parts.push("Alt");
   if (mods.meta) parts.push("Win");
   if (keyName) parts.push(keyName);
-  return parts.length > 0 ? parts.join(" + ") : "未選択";
+  return parts.length > 0 ? parts.join(" + ") : "キー未選択";
 }
 
 function categoryBadgeVariant(cat: string): "default" | "secondary" | "outline" | "warning" | "destructive" {
@@ -116,7 +117,7 @@ export function ButtonsTab({
   snapshot,
   supportedKeys,
   writable,
-  busy,
+  readOnlyReason,
   onSaveButtonMapping,
   onResetAllButtons,
 }: ButtonsTabProps) {
@@ -125,7 +126,7 @@ export function ButtonsTab({
   const [hoveredId, setHoveredId] = useState<number | null>(null);
   const [editingMapping, setEditingMapping] = useState<ButtonMapping | null>(null);
 
-  // Dialog draft state
+  // Dialog draft state (supports keyCode === 0 for standalone modifier keys like Shift/Ctrl/Alt)
   const [draftTab, setDraftTab] = useState<string>("mouse");
   const [draftType, setDraftType] = useState<ButtonActionType>("left_click");
   const [draftMods, setDraftMods] = useState<KeyModifiers>({
@@ -137,18 +138,20 @@ export function ButtonsTab({
   const [draftKeyCode, setDraftKeyCode] = useState<number>(0x04);
   const [draftKeyName, setDraftKeyName] = useState<string>("A");
   const [capturingKey, setCapturingKey] = useState<boolean>(false);
+  const pendingModifierCaptureRef = useRef<KeyModifiers | null>(null);
 
   const openEditor = (mapping: ButtonMapping) => {
     setEditingMapping(mapping);
     setCapturingKey(false);
+    pendingModifierCaptureRef.current = null;
     const act = mapping.action;
     setDraftType(act.type === "unknown" ? mapping.slot.defaultAction : act.type);
 
     if (act.type === "keyboard") {
       setDraftTab("keyboard");
       setDraftMods(act.modifiers ?? { ctrl: false, shift: false, alt: false, meta: false });
-      setDraftKeyCode(act.keyCode || 0x04);
-      setDraftKeyName(act.keyName || "A");
+      setDraftKeyCode(act.keyCode ?? 0);
+      setDraftKeyName(act.keyName ?? "");
     } else if (DPI_HW_ACTIONS.includes(act.type)) {
       setDraftTab("dpi");
     } else if (MEDIA_ACTIONS.includes(act.type)) {
@@ -159,32 +162,40 @@ export function ButtonsTab({
       setDraftTab("mouse");
     }
 
-    if (mapping.slot.view === "bottom") {
-      setDiagramView("bottom");
-    } else {
-      setDiagramView("top");
-    }
+    setDiagramView(mapping.slot.view === "bottom" ? "bottom" : "top");
   };
 
-  // Keystroke recorder inside dialog
+  // Keystroke recorder supporting Escape-to-cancel AND standalone modifier keys (Shift / Ctrl / Alt)
   useEffect(() => {
     if (!capturingKey) return;
+
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
 
+      if (e.code === "Escape" && !e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
+        pendingModifierCaptureRef.current = null;
+        setCapturingKey(false);
+        return;
+      }
+
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
-        setDraftMods({
-          ctrl: e.ctrlKey,
-          shift: e.shiftKey,
-          alt: e.altKey,
-          meta: e.metaKey,
-        });
+        const mods: KeyModifiers = {
+          ctrl: e.ctrlKey || e.key === "Control",
+          shift: e.shiftKey || e.key === "Shift",
+          alt: e.altKey || e.key === "Alt",
+          meta: e.metaKey || e.key === "Meta",
+        };
+        pendingModifierCaptureRef.current = mods;
+        setDraftMods(mods);
+        setDraftKeyCode(0);
+        setDraftKeyName("");
         return;
       }
 
       const found = supportedKeys.find((k) => k.domCode.toLowerCase() === e.code.toLowerCase());
       if (found) {
+        pendingModifierCaptureRef.current = null;
         setDraftMods({
           ctrl: e.ctrlKey,
           shift: e.shiftKey,
@@ -198,8 +209,25 @@ export function ButtonsTab({
       }
     };
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (["Control", "Shift", "Alt", "Meta"].includes(e.key) && pendingModifierCaptureRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        setDraftMods(pendingModifierCaptureRef.current);
+        setDraftKeyCode(0);
+        setDraftKeyName("");
+        setDraftType("keyboard");
+        pendingModifierCaptureRef.current = null;
+        setCapturingKey(false);
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [capturingKey, supportedKeys]);
 
   // Check if editing button is the ONLY physical clickable button holding left_click
@@ -210,9 +238,12 @@ export function ButtonsTab({
   }, [buttons, editingMapping]);
 
   const wouldViolateLeftClickGuard = isSoleLeftClickHolder && draftType !== "left_click";
+  const hasAnyKeyOrMod =
+    draftKeyCode !== 0 || draftMods.ctrl || draftMods.shift || draftMods.alt || draftMods.meta;
+  const invalidKeyboardCombo = draftType === "keyboard" && !hasAnyKeyOrMod;
 
   const handleConfirmSave = async () => {
-    if (!editingMapping || wouldViolateLeftClickGuard) return;
+    if (!editingMapping || wouldViolateLeftClickGuard || invalidKeyboardCombo) return;
 
     let action: ButtonAction;
     if (draftType === "keyboard") {
@@ -226,15 +257,40 @@ export function ButtonsTab({
       };
     } else {
       const meta = ACTION_LABEL_MAP[draftType] ?? { labelJa: draftType, category: "mouse" };
+      let labelJa = meta.labelJa;
+      if (draftType === "wheel_default") {
+        if (editingMapping.slot.id === 11) labelJa = "上スクロール (標準)";
+        if (editingMapping.slot.id === 12) labelJa = "下スクロール (標準)";
+      }
       action = {
         type: draftType,
         category: meta.category,
-        labelJa: meta.labelJa,
+        labelJa,
       };
     }
 
-    await onSaveButtonMapping(editingMapping.slot.id, action);
-    setEditingMapping(null);
+    const ok = await onSaveButtonMapping(editingMapping.slot.id, action);
+    if (ok) {
+      setEditingMapping(null);
+    }
+  };
+
+  const handleResetSingleButton = async () => {
+    if (!editingMapping) return;
+    const defType = editingMapping.slot.defaultAction;
+    if (isSoleLeftClickHolder && defType !== "left_click") return;
+    const meta = ACTION_LABEL_MAP[defType];
+    let labelJa = meta.labelJa;
+    if (editingMapping.slot.id === 11) labelJa = "上スクロール (標準)";
+    if (editingMapping.slot.id === 12) labelJa = "下スクロール (標準)";
+    const ok = await onSaveButtonMapping(editingMapping.slot.id, {
+      type: defType,
+      category: meta.category,
+      labelJa,
+    });
+    if (ok) {
+      setEditingMapping(null);
+    }
   };
 
   const buttonById = useMemo(() => {
@@ -244,22 +300,23 @@ export function ButtonsTab({
   }, [buttons]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-12">
-      {/* Left 5 cols: Interactive VT9 Pro 4K Top/Bottom SVG Blueprint */}
-      <div className="lg:col-span-5">
-        <Card className="h-full flex flex-col">
+    <div className="grid gap-4 md:grid-cols-12 items-start">
+      {/* Left 5 cols: Sticky Interactive VT9 Pro 4K Top/Bottom SVG Blueprint */}
+      <div className="md:col-span-5 md:sticky md:top-16">
+        <Card className="flex flex-col">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between gap-2">
               <CardTitle className="flex items-center gap-2">
                 <MousePointer className="h-4 w-4 text-primary" />
                 物理レイアウト図
               </CardTitle>
-              <div className="inline-flex rounded-md border bg-muted/60 p-0.5 text-xs">
+              <div className="inline-flex rounded-md border bg-muted/60 p-0.5 text-xs" role="group" aria-label="表示面切替">
                 <button
                   type="button"
+                  aria-pressed={diagramView === "top"}
                   onClick={() => setDiagramView("top")}
                   className={cn(
-                    "rounded px-2.5 py-1 font-medium transition-colors",
+                    "rounded px-2.5 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     diagramView === "top" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
                   )}
                 >
@@ -267,9 +324,10 @@ export function ButtonsTab({
                 </button>
                 <button
                   type="button"
+                  aria-pressed={diagramView === "bottom"}
                   onClick={() => setDiagramView("bottom")}
                   className={cn(
-                    "rounded px-2.5 py-1 font-medium transition-colors",
+                    "rounded px-2.5 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     diagramView === "bottom" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
                   )}
                 >
@@ -278,14 +336,18 @@ export function ButtonsTab({
               </div>
             </div>
             <CardDescription>
-              図上の各ボタンをクリックしても直接割り当てを変更できます。
+              {writable
+                ? "図上のボタンをクリック（またはTab選択）して直接割り当てを変更できます。"
+                : readOnlyReason || "現在は読み取り専用表示です。"}
             </CardDescription>
           </CardHeader>
 
-          <CardContent className="flex-1 flex flex-col items-center justify-center py-2">
+          <CardContent className="flex flex-col items-center justify-center py-2">
             {diagramView === "top" ? (
               <MouseTopSvg
                 hoveredId={hoveredId}
+                writable={writable}
+                buttonById={buttonById}
                 onHover={setHoveredId}
                 onSelect={(id) => {
                   const found = buttonById.get(id);
@@ -295,6 +357,8 @@ export function ButtonsTab({
             ) : (
               <MouseBottomSvg
                 hoveredId={hoveredId}
+                writable={writable}
+                buttonById={buttonById}
                 onHover={setHoveredId}
                 onSelect={(id) => {
                   const found = buttonById.get(id);
@@ -303,7 +367,7 @@ export function ButtonsTab({
               />
             )}
 
-            <div className="mt-2 text-center text-[11px] text-muted-foreground">
+            <div className="mt-2 text-center text-[11px] text-muted-foreground min-h-[18px]">
               {hoveredId !== null && buttonById.get(hoveredId) ? (
                 <span>
                   選択中: <strong className="text-foreground">{buttonById.get(hoveredId)!.slot.nameJa}</strong> →{" "}
@@ -312,7 +376,7 @@ export function ButtonsTab({
                   </span>
                 </span>
               ) : (
-                <span>全10箇所（スクロール上下・底面DIYボタンを含む）をオンボード保存</span>
+                <span>スクロール上下・底面DIYボタンを含む全10箇所を本体メモリへ保存</span>
               )}
             </div>
           </CardContent>
@@ -320,27 +384,27 @@ export function ButtonsTab({
       </div>
 
       {/* Right 7 cols: 10 Physical Buttons Table */}
-      <div className="lg:col-span-7">
+      <div className="md:col-span-7">
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <CardTitle>全 10 ボタン割り当て一覧</CardTitle>
+                <CardTitle>ボタン割り当て一覧（全10箇所）</CardTitle>
                 <CardDescription>
-                  変更はマウス本体のフラッシュメモリ（0x0600〜0x0637）へ即座に書き込まれ、別PCでも有効です。
+                  変更はマウス本体の内蔵メモリへ直接保存され、アプリを閉じた後や別PCでもそのまま動作します。
                 </CardDescription>
               </div>
 
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={!writable || busy}>
+                  <Button variant="outline" size="sm" disabled={!writable}>
                     <RotateCcw className="h-3.5 w-3.5" />
                     全ボタンを初期値に戻す
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>全10ボタンの割り当てを初期化しますか？</AlertDialogTitle>
+                    <AlertDialogTitle>全10箇所の割り当てを初期化しますか？</AlertDialogTitle>
                     <AlertDialogDescription>
                       天面・サイド・ホイール・底面DIYボタンのすべての割り当てが工場出荷時の標準設定に戻ります（DPIやセンサー設定は維持されます）。
                     </AlertDialogDescription>
@@ -354,6 +418,13 @@ export function ButtonsTab({
                 </AlertDialogContent>
               </AlertDialog>
             </div>
+
+            {!writable && readOnlyReason && (
+              <div className="mt-2 flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                <Lock className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>{readOnlyReason}</span>
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="space-y-1.5">
@@ -387,10 +458,9 @@ export function ButtonsTab({
                           </Badge>
                         )}
                         {!isDefault && (
-                          <span
-                            title="初期値から変更済み"
-                            className="h-1.5 w-1.5 rounded-full bg-primary shrink-0"
-                          />
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                            変更済
+                          </Badge>
                         )}
                       </div>
                     </div>
@@ -404,7 +474,7 @@ export function ButtonsTab({
                       size="sm"
                       variant="outline"
                       className="h-7 px-2.5 text-xs"
-                      disabled={!writable || busy}
+                      disabled={!writable}
                       aria-label={`${item.slot.nameJa} の割り当てを変更`}
                       onClick={() => openEditor(item)}
                     >
@@ -430,6 +500,23 @@ export function ButtonsTab({
                 </DialogDescription>
               </DialogHeader>
 
+              {/* Hardware Onboard Macro Overwrite Warning */}
+              {editingMapping.action.type === "unknown" && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300"
+                >
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-semibold">オンボードマクロ / カスタム設定の上書き注意</p>
+                    <p className="mt-0.5 leading-relaxed">
+                      現在このボタンには「{editingMapping.action.labelJa}」が保存されています。別の機能を保存すると上書きされます（維持する場合はキャンセルを押してください）。
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Left-Click Safety Guard */}
               {wouldViolateLeftClickGuard && (
                 <div
                   role="alert"
@@ -487,6 +574,7 @@ export function ButtonsTab({
                       key={act}
                       selected={draftType === act}
                       label={ACTION_LABEL_MAP[act].labelJa}
+                      hint={ACTION_LABEL_MAP[act].hint}
                       isDefault={editingMapping.slot.defaultAction === act}
                       onClick={() => setDraftType(act)}
                     />
@@ -499,6 +587,7 @@ export function ButtonsTab({
                       key={act}
                       selected={draftType === act}
                       label={ACTION_LABEL_MAP[act].labelJa}
+                      hint={ACTION_LABEL_MAP[act].hint}
                       isDefault={editingMapping.slot.defaultAction === act}
                       onClick={() => setDraftType(act)}
                     />
@@ -506,10 +595,11 @@ export function ButtonsTab({
                 </TabsContent>
 
                 <TabsContent value="keyboard" className="space-y-3 pt-1">
-                  {/* Live Keystroke Recorder */}
                   <div className="rounded-lg border bg-muted/40 p-3 space-y-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium">ショートカット / 単一キー設定</span>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-xs font-medium">
+                        単一キー / 修飾キー単体（Shift・Ctrl等） / ショートカット
+                      </span>
                       <Button
                         size="sm"
                         variant={capturingKey ? "default" : "outline"}
@@ -520,7 +610,7 @@ export function ButtonsTab({
                         }}
                       >
                         <Keyboard className="h-3.5 w-3.5" />
-                        {capturingKey ? "キーボードのキーを押してください..." : "キー入力をキャプチャ"}
+                        {capturingKey ? "キーを押して確定 (Escで中断)..." : "キー入力をキャプチャ"}
                       </Button>
                     </div>
 
@@ -528,10 +618,10 @@ export function ButtonsTab({
                       {formatCombo(draftMods, draftKeyName)}
                     </div>
 
-                    {/* Modifier toggles + Manual Key Dropdown */}
+                    {/* Modifier toggles + Manual Key Dropdown (including standalone modifier code 0) */}
                     <div className="grid gap-2 sm:grid-cols-2 pt-1">
                       <div className="space-y-1">
-                        <span className="text-[11px] text-muted-foreground">修飾キー (同時押し)</span>
+                        <span className="text-[11px] text-muted-foreground">修飾キー（単体または同時押し）</span>
                         <div className="flex gap-1.5">
                           {(
                             [
@@ -552,7 +642,7 @@ export function ButtonsTab({
                                   setDraftMods((m) => ({ ...m, [modKey]: !m[modKey] }));
                                 }}
                                 className={cn(
-                                  "flex-1 rounded border py-1 text-xs font-medium transition-colors",
+                                  "flex-1 rounded border py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                   active
                                     ? "border-primary bg-primary text-primary-foreground"
                                     : "bg-background hover:bg-accent"
@@ -571,9 +661,14 @@ export function ButtonsTab({
                           value={String(draftKeyCode)}
                           onValueChange={(val) => {
                             const code = Number(val);
+                            setDraftType("keyboard");
+                            if (code === 0) {
+                              setDraftKeyCode(0);
+                              setDraftKeyName("");
+                              return;
+                            }
                             const found = supportedKeys.find((k) => k.code === code);
                             if (found) {
-                              setDraftType("keyboard");
                               setDraftKeyCode(found.code);
                               setDraftKeyName(found.name);
                             }
@@ -583,6 +678,7 @@ export function ButtonsTab({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="0">なし（修飾キー単体のみ）</SelectItem>
                             {supportedKeys.map((k) => (
                               <SelectItem key={k.code} value={String(k.code)}>
                                 {k.name}
@@ -611,19 +707,40 @@ export function ButtonsTab({
                   <ActionOptionButton
                     selected={draftType === "disabled"}
                     label="無効 (誤押し防止のためボタンをOFFにする)"
+                    hint="試合中の誤爆防止に最適"
                     isDefault={false}
                     onClick={() => setDraftType("disabled")}
                   />
                 </TabsContent>
               </Tabs>
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setEditingMapping(null)}>
-                  キャンセル
-                </Button>
-                <Button disabled={wouldViolateLeftClickGuard || busy} onClick={() => void handleConfirmSave()}>
-                  この割り当てを保存
-                </Button>
+              <DialogFooter className="flex-wrap sm:justify-between gap-2">
+                <div>
+                  {editingMapping.action.type !== editingMapping.slot.defaultAction && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        isSoleLeftClickHolder && editingMapping.slot.defaultAction !== "left_click"
+                      }
+                      onClick={() => void handleResetSingleButton()}
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                      標準（{ACTION_LABEL_MAP[editingMapping.slot.defaultAction].labelJa}）に戻す
+                    </Button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => setEditingMapping(null)}>
+                    キャンセル
+                  </Button>
+                  <Button
+                    disabled={wouldViolateLeftClickGuard || invalidKeyboardCombo}
+                    onClick={() => void handleConfirmSave()}
+                  >
+                    この割り当てを保存
+                  </Button>
+                </div>
               </DialogFooter>
             </>
           )}
@@ -636,11 +753,13 @@ export function ButtonsTab({
 function ActionOptionButton({
   selected,
   label,
+  hint,
   isDefault,
   onClick,
 }: {
   selected: boolean;
   label: string;
+  hint?: string;
   isDefault: boolean;
   onClick: () => void;
 }) {
@@ -650,164 +769,117 @@ function ActionOptionButton({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition-all",
+        "flex flex-col justify-center rounded-md border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         selected
           ? "border-primary bg-primary/15 text-primary ring-1 ring-primary/40"
           : "bg-background/60 hover:bg-accent"
       )}
     >
-      <span className="truncate">{label}</span>
-      {isDefault && (
-        <span className="ml-1.5 shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-          標準
-        </span>
-      )}
+      <div className="flex items-center justify-between gap-1 w-full">
+        <span className="text-xs font-medium truncate">{label}</span>
+        {isDefault && (
+          <span className="ml-1 shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            標準
+          </span>
+        )}
+      </div>
+      {hint && <span className="mt-0.5 text-[10px] text-muted-foreground leading-snug">{hint}</span>}
     </button>
   );
 }
 
 // ============================================================================
-// Interactive Rapoo VT9 Pro 4K Top & Bottom SVG Diagrams
+// Accessible Interactive Rapoo VT9 Pro 4K Top & Bottom SVG Diagrams
 // ============================================================================
 
 interface MouseSvgProps {
   hoveredId: number | null;
+  writable: boolean;
+  buttonById: Map<number, ButtonMapping>;
   onHover: (id: number | null) => void;
   onSelect: (id: number) => void;
 }
 
-function MouseTopSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
-  const hotspotClass = (id: number) =>
-    cn(
-      "cursor-pointer transition-all",
-      hoveredId === id
-        ? "fill-primary/45 stroke-primary stroke-[2.2]"
-        : "fill-primary/10 hover:fill-primary/30 stroke-border stroke-[1.5]"
-    );
+function buildHotspotProps(
+  id: number,
+  writable: boolean,
+  hoveredId: number | null,
+  buttonById: Map<number, ButtonMapping>,
+  onHover: (id: number | null) => void,
+  onSelect: (id: number) => void,
+  accentPink = false
+) {
+  const m = buttonById.get(id);
+  const label = m ? `${m.slot.nameJa}（現在: ${m.action.labelJa}）` : `ボタン ${id}`;
+  const isHovered = hoveredId === id;
+
+  return {
+    role: "button" as const,
+    tabIndex: writable ? 0 : -1,
+    "aria-disabled": !writable,
+    "aria-label": label,
+    onMouseEnter: () => onHover(id),
+    onMouseLeave: () => onHover(null),
+    onFocus: () => onHover(id),
+    onBlur: () => onHover(null),
+    onClick: () => {
+      if (writable) onSelect(id);
+    },
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (!writable) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        onSelect(id);
+      }
+    },
+    className: cn(
+      "transition-all focus:outline-none",
+      writable ? "cursor-pointer" : "cursor-not-allowed opacity-70",
+      accentPink
+        ? isHovered
+          ? "fill-pink-500/50 stroke-pink-500 stroke-[2.5]"
+          : "fill-pink-500/25 hover:fill-pink-500/40 stroke-pink-600 dark:stroke-pink-400 stroke-[1.8]"
+        : isHovered
+          ? "fill-primary/45 stroke-primary stroke-[2.2]"
+          : "fill-primary/10 hover:fill-primary/30 stroke-border stroke-[1.5]"
+    ),
+  };
+}
+
+function MouseTopSvg({ hoveredId, writable, buttonById, onHover, onSelect }: MouseSvgProps) {
+  const hp = (id: number) => buildHotspotProps(id, writable, hoveredId, buttonById, onHover, onSelect);
 
   return (
     <svg
       viewBox="0 0 260 360"
-      className="w-full max-w-[235px] select-none"
-      role="img"
-      aria-label="Rapoo VT9 Pro 4K 天面ボタン配置図"
+      className="w-full max-w-[230px] select-none"
+      role="group"
+      aria-label="Rapoo VT9 Pro 4K 天面・サイドボタン選択図"
     >
-      {/* Outer Symmetrical Shell */}
       <path
         d="M130 16 C82 16 58 46 56 112 C54 176 62 214 60 256 C58 308 82 344 130 344 C178 344 202 308 200 256 C198 214 206 176 204 112 C202 46 178 16 130 16 Z"
         className="fill-muted/50 stroke-muted-foreground/40 stroke-[2]"
       />
 
-      {/* Left Main Trigger (id: 0) */}
-      <path
-        d="M126 20 C86 21 63 49 61 112 L62 142 L126 142 Z"
-        className={hotspotClass(0)}
-        onMouseEnter={() => onHover(0)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(0)}
-      />
+      {/* Left Click (0) */}
+      <path d="M126 20 C86 21 63 49 61 112 L62 142 L126 142 Z" {...hp(0)} />
+      {/* Right Click (1) */}
+      <path d="M134 20 C174 21 197 49 199 112 L198 142 L134 142 Z" {...hp(1)} />
+      {/* Scroll Up (11) */}
+      <rect x="119" y="48" width="22" height="18" rx="5" {...hp(11)} />
+      {/* Middle Click (2) */}
+      <rect x="118" y="68" width="24" height="28" rx="6" {...hp(2)} />
+      {/* Scroll Down (12) */}
+      <rect x="119" y="98" width="22" height="18" rx="5" {...hp(12)} />
+      {/* DPI+ (5) */}
+      <rect x="122" y="124" width="16" height="16" rx="4" {...hp(5)} />
+      {/* DPI- (6) */}
+      <rect x="122" y="144" width="16" height="16" rx="4" {...hp(6)} />
+      {/* Forward (7) */}
+      <rect x="48" y="146" width="12" height="34" rx="5" {...hp(7)} />
+      {/* Back (8) */}
+      <rect x="49" y="186" width="12" height="34" rx="5" {...hp(8)} />
 
-      {/* Right Main Trigger (id: 1) */}
-      <path
-        d="M134 20 C174 21 197 49 199 112 L198 142 L134 142 Z"
-        className={hotspotClass(1)}
-        onMouseEnter={() => onHover(1)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(1)}
-      />
-
-      {/* Scroll Up Zone (id: 11) */}
-      <rect
-        x="119"
-        y="48"
-        width="22"
-        height="18"
-        rx="5"
-        className={hotspotClass(11)}
-        onMouseEnter={() => onHover(11)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(11)}
-      />
-
-      {/* Middle Click Wheel (id: 2) */}
-      <rect
-        x="118"
-        y="68"
-        width="24"
-        height="28"
-        rx="6"
-        className={hotspotClass(2)}
-        onMouseEnter={() => onHover(2)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(2)}
-      />
-
-      {/* Scroll Down Zone (id: 12) */}
-      <rect
-        x="119"
-        y="98"
-        width="22"
-        height="18"
-        rx="5"
-        className={hotspotClass(12)}
-        onMouseEnter={() => onHover(12)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(12)}
-      />
-
-      {/* DPI+ Button (id: 5) */}
-      <rect
-        x="122"
-        y="124"
-        width="16"
-        height="16"
-        rx="4"
-        className={hotspotClass(5)}
-        onMouseEnter={() => onHover(5)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(5)}
-      />
-
-      {/* DPI- Button (id: 6) */}
-      <rect
-        x="122"
-        y="144"
-        width="16"
-        height="16"
-        rx="4"
-        className={hotspotClass(6)}
-        onMouseEnter={() => onHover(6)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(6)}
-      />
-
-      {/* Side Forward Button (id: 7) */}
-      <rect
-        x="48"
-        y="146"
-        width="12"
-        height="34"
-        rx="5"
-        className={hotspotClass(7)}
-        onMouseEnter={() => onHover(7)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(7)}
-      />
-
-      {/* Side Back Button (id: 8) */}
-      <rect
-        x="49"
-        y="186"
-        width="12"
-        height="34"
-        rx="5"
-        className={hotspotClass(8)}
-        onMouseEnter={() => onHover(8)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(8)}
-      />
-
-      {/* Subtle V Logo Mark */}
       <path
         d="M118 268 L130 292 L142 268"
         fill="none"
@@ -816,7 +888,6 @@ function MouseTopSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
         strokeLinejoin="round"
       />
 
-      {/* Number Callouts matching List indices */}
       <SvgCallout x={90} y={84} label="1" active={hoveredId === 0} />
       <SvgCallout x={170} y={84} label="2" active={hoveredId === 1} />
       <SvgCallout x={130} y={82} label="3" active={hoveredId === 2} />
@@ -830,22 +901,20 @@ function MouseTopSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
   );
 }
 
-function MouseBottomSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
-  const active = hoveredId === 13;
+function MouseBottomSvg({ hoveredId, writable, buttonById, onHover, onSelect }: MouseSvgProps) {
+  const diyProps = buildHotspotProps(13, writable, hoveredId, buttonById, onHover, onSelect, true);
+
   return (
     <svg
       viewBox="0 0 260 360"
-      className="w-full max-w-[235px] select-none"
-      role="img"
-      aria-label="Rapoo VT9 Pro 4K 底面DIYボタン配置図"
+      className="w-full max-w-[230px] select-none"
+      role="group"
+      aria-label="Rapoo VT9 Pro 4K 底面DIYボタン選択図"
     >
-      {/* Bottom Chassis */}
       <path
         d="M130 16 C82 16 58 46 56 112 C54 176 62 214 60 256 C58 308 82 344 130 344 C178 344 202 308 200 256 C198 214 206 176 204 112 C202 46 178 16 130 16 Z"
         className="fill-muted/50 stroke-muted-foreground/40 stroke-[2]"
       />
-
-      {/* Top & Bottom PTFE Skates */}
       <path
         d="M84 36 C105 24 155 24 176 36 C170 52 90 52 84 36 Z"
         className="fill-background/70 stroke-border stroke-[1.2]"
@@ -855,7 +924,6 @@ function MouseBottomSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
         className="fill-background/70 stroke-border stroke-[1.2]"
       />
 
-      {/* PAW3395 Optical Sensor Window */}
       <rect
         x="116"
         y="156"
@@ -868,7 +936,6 @@ function MouseBottomSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
         PAW3395
       </text>
 
-      {/* Power Slide Switch (Non-programmable hardware power switch) */}
       <rect
         x="96"
         y="112"
@@ -878,35 +945,27 @@ function MouseBottomSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
         className="fill-background/70 stroke-border stroke-[1.2]"
       />
       <text x="104" y="106" textAnchor="middle" className="fill-muted-foreground text-[8px]">
-        ON/OFF
+        電源スイッチ
       </text>
 
-      {/* Bottom DIY Pink/Accent Programmable Button (id: 13 at 0x0634) */}
-      <circle
-        cx="156"
-        cy="125"
-        r="14"
-        className={cn(
-          "cursor-pointer transition-all",
-          active
-            ? "fill-pink-500/50 stroke-pink-400 stroke-[2.5]"
-            : "fill-pink-500/25 hover:fill-pink-500/40 stroke-pink-500/70 stroke-[1.8]"
-        )}
-        onMouseEnter={() => onHover(13)}
-        onMouseLeave={() => onHover(null)}
-        onClick={() => onSelect(13)}
-      />
-      <SvgCallout x={156} y={125} label="10" active={active} />
-      <text x="156" y="104" textAnchor="middle" className="fill-pink-400 text-[9px] font-semibold">
+      {/* Bottom DIY Programmable Button (id: 13) */}
+      <circle cx="156" cy="125" r="14" {...diyProps} />
+      <SvgCallout x={156} y={125} label="10" active={hoveredId === 13} />
+      <text
+        x="156"
+        y="104"
+        textAnchor="middle"
+        className="fill-pink-700 dark:fill-pink-400 text-[9px] font-semibold"
+      >
         DIY ボタン
       </text>
 
-      {/* Magnetic Dongle Storage Cover */}
       <circle
         cx="130"
         cy="258"
         r="24"
-        className="fill-background/50 stroke-border stroke-[1.2] stroke-dasharray-[3_2]"
+        className="fill-background/50 stroke-border stroke-[1.2]"
+        strokeDasharray="3 2"
       />
       <text x="130" y="261" textAnchor="middle" className="fill-muted-foreground text-[8px]">
         4K収納カバー
@@ -917,14 +976,14 @@ function MouseBottomSvg({ hoveredId, onHover, onSelect }: MouseSvgProps) {
 
 function SvgCallout({ x, y, label, active }: { x: number; y: number; label: string; active: boolean }) {
   return (
-    <g className="pointer-events-none">
+    <g className="pointer-events-none" aria-hidden="true">
       <circle
         cx={x}
         cy={y}
         r="8.5"
         className={cn(
           "transition-colors",
-          active ? "fill-primary stroke-background stroke-[1.5]" : "fill-card/90 stroke-border"
+          active ? "fill-primary stroke-background stroke-[1.5]" : "fill-card/95 stroke-border"
         )}
       />
       <text

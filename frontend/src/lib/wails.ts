@@ -35,10 +35,12 @@ interface WailsAppBindings {
   ApplyPreset(id: string): Promise<DeviceSnapshot>;
   DeletePreset(id: string): Promise<void>;
   ExportPresetJSON(id: string): Promise<string>;
+  SavePresetFile(id: string, suggestedName: string): Promise<string>;
   ImportPresetJSON(rawJson: string): Promise<Preset>;
   GetAppPreferences(): Promise<AppPreferences>;
   SetCloseToTray(enabled: boolean): Promise<AppPreferences>;
   SetAutoStart(enabled: boolean): Promise<AppPreferences>;
+  SetWindowTheme(dark: boolean): Promise<void>;
 }
 
 interface WailsRuntime {
@@ -64,10 +66,6 @@ function getWailsRuntime(): WailsRuntime | undefined {
   return typeof window !== "undefined" ? window.runtime : undefined;
 }
 
-// ============================================================================
-// Standalone Fallback Mock (used in Vitest & standalone `vite dev`)
-// ============================================================================
-
 const DEFAULT_DEBOUNCE_STEPS: DebounceStep[] = [
   { index: 0, rawByte: 0x01, ms: 0.5, label: "0.5 ms" },
   { index: 1, rawByte: 0x02, ms: 1, label: "1 ms" },
@@ -91,57 +89,93 @@ const DEFAULT_BUTTON_SLOTS: ButtonSlotSpec[] = [
   { id: 13, nameJa: "底面 DIY ボタン", nameEn: "Bottom DIY Button", view: "bottom", addr: 0x0634, defaultAction: "receiver_switch", clickable: true },
 ];
 
+// Full 77-key USB HID Usage Page 0x07 table synced with pkg/rapoo/keymap.go
 const DEFAULT_KEYS: HIDKeyInfo[] = [
-  { code: 0x04, name: "A", domCode: "KeyA" },
-  { code: 0x05, name: "B", domCode: "KeyB" },
-  { code: 0x06, name: "C", domCode: "KeyC" },
-  { code: 0x07, name: "D", domCode: "KeyD" },
-  { code: 0x08, name: "E", domCode: "KeyE" },
-  { code: 0x09, name: "F", domCode: "KeyF" },
-  { code: 0x0a, name: "G", domCode: "KeyG" },
-  { code: 0x14, name: "Q", domCode: "KeyQ" },
-  { code: 0x15, name: "R", domCode: "KeyR" },
-  { code: 0x19, name: "V", domCode: "KeyV" },
-  { code: 0x1b, name: "X", domCode: "KeyX" },
-  { code: 0x1d, name: "Z", domCode: "KeyZ" },
-  { code: 0x1e, name: "1", domCode: "Digit1" },
-  { code: 0x1f, name: "2", domCode: "Digit2" },
-  { code: 0x20, name: "3", domCode: "Digit3" },
-  { code: 0x21, name: "4", domCode: "Digit4" },
-  { code: 0x22, name: "5", domCode: "Digit5" },
-  { code: 0x28, name: "Enter", domCode: "Enter" },
-  { code: 0x29, name: "Esc", domCode: "Escape" },
-  { code: 0x2a, name: "Backspace", domCode: "Backspace" },
-  { code: 0x2b, name: "Tab", domCode: "Tab" },
+  { code: 0x04, name: "A", domCode: "KeyA" }, { code: 0x05, name: "B", domCode: "KeyB" },
+  { code: 0x06, name: "C", domCode: "KeyC" }, { code: 0x07, name: "D", domCode: "KeyD" },
+  { code: 0x08, name: "E", domCode: "KeyE" }, { code: 0x09, name: "F", domCode: "KeyF" },
+  { code: 0x0a, name: "G", domCode: "KeyG" }, { code: 0x0b, name: "H", domCode: "KeyH" },
+  { code: 0x0c, name: "I", domCode: "KeyI" }, { code: 0x0d, name: "J", domCode: "KeyJ" },
+  { code: 0x0e, name: "K", domCode: "KeyK" }, { code: 0x0f, name: "L", domCode: "KeyL" },
+  { code: 0x10, name: "M", domCode: "KeyM" }, { code: 0x11, name: "N", domCode: "KeyN" },
+  { code: 0x12, name: "O", domCode: "KeyO" }, { code: 0x13, name: "P", domCode: "KeyP" },
+  { code: 0x14, name: "Q", domCode: "KeyQ" }, { code: 0x15, name: "R", domCode: "KeyR" },
+  { code: 0x16, name: "S", domCode: "KeyS" }, { code: 0x17, name: "T", domCode: "KeyT" },
+  { code: 0x18, name: "U", domCode: "KeyU" }, { code: 0x19, name: "V", domCode: "KeyV" },
+  { code: 0x1a, name: "W", domCode: "KeyW" }, { code: 0x1b, name: "X", domCode: "KeyX" },
+  { code: 0x1c, name: "Y", domCode: "KeyY" }, { code: 0x1d, name: "Z", domCode: "KeyZ" },
+  { code: 0x1e, name: "1", domCode: "Digit1" }, { code: 0x1f, name: "2", domCode: "Digit2" },
+  { code: 0x20, name: "3", domCode: "Digit3" }, { code: 0x21, name: "4", domCode: "Digit4" },
+  { code: 0x22, name: "5", domCode: "Digit5" }, { code: 0x23, name: "6", domCode: "Digit6" },
+  { code: 0x24, name: "7", domCode: "Digit7" }, { code: 0x25, name: "8", domCode: "Digit8" },
+  { code: 0x26, name: "9", domCode: "Digit9" }, { code: 0x27, name: "0", domCode: "Digit0" },
+  { code: 0x28, name: "Enter", domCode: "Enter" }, { code: 0x29, name: "Esc", domCode: "Escape" },
+  { code: 0x2a, name: "Backspace", domCode: "Backspace" }, { code: 0x2b, name: "Tab", domCode: "Tab" },
   { code: 0x2c, name: "Space", domCode: "Space" },
-  { code: 0x3a, name: "F1", domCode: "F1" },
-  { code: 0x3b, name: "F2", domCode: "F2" },
-  { code: 0x3c, name: "F3", domCode: "F3" },
-  { code: 0x3d, name: "F4", domCode: "F4" },
-  { code: 0x3e, name: "F5", domCode: "F5" },
-  { code: 0x45, name: "F12", domCode: "F12" },
-  { code: 0x4c, name: "Delete", domCode: "Delete" },
-  { code: 0x4f, name: "Right", domCode: "ArrowRight" },
-  { code: 0x50, name: "Left", domCode: "ArrowLeft" },
-  { code: 0x51, name: "Down", domCode: "ArrowDown" },
-  { code: 0x52, name: "Up", domCode: "ArrowUp" },
+  { code: 0x2d, name: "-", domCode: "Minus" }, { code: 0x2e, name: "=", domCode: "Equal" },
+  { code: 0x2f, name: "[", domCode: "BracketLeft" }, { code: 0x30, name: "]", domCode: "BracketRight" },
+  { code: 0x31, name: "\\", domCode: "Backslash" }, { code: 0x33, name: ";", domCode: "Semicolon" },
+  { code: 0x34, name: "'", domCode: "Quote" }, { code: 0x35, name: "`", domCode: "Backquote" },
+  { code: 0x36, name: ",", domCode: "Comma" }, { code: 0x37, name: ".", domCode: "Period" },
+  { code: 0x38, name: "/", domCode: "Slash" }, { code: 0x39, name: "CapsLock", domCode: "CapsLock" },
+  { code: 0x3a, name: "F1", domCode: "F1" }, { code: 0x3b, name: "F2", domCode: "F2" },
+  { code: 0x3c, name: "F3", domCode: "F3" }, { code: 0x3d, name: "F4", domCode: "F4" },
+  { code: 0x3e, name: "F5", domCode: "F5" }, { code: 0x3f, name: "F6", domCode: "F6" },
+  { code: 0x40, name: "F7", domCode: "F7" }, { code: 0x41, name: "F8", domCode: "F8" },
+  { code: 0x42, name: "F9", domCode: "F9" }, { code: 0x43, name: "F10", domCode: "F10" },
+  { code: 0x44, name: "F11", domCode: "F11" }, { code: 0x45, name: "F12", domCode: "F12" },
+  { code: 0x46, name: "PrintScreen", domCode: "PrintScreen" }, { code: 0x47, name: "ScrollLock", domCode: "ScrollLock" },
+  { code: 0x48, name: "Pause", domCode: "Pause" }, { code: 0x49, name: "Insert", domCode: "Insert" },
+  { code: 0x4a, name: "Home", domCode: "Home" }, { code: 0x4b, name: "PageUp", domCode: "PageUp" },
+  { code: 0x4c, name: "Delete", domCode: "Delete" }, { code: 0x4d, name: "End", domCode: "End" },
+  { code: 0x4e, name: "PageDown", domCode: "PageDown" },
+  { code: 0x4f, name: "Right", domCode: "ArrowRight" }, { code: 0x50, name: "Left", domCode: "ArrowLeft" },
+  { code: 0x51, name: "Down", domCode: "ArrowDown" }, { code: 0x52, name: "Up", domCode: "ArrowUp" },
+  { code: 0x54, name: "Num /", domCode: "NumpadDivide" }, { code: 0x55, name: "Num *", domCode: "NumpadMultiply" },
+  { code: 0x56, name: "Num -", domCode: "NumpadSubtract" }, { code: 0x57, name: "Num +", domCode: "NumpadAdd" },
+  { code: 0x58, name: "Num Enter", domCode: "NumpadEnter" },
+  { code: 0x59, name: "Num 1", domCode: "Numpad1" }, { code: 0x5a, name: "Num 2", domCode: "Numpad2" },
+  { code: 0x5b, name: "Num 3", domCode: "Numpad3" }, { code: 0x5c, name: "Num 4", domCode: "Numpad4" },
+  { code: 0x5d, name: "Num 5", domCode: "Numpad5" }, { code: 0x5e, name: "Num 6", domCode: "Numpad6" },
+  { code: 0x5f, name: "Num 7", domCode: "Numpad7" }, { code: 0x60, name: "Num 8", domCode: "Numpad8" },
+  { code: 0x61, name: "Num 9", domCode: "Numpad9" }, { code: 0x62, name: "Num 0", domCode: "Numpad0" },
+  { code: 0x63, name: "Num .", domCode: "NumpadDecimal" },
 ];
 
-export const ACTION_LABEL_MAP: Record<ButtonActionType, { labelJa: string; category: string }> = {
+export const ACTION_LABEL_MAP: Record<
+  ButtonActionType,
+  { labelJa: string; category: string; hint?: string }
+> = {
   left_click: { labelJa: "左クリック", category: "mouse" },
   right_click: { labelJa: "右クリック", category: "mouse" },
   middle_click: { labelJa: "ミドルクリック", category: "mouse" },
   forward: { labelJa: "進む (Mouse 5)", category: "mouse" },
   back: { labelJa: "戻る (Mouse 4)", category: "mouse" },
   wheel_default: { labelJa: "標準スクロール", category: "mouse" },
-  fire_triple: { labelJa: "ファイアキー (左3連射)", category: "mouse" },
+  fire_triple: { labelJa: "ファイアキー (左3連射)", category: "mouse", hint: "1回押下で左クリックを高速3連打" },
   dpi_plus: { labelJa: "DPI + (段階を上げる)", category: "dpi" },
   dpi_minus: { labelJa: "DPI - (段階を下げる)", category: "dpi" },
-  dpi_cycle: { labelJa: "DPI ループ切替", category: "dpi" },
-  sniper_dpi: { labelJa: "スナイパーボタン (押下中低DPI)", category: "dpi" },
-  polling_switch: { labelJa: "ポーリングレート切替", category: "hardware" },
-  receiver_switch: { labelJa: "レシーバー切替", category: "hardware" },
-  profile_switch: { labelJa: "オンボード設定切替", category: "hardware" },
+  dpi_cycle: { labelJa: "DPI ループ切替", category: "dpi", hint: "最終ステージの次にStage 1へ戻る" },
+  sniper_dpi: {
+    labelJa: "スナイパーボタン (押下中低DPI)",
+    category: "dpi",
+    hint: "ボタンを押している間だけ一時的に最低DPIステージへ減速",
+  },
+  polling_switch: {
+    labelJa: "ポーリングレート切替",
+    category: "hardware",
+    hint: "押すごとに125/250/500/1000/2000/4000Hzを順送り",
+  },
+  receiver_switch: {
+    labelJa: "レシーバー切替",
+    category: "hardware",
+    hint: "ペアリング先レシーバーの接続モード切替（底面DIY初期値）",
+  },
+  profile_switch: {
+    labelJa: "オンボード設定切替",
+    category: "hardware",
+    hint: "マウス内蔵プロファイルスロットを切り替え",
+  },
   media_play_pause: { labelJa: "再生 / 一時停止", category: "media" },
   media_stop: { labelJa: "停止", category: "media" },
   media_prev: { labelJa: "前の曲", category: "media" },
@@ -173,6 +207,149 @@ function makeDefaultButtons(): ButtonMapping[] {
       },
     };
   });
+}
+
+function makeFpsSafeButtons(): ButtonMapping[] {
+  return makeDefaultButtons().map((m) =>
+    m.slot.id === 5 || m.slot.id === 6
+      ? {
+          ...m,
+          action: {
+            type: "disabled",
+            labelJa: "無効 (ボタンOFF)",
+            category: "none",
+          },
+        }
+      : m
+  );
+}
+
+function makeBuiltInPresets(): Preset[] {
+  return [
+    {
+      id: "builtin-fps-4k",
+      name: "FPS 競技用 (4000Hz・超低遅延)",
+      description: "800 DPI・4000Hz・デバウンス 1ms・直線/波紋補正OFF・誤爆防止のため天面DPIボタン無効化",
+      builtIn: true,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      pollingHz: 4000,
+      dpi: {
+        currentStage: 2,
+        stageCount: 3,
+        independentXY: false,
+        stages: [
+          { index: 1, x: 400, y: 400, enabled: true },
+          { index: 2, x: 800, y: 800, enabled: true },
+          { index: 3, x: 1600, y: 1600, enabled: true },
+        ],
+        allStages: [
+          { index: 1, x: 400, y: 400, enabled: true },
+          { index: 2, x: 800, y: 800, enabled: true },
+          { index: 3, x: 1600, y: 1600, enabled: true },
+          { index: 4, x: 3200, y: 3200, enabled: false },
+          { index: 5, x: 3200, y: 3200, enabled: false },
+          { index: 6, x: 6400, y: 6400, enabled: false },
+          { index: 7, x: 1600, y: 1600, enabled: false },
+        ],
+      },
+      sensor: {
+        liftOffLevel: 0,
+        motionSync: false,
+        pressDebounceStep: 1,
+        releaseDebounceStep: 1,
+        sleepMinutes: 15,
+        rippleControl: false,
+        linearCorrection: false,
+        sensorAngleDeg: 0,
+        glassMode: false,
+      },
+      buttons: makeFpsSafeButtons(),
+    },
+    {
+      id: "builtin-balanced-1k",
+      name: "オールラウンド標準 (1000Hz)",
+      description: "1600 DPI・1000Hz・Motion Sync ON・デバウンス 4ms・バッテリー持続約160時間のバランス設定",
+      builtIn: true,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      pollingHz: 1000,
+      dpi: {
+        currentStage: 4,
+        stageCount: 5,
+        independentXY: false,
+        stages: [
+          { index: 1, x: 400, y: 400, enabled: true },
+          { index: 2, x: 800, y: 800, enabled: true },
+          { index: 3, x: 1200, y: 1200, enabled: true },
+          { index: 4, x: 1600, y: 1600, enabled: true },
+          { index: 5, x: 3200, y: 3200, enabled: true },
+        ],
+        allStages: [
+          { index: 1, x: 400, y: 400, enabled: true },
+          { index: 2, x: 800, y: 800, enabled: true },
+          { index: 3, x: 1200, y: 1200, enabled: true },
+          { index: 4, x: 1600, y: 1600, enabled: true },
+          { index: 5, x: 3200, y: 3200, enabled: true },
+          { index: 6, x: 6400, y: 6400, enabled: false },
+          { index: 7, x: 1000, y: 1000, enabled: false },
+        ],
+      },
+      sensor: {
+        liftOffLevel: 1,
+        motionSync: true,
+        pressDebounceStep: 3,
+        releaseDebounceStep: 3,
+        sleepMinutes: 10,
+        rippleControl: false,
+        linearCorrection: false,
+        sensorAngleDeg: 0,
+        glassMode: false,
+      },
+      buttons: makeDefaultButtons(),
+    },
+    {
+      id: "builtin-desktop-eco",
+      name: "デスクトップ省電力 (500Hz・長寿命)",
+      description: "1200 DPI・500Hz・5分スリープ・作業やブラウジングで最大約185時間駆動する省電力設定",
+      builtIn: true,
+      createdAt: "2026-01-01T00:00:00Z",
+      updatedAt: "2026-01-01T00:00:00Z",
+      pollingHz: 500,
+      dpi: {
+        currentStage: 2,
+        stageCount: 4,
+        independentXY: false,
+        stages: [
+          { index: 1, x: 800, y: 800, enabled: true },
+          { index: 2, x: 1200, y: 1200, enabled: true },
+          { index: 3, x: 1600, y: 1600, enabled: true },
+          { index: 4, x: 2400, y: 2400, enabled: true },
+        ],
+        allStages: [
+          { index: 1, x: 800, y: 800, enabled: true },
+          { index: 2, x: 1200, y: 1200, enabled: true },
+          { index: 3, x: 1600, y: 1600, enabled: true },
+          { index: 4, x: 2400, y: 2400, enabled: true },
+          { index: 5, x: 3200, y: 3200, enabled: false },
+          { index: 6, x: 6400, y: 6400, enabled: false },
+          { index: 7, x: 1000, y: 1000, enabled: false },
+        ],
+      },
+      sensor: {
+        liftOffLevel: 2,
+        motionSync: true,
+        pressDebounceStep: 4,
+        releaseDebounceStep: 4,
+        sleepMinutes: 5,
+        rippleControl: false,
+        linearCorrection: false,
+        sensorAngleDeg: 0,
+        glassMode: false,
+      },
+      buttons: makeDefaultButtons(),
+    },
+  ];
 }
 
 function makeDefaultSnapshot(): DeviceSnapshot {
@@ -255,133 +432,13 @@ class FallbackSimulator {
     autoStart: false,
     platform: "windows",
   };
-  private presets: Preset[] = [
-    {
-      id: "builtin-fps-4k",
-      name: "FPS 競技用 (4000Hz・超低遅延)",
-      description: "800 DPI・4000Hz・デバウンス 1ms・直線/波紋補正OFF・誤爆防止のため天面DPIボタン無効化",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 4000,
-      dpi: {
-        currentStage: 2,
-        stageCount: 3,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 3200, y: 3200, enabled: false },
-          { index: 5, x: 3200, y: 3200, enabled: false },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1600, y: 1600, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 0,
-        motionSync: false,
-        pressDebounceStep: 1,
-        releaseDebounceStep: 1,
-        sleepMinutes: 15,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-    },
-    {
-      id: "builtin-balanced-1k",
-      name: "オールラウンド標準 (1000Hz)",
-      description: "1600 DPI・1000Hz・Motion Sync ON・デバウンス 4ms・バッテリー持続約160時間のバランス設定",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 1000,
-      dpi: {
-        currentStage: 4,
-        stageCount: 5,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1200, y: 1200, enabled: true },
-          { index: 4, x: 1600, y: 1600, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 400, y: 400, enabled: true },
-          { index: 2, x: 800, y: 800, enabled: true },
-          { index: 3, x: 1200, y: 1200, enabled: true },
-          { index: 4, x: 1600, y: 1600, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: true },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1000, y: 1000, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 1,
-        motionSync: true,
-        pressDebounceStep: 3,
-        releaseDebounceStep: 3,
-        sleepMinutes: 10,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-    },
-    {
-      id: "builtin-desktop-eco",
-      name: "デスクトップ省電力 (500Hz・長寿命)",
-      description: "1200 DPI・500Hz・5分スリープ・作業やブラウジングで最大約185時間駆動する省電力設定",
-      builtIn: true,
-      createdAt: "2026-01-01T00:00:00Z",
-      updatedAt: "2026-01-01T00:00:00Z",
-      pollingHz: 500,
-      dpi: {
-        currentStage: 2,
-        stageCount: 4,
-        independentXY: false,
-        stages: [
-          { index: 1, x: 800, y: 800, enabled: true },
-          { index: 2, x: 1200, y: 1200, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 2400, y: 2400, enabled: true },
-        ],
-        allStages: [
-          { index: 1, x: 800, y: 800, enabled: true },
-          { index: 2, x: 1200, y: 1200, enabled: true },
-          { index: 3, x: 1600, y: 1600, enabled: true },
-          { index: 4, x: 2400, y: 2400, enabled: true },
-          { index: 5, x: 3200, y: 3200, enabled: false },
-          { index: 6, x: 6400, y: 6400, enabled: false },
-          { index: 7, x: 1000, y: 1000, enabled: false },
-        ],
-      },
-      sensor: {
-        liftOffLevel: 2,
-        motionSync: true,
-        pressDebounceStep: 4,
-        releaseDebounceStep: 4,
-        sleepMinutes: 5,
-        rippleControl: false,
-        linearCorrection: false,
-        sensorAngleDeg: 0,
-        glassMode: false,
-      },
-    },
-  ];
+  private presets: Preset[] = makeBuiltInPresets();
 
   resetForTests() {
     this.demoMode = false;
     this.mode = "normal";
     this.snap = makeDefaultSnapshot();
+    this.presets = makeBuiltInPresets();
     this.listeners.clear();
   }
 
@@ -500,8 +557,9 @@ class FallbackSimulator {
 
   setPollingRate(hz: number): DeviceSnapshot {
     this.assertWritable();
-    this.snap.sensor!.pollingRateHz = hz;
-    this.snap.estimatedHours = estimateBatteryHours(this.snap.battery.percentage, hz);
+    const clamped = Math.min(hz, this.snap.model.maxRateHz || 4000);
+    this.snap.sensor!.pollingRateHz = clamped;
+    this.snap.estimatedHours = estimateBatteryHours(this.snap.battery.percentage, clamped);
     this.publishAll();
     return structuredClone(this.snap);
   }
@@ -519,7 +577,10 @@ class FallbackSimulator {
     const count = Math.max(1, Math.min(7, cfg.stageCount));
     const baseAll = cfg.allStages?.length === 7 ? cfg.allStages : this.snap.dpi!.allStages;
     const allStages = baseAll.map((st, i) => {
-      const incoming = cfg.stages.find((s) => s.index === i + 1) ?? cfg.allStages?.find((s) => s.index === i + 1) ?? st;
+      const incoming =
+        cfg.stages.find((s) => s.index === i + 1) ??
+        cfg.allStages?.find((s) => s.index === i + 1) ??
+        st;
       return {
         index: i + 1,
         x: normalizeDpi(incoming.x),
@@ -554,14 +615,14 @@ class FallbackSimulator {
       const step = DEFAULT_DEBOUNCE_STEPS[patch.pressDebounceStep] ?? DEFAULT_DEBOUNCE_STEPS[3];
       sc.pressDebounceStep = step.index;
       sc.pressDebounceRaw = step.rawByte;
-      sc.pressDebounceMs = Math.round(step.ms);
+      sc.pressDebounceMs = Math.floor(step.ms);
       sc.pressDebounceLabel = step.label;
     }
     if (patch.releaseDebounceStep !== undefined) {
       const step = DEFAULT_DEBOUNCE_STEPS[patch.releaseDebounceStep] ?? DEFAULT_DEBOUNCE_STEPS[3];
       sc.releaseDebounceStep = step.index;
       sc.releaseDebounceRaw = step.rawByte;
-      sc.releaseDebounceMs = Math.round(step.ms);
+      sc.releaseDebounceMs = Math.floor(step.ms);
       sc.releaseDebounceLabel = step.label;
     }
     if (patch.sleepMinutes !== undefined) {
@@ -573,6 +634,7 @@ class FallbackSimulator {
       sc.sensorAngleDeg = Math.max(-30, Math.min(30, patch.sensorAngleDeg));
     }
     if (patch.glassMode !== undefined) sc.glassMode = patch.glassMode;
+    if (patch.ledLowPowerMode !== undefined) sc.ledLowPowerMode = patch.ledLowPowerMode;
     this.publishAll();
     return structuredClone(this.snap);
   }
@@ -616,12 +678,13 @@ class FallbackSimulator {
     const sc = this.snap.sensor!;
     const now = new Date().toISOString();
     const pid = id && !id.startsWith("builtin-") ? id : `preset-${Date.now()}`;
+    const existing = this.presets.find((p) => p.id === pid);
     const preset: Preset = {
       id: pid,
       name: name.trim(),
       description: description.trim(),
       builtIn: false,
-      createdAt: now,
+      createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       pollingHz: sc.pollingRateHz,
       dpi: structuredClone(this.snap.dpi!),
@@ -648,7 +711,8 @@ class FallbackSimulator {
     this.assertWritable();
     const p = this.presets.find((x) => x.id === id);
     if (!p) throw new Error("指定されたプロファイルが見つかりません");
-    this.setPollingRate(p.pollingHz);
+    const maxRate = this.snap.model.maxRateHz || 4000;
+    this.setPollingRate(Math.min(p.pollingHz, maxRate));
     this.setDPIConfig(p.dpi);
     this.updateSensorConfig(p.sensor);
     if (p.buttons?.length) {
@@ -671,6 +735,15 @@ class FallbackSimulator {
   importPresetJson(rawJson: string): Preset {
     const parsed = JSON.parse(rawJson) as Preset;
     if (!parsed.name?.trim()) throw new Error("プロファイル名が含まれていません");
+    if (!parsed.dpi || parsed.dpi.stageCount < 1 || parsed.dpi.stageCount > 7) {
+      throw new Error("DPIステージ数が不正です");
+    }
+    if (parsed.buttons?.length) {
+      const hasLeft = parsed.buttons.some((b) => b.slot.clickable && b.action.type === "left_click");
+      if (!hasLeft) {
+        throw new Error("左クリックが1つも割り当てられていないプロファイルはインポートできません");
+      }
+    }
     const now = new Date().toISOString();
     const preset: Preset = {
       ...parsed,
@@ -737,7 +810,11 @@ export const rapooApi = {
   },
   async setPollingMode(mode: PollingMode): Promise<ServiceState> {
     const app = getWailsApp();
-    return app ? app.SetPollingMode(mode) : fallbackSim.setPollingMode(mode);
+    try {
+      return app ? await app.SetPollingMode(mode) : fallbackSim.setPollingMode(mode);
+    } catch (e) {
+      throw unwrapError(e);
+    }
   },
   async setPollingRate(hz: number): Promise<DeviceSnapshot> {
     const app = getWailsApp();
@@ -832,6 +909,29 @@ export const rapooApi = {
       throw unwrapError(e);
     }
   },
+  async savePresetFile(id: string, suggestedName: string): Promise<string | null> {
+    const app = getWailsApp();
+    if (app?.SavePresetFile) {
+      try {
+        const savedPath = await app.SavePresetFile(id, suggestedName);
+        return savedPath || null;
+      } catch (e) {
+        throw unwrapError(e);
+      }
+    }
+    // Standalone browser fallback with delayed revokeObjectURL
+    const jsonStr = fallbackSim.exportPresetJson(id);
+    if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${suggestedName.replace(/[\\/:*?"<>|]/g, "_") || "rapoo-preset"}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }
+    return "browser-download";
+  },
   async importPresetJson(rawJson: string): Promise<Preset> {
     const app = getWailsApp();
     try {
@@ -846,7 +946,11 @@ export const rapooApi = {
   },
   async setCloseToTray(enabled: boolean): Promise<AppPreferences> {
     const app = getWailsApp();
-    return app ? app.SetCloseToTray(enabled) : fallbackSim.setCloseToTray(enabled);
+    try {
+      return app ? await app.SetCloseToTray(enabled) : fallbackSim.setCloseToTray(enabled);
+    } catch (e) {
+      throw unwrapError(e);
+    }
   },
   async setAutoStart(enabled: boolean): Promise<AppPreferences> {
     const app = getWailsApp();
@@ -854,6 +958,16 @@ export const rapooApi = {
       return app ? await app.SetAutoStart(enabled) : fallbackSim.setAutoStart(enabled);
     } catch (e) {
       throw unwrapError(e);
+    }
+  },
+  async setWindowTheme(dark: boolean): Promise<void> {
+    const app = getWailsApp();
+    if (app?.SetWindowTheme) {
+      try {
+        await app.SetWindowTheme(dark);
+      } catch {
+        // Ignore non-Windows theme calls
+      }
     }
   },
   subscribeEvent<T>(eventName: string, handler: (payload: T) => void): () => void {

@@ -1,6 +1,6 @@
-# Rapoo VT9 Pro 4K — Windows Battery Tray & Protocol SDK (`rapoo-vt9pro-4k`)
+# Rapoo VT9 Pro 4K — Wails Control App, Windows Battery Tray & Protocol SDK (`rapoo-vt9pro-4k`)
 
-**Rapoo VT9 Pro 4K**（4Kワイヤレスドングル `0x24AE:0x1211` / USB-C有線 `0x24AE:0x4411`）のバッテリー残量を Windows のタスクトレイに**くっきりとした数字＋残量バー**で常時表示する超軽量ネイティブ Go アプリ（`vt9tray.exe`）と、将来的な **Wails 製クロスプラットフォーム制御アプリ（Windows / Linux 両対応）** を見据えたプロトコル SDK & CLI（`vt9ctl`）です。
+**Rapoo VT9 Pro 4K**（4Kワイヤレスドングル `0x24AE:0x1211` / USB-C有線 `0x24AE:0x4411`）のバッテリー残量を Windows のタスクトレイに**くっきりとした数字＋残量バー**で常時表示する超軽量ネイティブ Go アプリ（`vt9tray.exe`）、DPI・センサー・10ボタン・プロファイルを編集できる **Wails v2 + React デスクトップアプリ（`rapoo-control.exe` / Linux 対応）**、およびその土台となるプロトコル SDK & CLI（`vt9ctl`）です。
 
 - **外部ライブラリ・CGO 依存ゼロ**（標準ライブラリ＋OS ネイティブ API のみ、単一 `.exe` 約 2MB）
 - **ゲーム中のマウス操作に一切影響しない設計**:
@@ -14,6 +14,8 @@
 
 ```text
 rapoo-vt9pro-4k/
+├── main.go / app.go      # Wails v2 デスクトップアプリ本体（Bindings・トレイ常駐・テーマ）
+├── frontend/             # React 18 + TypeScript + shadcn/ui (Vite) UI
 ├── cmd/
 │   ├── vt9tray/          # Windows 常駐タスクトレイアプリ (Win32 Shell_NotifyIconW, HiDPI 対応)
 │   └── vt9ctl/           # Windows / Linux 両対応 CLI ツール
@@ -65,6 +67,16 @@ rapoo-vt9pro-4k/
 .\vt9ctl.exe info
 ```
 
+### 3. Wails デスクトップ制御アプリ (`rapoo-control.exe` / `rapoo-control`)
+Wails v2 + React + shadcn/ui 製のフルコントロールアプリです。4K レシーバー接続時は最大 4000Hz、USB-C 有線時はハードウェア仕様に合わせて最大 1000Hz を表示します。
+
+- **DPI & レート**: 7 ステージ編集（50〜26,000 DPI / X-Y 独立）、ステージのワンクリック切替、125〜4000Hz のポーリングレート変更と電池持続時間の試算
+- **センサー & スイッチ**: LOD・センサー角度・Motion Sync・リップル補正・直線補正・ガラス面モード・押下/解放デバウンス・スリープ時間・LED 省電力モード
+- **10ボタン割り当て**: 天面/サイド/ホイール/底面 DIY の全 10 箇所を図から選択。単一キー・修飾キー単体・ショートカット・メディアキー・DPI/レート切替を設定し、左クリック保護ガード付きで本体メモリへ保存
+- **プロファイル & 診断**: 公式推奨プリセット、現在設定との一致表示、JSON 入出力（ネイティブ保存ダイアログ）、実測ポーリングレート＆チャタリング診断、工場出荷リセット
+- **常駐連携**: 閉じるボタンでタスクトレイへ格納、Windows 自動起動、ライト/ダークテーマ（ネイティブタイトルバー同期）、ゲーム優先・完全受動モード（0-TX）
+- **デモモード**: 実機なしでも全機能を仮想 VT9 Pro 4K で試用可能
+
 ---
 
 ## ビルド方法（Linux からのクロスコンパイル / Windows ネイティブ共通）
@@ -83,7 +95,21 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
 
 # Linux 用 CLI
 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/vt9ctl ./cmd/vt9ctl
+
+# Wails デスクトップアプリ (要 Wails CLI + Node.js)
+go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
+
+# Windows (mingw-w64 が必要)
+wails build -platform windows/amd64
+
+# Linux (webkit2gtk-4.1 環境ではタグを指定)
+wails build -platform linux/amd64 -tags webkit2_41
+
+# フロントエンドのみの検証
+cd frontend && npm ci && npm test && npm run build
 ```
+
+> Wails CLI は `frontend/package-lock.json` から依存をインストールし、`frontend/dist` を exe に埋め込みます。`build/bin/` に `rapoo-control.exe` / `rapoo-control` が出力されます。
 
 > **Linux で使う場合の udev ルール例** (`/etc/udev/rules.d/99-rapoo.rules`):
 > ```udev
@@ -92,9 +118,9 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o dist/vt9ctl ./cmd/vt9ctl
 
 ---
 
-## 将来の Wails アプリへの組み込みイメージ
+## アーキテクチャ
 
-`internal/service.MouseService` と `pkg/rapoo` は UI から完全に独立しており、Wails の `Bind` にそのまま渡せる構造になっています。
+`internal/service.MouseService` と `pkg/rapoo` は UI から完全に独立しており、Wails の `Bind` と `OnEventEmit` を通じてフロントエンドへ状態を配信します。`pkg/hid` は CGO 不要の OS 抽象 HID レイヤで、Windows（SetupAPI/Overlapped）と Linux（hidraw）を同じインターフェースで扱います。
 
 ```go
 mouseSvc := service.NewMouseService(nil, service.Config{

@@ -52,8 +52,29 @@ export default function App() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [prefs, setPrefs] = useState<AppPreferences | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
+  const [savedRecently, setSavedRecently] = useState<boolean>(false);
 
   const hasLoadedSnapshotRef = useRef<boolean>(false);
+  const savedTimerRef = useRef<number | null>(null);
+
+  const markSaved = useCallback(() => {
+    setSavedRecently(true);
+    if (savedTimerRef.current !== null) {
+      window.clearTimeout(savedTimerRef.current);
+    }
+    savedTimerRef.current = window.setTimeout(() => {
+      setSavedRecently(false);
+      savedTimerRef.current = null;
+    }, 2200);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimerRef.current !== null) {
+        window.clearTimeout(savedTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -67,6 +88,7 @@ export default function App() {
     } catch {
       // Ignore storage errors
     }
+    void rapooApi.setWindowTheme(darkMode);
   }, [darkMode]);
 
   const fetchSnapshotQuietly = useCallback(async () => {
@@ -142,7 +164,10 @@ export default function App() {
     };
   }, [fetchSnapshotQuietly]);
 
-  const runMutation = async (fn: () => Promise<DeviceSnapshot>, successMsg?: string) => {
+  const runMutation = async (
+    fn: () => Promise<DeviceSnapshot>,
+    successMsg?: string
+  ): Promise<boolean> => {
     setBusy(true);
     try {
       const nextSnap = await fn();
@@ -150,11 +175,14 @@ export default function App() {
       if (nextSnap?.dpi) hasLoadedSnapshotRef.current = true;
       const nextState = await rapooApi.getState();
       setState(nextState);
+      markSaved();
       if (successMsg) {
         toast.success(successMsg);
       }
+      return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "設定の保存に失敗しました");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -230,7 +258,10 @@ export default function App() {
           state={state}
           snapshot={snapshot}
           catalog={catalog}
+          hasDeviceData={hasDeviceData}
+          activeTab={activeTab}
           busy={busy}
+          savedRecently={savedRecently}
           darkMode={darkMode}
           onToggleTheme={() => setDarkMode((d) => !d)}
           onRefresh={() => void handleManualRefresh()}
@@ -266,7 +297,6 @@ export default function App() {
                 <DpiPollingTab
                   snapshot={snapshot}
                   writable={writable}
-                  busy={busy}
                   pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
                   onSaveDpiConfig={(cfg: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(cfg))}
                   onSelectActiveStage={(stage: number) =>
@@ -298,7 +328,6 @@ export default function App() {
                   snapshot={snapshot}
                   debounceSteps={catalog?.debounceSteps ?? []}
                   writable={writable}
-                  busy={busy}
                   onUpdateSensor={(patch: SensorPatch) =>
                     runMutation(() => rapooApi.updateSensorConfig(patch))
                   }
@@ -319,7 +348,6 @@ export default function App() {
                   snapshot={snapshot}
                   supportedKeys={catalog?.supportedKeys ?? []}
                   writable={writable}
-                  busy={busy}
                   onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
                     runMutation(
                       () => rapooApi.setButtonMapping(buttonId, action),
@@ -351,22 +379,24 @@ export default function App() {
                 presets={presets}
                 prefs={prefs}
                 writable={writable}
-                busy={busy}
-                onSavePreset={async (name, desc) => {
+                onSavePreset={async (id, name, desc) => {
                   setBusy(true);
                   try {
-                    await rapooApi.savePreset("", name, desc);
+                    await rapooApi.savePreset(id, name, desc);
                     setPresets(await rapooApi.listPresets());
                     toast.success(`プロファイル「${name}」を保存しました`);
+                    markSaved();
+                    return true;
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : "プロファイルの保存に失敗しました");
+                    return false;
                   } finally {
                     setBusy(false);
                   }
                 }}
-                onApplyPreset={(id) =>
+                onApplyPreset={(preset) =>
                   runMutation(
-                    () => rapooApi.applyPreset(id),
+                    () => rapooApi.applyPreset(preset.id),
                     "プロファイルをマウス本体に適用しました"
                   )
                 }
@@ -375,8 +405,10 @@ export default function App() {
                     await rapooApi.deletePreset(id);
                     setPresets(await rapooApi.listPresets());
                     toast.success("プロファイルを削除しました");
+                    return true;
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : "削除に失敗しました");
+                    return false;
                   }
                 }}
                 onImportPreset={async (rawJson) => {
@@ -384,8 +416,10 @@ export default function App() {
                     const imported = await rapooApi.importPresetJson(rawJson);
                     setPresets(await rapooApi.listPresets());
                     toast.success(`「${imported.name}」をインポートしました`);
+                    return true;
                   } catch (e) {
                     toast.error(e instanceof Error ? e.message : "JSONのインポートに失敗しました");
+                    return false;
                   }
                 }}
                 onSetPollingMode={handleSetPollingMode}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -177,6 +178,60 @@ func (a *App) SetCloseToTray(enabled bool) AppPreferences {
 func (a *App) SetAutoStart(enabled bool) (AppPreferences, error) {
 	err := tray.SetAutoStartEnabled(wailsRegistryAutoStartKey, enabled)
 	return a.GetAppPreferences(), err
+}
+
+// SetWindowTheme syncs the native OS window titlebar appearance with the UI dark/light mode.
+func (a *App) SetWindowTheme(dark bool) {
+	if a.ctx == nil || runtime.GOOS != "windows" {
+		return
+	}
+	if dark {
+		wailsRuntime.WindowSetDarkTheme(a.ctx)
+	} else {
+		wailsRuntime.WindowSetLightTheme(a.ctx)
+	}
+}
+
+// SavePresetFile opens a native OS Save File dialog to export a preset JSON file reliably on Windows & Linux.
+func (a *App) SavePresetFile(id, suggestedName string) (string, error) {
+	raw, err := a.svc.ExportPresetJSON(id)
+	if err != nil {
+		return "", err
+	}
+	if a.ctx == nil {
+		return "", nil
+	}
+	clean := strings.Map(func(r rune) rune {
+		switch r {
+		case '\\', '/', ':', '*', '?', '"', '<', '>', '|':
+			return '_'
+		default:
+			return r
+		}
+	}, strings.TrimSpace(suggestedName))
+	if clean == "" {
+		clean = "rapoo-preset"
+	}
+	if !strings.HasSuffix(strings.ToLower(clean), ".json") {
+		clean += ".json"
+	}
+	dest, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
+		Title:           "プロファイル JSON を保存",
+		DefaultFilename: clean,
+		Filters: []wailsRuntime.FileFilter{
+			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if dest == "" {
+		return "", nil
+	}
+	if err := os.WriteFile(dest, []byte(raw), 0o644); err != nil {
+		return "", err
+	}
+	return dest, nil
 }
 
 // ============================================================================

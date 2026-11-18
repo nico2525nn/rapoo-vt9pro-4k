@@ -738,11 +738,11 @@ func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 		}
 		s.applyBattery(*ev.Battery)
 
-	case rapoo.EventWake:
+	case rapoo.EventWake, rapoo.EventProfile:
 		s.mu.Lock()
 		mode := s.state.Mode
 		emit := s.cfg.OnEventEmit
-		shouldRefresh := mode != ModePassiveOnly && time.Since(s.lastWakeAt) >= 1500*time.Millisecond
+		shouldRefresh := mode != ModePassiveOnly && time.Since(s.lastWakeAt) >= 1200*time.Millisecond
 		if shouldRefresh {
 			s.lastWakeAt = time.Now()
 		}
