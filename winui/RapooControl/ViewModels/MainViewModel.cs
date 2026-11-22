@@ -45,6 +45,12 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsCharging => _status.Charging;
 
+    public bool IsDeviceConnected => IsConnected;
+
+    public bool HasBattery => _status.BatteryPercent >= 0;
+
+    public bool IsSleeping => IsConnected && !_status.MouseOnline;
+
     public string Mode => _status.Mode;
 
     public string BatteryText => _status.BatteryPercent < 0
@@ -172,6 +178,9 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(FirmwareText));
         OnPropertyChanged(nameof(BatteryPercent));
         OnPropertyChanged(nameof(IsCharging));
+        OnPropertyChanged(nameof(IsDeviceConnected));
+        OnPropertyChanged(nameof(HasBattery));
+        OnPropertyChanged(nameof(IsSleeping));
         OnPropertyChanged(nameof(Mode));
         OnPropertyChanged(nameof(BatteryText));
         OnPropertyChanged(nameof(TrayTooltip));

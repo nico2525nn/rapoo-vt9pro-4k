@@ -1,10 +1,8 @@
 using System.Runtime.InteropServices;
 using System.Windows.Input;
-using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using RapooControl.ViewModels;
 using RapooControl.Views;
@@ -48,6 +46,8 @@ public sealed partial class MainWindow : Window
     private bool _quitting;
     private bool _trayReady;
     private bool _trayHintShown;
+    private TrayIconSpec _lastTraySpec;
+    private bool _hasTraySpec;
 
     private MainViewModel ViewModel => App.Instance.ViewModel;
 
@@ -81,6 +81,7 @@ public sealed partial class MainWindow : Window
         TrayQuitItem.Command = new RelayCommand(QuitFromTray);
         AppWindow.Closing += OnClosing;
         ViewModel.PropertyChanged += (_, _) => UpdateTray();
+        UpdateTray();
         try
         {
             TrayIcon.ForceCreate();
@@ -105,7 +106,6 @@ public sealed partial class MainWindow : Window
 
         NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("overview");
-        UpdateTray();
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -174,10 +174,19 @@ public sealed partial class MainWindow : Window
 
     private void UpdateTray()
     {
-        var percent = ViewModel.BatteryPercent;
-        TrayIconSource.Text = percent >= 0 ? percent.ToString() : "--";
-        TrayIconSource.Foreground = new SolidColorBrush(
-            percent >= 0 && percent <= 20 && !ViewModel.IsCharging ? Colors.OrangeRed : Colors.White);
+        var spec = new TrayIconSpec(
+            Connected: ViewModel.IsDeviceConnected,
+            HasBattery: ViewModel.HasBattery,
+            Percentage: ViewModel.BatteryPercent,
+            Charging: ViewModel.IsCharging,
+            Sleeping: ViewModel.IsSleeping);
+        if (!_hasTraySpec || !_lastTraySpec.Equals(spec))
+        {
+            TrayIcon.Icon = TrayIconRenderer.Render(spec);
+            _lastTraySpec = spec;
+            _hasTraySpec = true;
+        }
+
         var tooltip = ViewModel.TrayTooltip;
         TrayIcon.ToolTipText = tooltip.Length > 63 ? tooltip[..60] + "..." : tooltip;
         UpdateTrayMenu();

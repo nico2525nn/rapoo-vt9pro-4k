@@ -92,17 +92,6 @@
             CustomName="Rapoo Control"
             NoLeftClickDelay="True"
             ToolTipText="Rapoo VT9 Pro 4K">
-            <tb:TaskbarIcon.IconSource>
-                <tb:GeneratedIconSource
-                    x:Name="TrayIconSource"
-                    Background="#202020"
-                    CornerRadius="6"
-                    FontSize="22"
-                    FontWeight="Bold"
-                    Foreground="White"
-                    Size="32"
-                    Text="--" />
-            </tb:TaskbarIcon.IconSource>
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout x:Name="TrayMenu" Opening="TrayMenu_Opening">
                     <MenuFlyoutItem x:Name="TrayBatteryItem" IsEnabled="False" Text="Battery" />

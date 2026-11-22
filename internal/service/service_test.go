@@ -52,6 +52,7 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 		InitialMode:       ModeNormal,
 		NormalInterval:    10 * time.Second,
 		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
 		PresetDir:         t.TempDir(),
 	})
 
@@ -90,6 +91,7 @@ func TestMouseServiceDemoModeAndPresets(t *testing.T) {
 		InitialMode:       ModeNormal,
 		NormalInterval:    10 * time.Second,
 		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
 		PresetDir:         t.TempDir(),
 	})
 

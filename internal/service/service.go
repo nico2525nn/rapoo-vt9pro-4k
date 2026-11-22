@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -82,6 +83,7 @@ type Config struct {
 	NormalInterval    time.Duration
 	LowFreqInterval   time.Duration
 	ReconnectInterval time.Duration
+	SleepGrace        time.Duration // suppress transient 0x02 replies for this long after a good read
 	PresetDir         string
 	OnEventEmit       func(eventName string, payload any) // Optional Wails runtime.EventsEmit hook
 }
@@ -102,6 +104,9 @@ func (c *Config) applyDefaults() {
 	if c.ReconnectInterval <= 0 {
 		c.ReconnectInterval = 5 * time.Second
 	}
+	if c.SleepGrace == 0 {
+		c.SleepGrace = 10 * time.Second
+	}
 }
 
 // Listener is invoked whenever the observable State changes.
@@ -114,15 +119,16 @@ type MouseService struct {
 	presetStore  *profile.Store
 	cfg          Config
 
-	mu          sync.RWMutex
-	demoMode    bool
-	client      *rapoo.Client
-	state       State
-	cachedSnap  *rapoo.DeviceSnapshot
-	lastWakeAt  time.Time
-	nextSubID   int
-	subscribers map[int]Listener
-	language    atomic.Value // string: "en" or "ja"
+	mu            sync.RWMutex
+	demoMode      bool
+	client        *rapoo.Client
+	state         State
+	cachedSnap    *rapoo.DeviceSnapshot
+	lastBatteryOK time.Time
+	lastWakeAt    time.Time
+	nextSubID     int
+	subscribers   map[int]Listener
+	language      atomic.Value // string: "en" or "ja"
 
 	connectMu sync.Mutex
 	refreshCh chan struct{}
@@ -344,7 +350,29 @@ func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 	snap.DemoMode = demo
 	if err != nil {
 		if errors.Is(err, rapoo.ErrMouseAsleep) {
-			s.markSleeping()
+			// The snapshot starts with a battery query. A busy dongle can
+			// reject that first query even though the mouse is online, so
+			// retry the cheap battery command before showing "sleeping".
+			if bat, batErr := s.readBatteryWithRetry(c, 3); batErr == nil {
+				s.applyBattery(bat)
+				if cached != nil {
+					cp := *cached
+					cp.DemoMode = demo
+					cp.Battery = bat
+					return cp, nil
+				}
+				snap.Battery = bat
+				return snap, nil
+			}
+
+			if !s.markSleeping(true) {
+				if cached != nil {
+					cp := *cached
+					cp.DemoMode = demo
+					return cp, nil
+				}
+				return snap, nil
+			}
 			if cached != nil {
 				cp := *cached
 				cp.DemoMode = demo
@@ -743,10 +771,10 @@ func (s *MouseService) pollOnce() {
 		return
 	}
 
-	bat, err := c.ReadBattery()
+	bat, err := s.readBatteryWithRetry(c, 3)
 	if err != nil {
 		if errors.Is(err, rapoo.ErrMouseAsleep) {
-			s.markSleeping()
+			_ = s.markSleeping(true)
 			return
 		}
 		s.closeClient()
@@ -757,15 +785,46 @@ func (s *MouseService) pollOnce() {
 	s.applyBattery(bat)
 }
 
-func (s *MouseService) markSleeping() {
+// readBatteryWithRetry gives the 4K dongle a few short chances before a
+// transient "busy" response is treated as the mouse being asleep. A full
+// settings snapshot can keep the dongle busy around the same time.
+func (s *MouseService) readBatteryWithRetry(c *rapoo.Client, attempts int) (rapoo.BatteryState, error) {
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		bat, err := c.ReadBattery()
+		if err == nil {
+			return bat, nil
+		}
+		lastErr = err
+		if !errors.Is(err, rapoo.ErrMouseAsleep) {
+			return bat, err
+		}
+		if attempt+1 < attempts {
+			time.Sleep(200 * time.Millisecond)
+		}
+	}
+	return rapoo.BatteryState{}, lastErr
+}
+
+func (s *MouseService) markSleeping(transient bool) bool {
 	s.mu.Lock()
+	if transient && !s.lastBatteryOK.IsZero() && time.Since(s.lastBatteryOK) < s.cfg.SleepGrace {
+		s.mu.Unlock()
+		// The dongle occasionally answers 0x02 while it is busy with a
+		// settings read. Keep the recent online state and retry shortly
+		// instead of flashing "sleeping" on the UI.
+		time.AfterFunc(2*time.Second, s.RefreshNow)
+		return false
+	}
 	s.state.MouseOnline = false
 	s.state.Sleeping = true
 	s.state.Charging = false
 	s.state.LastError = ""
 	snap := s.state
 	s.mu.Unlock()
+	log.Printf("mouse marked sleeping")
 	s.publish(snap)
+	return true
 }
 
 func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
@@ -775,7 +834,7 @@ func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 			return
 		}
 		if !ev.Battery.Online {
-			s.markSleeping()
+			_ = s.markSleeping(false)
 			return
 		}
 		s.applyBattery(*ev.Battery)
@@ -813,6 +872,9 @@ func (s *MouseService) applyBattery(bat rapoo.BatteryState) {
 	s.state.Sleeping = bat.Sleeping
 	s.state.EstimatedHours = rapoo.EstimateBatteryHours(bat.Percentage, rate)
 	s.state.UpdatedAt = bat.UpdatedAt
+	if bat.Online {
+		s.lastBatteryOK = time.Now()
+	}
 	s.state.PermissionDenied = false
 	s.state.LastError = ""
 	snap := s.state
@@ -833,6 +895,9 @@ func (s *MouseService) updateFromSnapshot(ds rapoo.DeviceSnapshot) {
 	s.state.MouseOnline = ds.Battery.Online
 	s.state.Sleeping = ds.Battery.Sleeping
 	s.state.EstimatedHours = ds.EstimatedHours
+	if ds.Battery.Online {
+		s.lastBatteryOK = time.Now()
+	}
 	s.state.MaxRateHz = ds.Model.MaxRateHz
 	if ds.Sensor != nil {
 		s.state.PollingRateHz = ds.Sensor.PollingRateHz
