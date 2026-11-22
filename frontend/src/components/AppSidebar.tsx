@@ -75,7 +75,7 @@ export function AppSidebar({ state, snapshot, activeTab, onNavigate }: AppSideba
               variant="ghost"
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.value)}
-              className="h-10 w-full justify-start gap-3 px-3 font-normal text-sidebar-foreground hover:bg-sidebar-accent/70 aria-[current=page]:bg-sidebar-accent dark:hover:bg-sidebar-accent/70 dark:aria-[current=page]:hover:bg-sidebar-accent motion-reduce:transition-none"
+              className="h-10 w-full justify-start gap-3 px-3 font-normal text-sidebar-foreground hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent motion-reduce:transition-none"
             >
               <Icon aria-hidden="true" />
               {item.label}

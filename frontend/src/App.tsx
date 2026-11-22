@@ -293,7 +293,7 @@ export default function App() {
           onDoubleClick={() => void windowApi.toggleMaximise()}
           aria-hidden="true"
         />
-        <main key={activeTab} className="min-h-0 flex-1 overflow-y-auto">
+        <main key={activeTab} className="min-h-0 flex-1 overflow-y-auto bg-content-layer">
           <div className="@container px-6 pt-3 pb-8 lg:px-8 xl:px-10">
             <h1 className="mb-6 text-[1.75rem] leading-tight font-semibold">
               {NAV_ITEMS.find((item) => item.value === activeTab)?.label}
