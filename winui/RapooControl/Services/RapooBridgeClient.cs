@@ -172,15 +172,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeCatalog> GetCatalogAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeCatalog>("catalog", null, cancellationToken);
 
-    public Task<List<JsonElement>> ListPresetsAsync(CancellationToken cancellationToken = default) =>
-        RequestAsync<List<JsonElement>>("presets", null, cancellationToken);
+    public Task<List<BridgePreset>> ListPresetsAsync(CancellationToken cancellationToken = default) =>
+        RequestAsync<List<BridgePreset>>("presets", null, cancellationToken);
 
-    public Task<JsonElement> SavePresetAsync(
+    public Task<BridgePreset> SavePresetAsync(
         string id,
         string name,
         string description,
         CancellationToken cancellationToken = default) =>
-        RequestAsync<JsonElement>("savePreset", new { id, name, description }, cancellationToken);
+        RequestAsync<BridgePreset>("savePreset", new { id, name, description }, cancellationToken);
 
     public Task<BridgeSnapshot> ApplyPresetAsync(string id, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("applyPreset", new { id }, cancellationToken);

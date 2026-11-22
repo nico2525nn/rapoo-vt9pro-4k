@@ -25,6 +25,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\build\bin\rapoo-bridge.exe"
+          Condition="Exists('..\..\build\bin\rapoo-bridge.exe')"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="rapoo-bridge.exe" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.6584" />
   </ItemGroup>

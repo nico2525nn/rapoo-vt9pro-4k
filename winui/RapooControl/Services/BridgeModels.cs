@@ -129,3 +129,14 @@ public sealed class BridgeCatalog
     [JsonPropertyName("pollingRates")] public List<int>? PollingRates { get; set; }
     [JsonPropertyName("buttons")] public List<BridgeButtonSlot>? Buttons { get; set; }
 }
+
+public sealed class BridgePreset
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+    [JsonPropertyName("description")] public string? Description { get; set; }
+    [JsonPropertyName("builtIn")] public bool BuiltIn { get; set; }
+    [JsonPropertyName("createdAt")] public DateTimeOffset CreatedAt { get; set; }
+    [JsonPropertyName("updatedAt")] public DateTimeOffset UpdatedAt { get; set; }
+    [JsonPropertyName("pollingHz")] public int PollingHz { get; set; }
+}
