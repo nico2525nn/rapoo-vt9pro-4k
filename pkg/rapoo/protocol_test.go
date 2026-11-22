@@ -243,3 +243,32 @@ func TestMatchEndpointsSkipsMI00AndPrefersWiredAndCol06ForGenA(t *testing.T) {
 		t.Fatalf("expected dongle_col06_report, got %+v", pairs[1].Report)
 	}
 }
+
+func TestValidateButtonMappingsRejectsMalformedTables(t *testing.T) {
+	defs := DefaultButtonMappings()
+	if err := ValidateButtonMappings(defs); err != nil {
+		t.Fatalf("default mappings: %v", err)
+	}
+
+	duplicate := append([]ButtonMapping(nil), defs...)
+	duplicate[1].Slot.ID = duplicate[0].Slot.ID
+	if err := ValidateButtonMappings(duplicate); err == nil {
+		t.Fatal("expected duplicate button ID to be rejected")
+	}
+
+	unknown := append([]ButtonMapping(nil), defs...)
+	unknown[1].Slot.ID = ButtonID(250)
+	if err := ValidateButtonMappings(unknown); err == nil {
+		t.Fatal("expected unknown button ID to be rejected")
+	}
+
+	if err := ValidateButtonMappings(defs[:9]); err == nil {
+		t.Fatal("expected incomplete table to be rejected")
+	}
+
+	badAction := append([]ButtonMapping(nil), defs...)
+	badAction[1].Action = ButtonAction{Type: ButtonActionType("not-a-real-action")}
+	if err := ValidateButtonMappings(badAction); err == nil {
+		t.Fatal("expected unsupported action to be rejected")
+	}
+}

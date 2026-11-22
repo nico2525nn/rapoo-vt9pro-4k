@@ -53,7 +53,9 @@ func NewStore(configDir string) (*Store, error) {
 		filePath: filepath.Join(configDir, "presets.json"),
 		user:     make(map[string]Preset),
 	}
-	_ = s.load()
+	if err := s.load(); err != nil {
+		return nil, fmt.Errorf("presets.json: %w", err)
+	}
 	return s, nil
 }
 
@@ -89,11 +91,24 @@ func (s *Store) saveLocked() error {
 	if err != nil {
 		return err
 	}
-	tmp := s.filePath + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(s.filePath), "presets-*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, s.filePath)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, s.filePath)
 }
 
 // List returns user-saved presets.
@@ -167,13 +182,24 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 		},
 		Buttons: snap.Buttons,
 	}
+	if err := ValidatePreset(preset); err != nil {
+		return Preset{}, err
+	}
 
 	s.mu.Lock()
-	if existing, ok := s.user[id]; ok {
-		preset.CreatedAt = existing.CreatedAt
+	old, existed := s.user[id]
+	if existed {
+		preset.CreatedAt = old.CreatedAt
 	}
 	s.user[id] = preset
 	err := s.saveLocked()
+	if err != nil {
+		if existed {
+			s.user[id] = old
+		} else {
+			delete(s.user, id)
+		}
+	}
 	s.mu.Unlock()
 	return preset, err
 }
@@ -181,8 +207,12 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 // Delete removes a user preset by ID.
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
+	old, existed := s.user[id]
 	delete(s.user, id)
 	err := s.saveLocked()
+	if err != nil && existed {
+		s.user[id] = old
+	}
 	s.mu.Unlock()
 	return err
 }
@@ -210,13 +240,8 @@ func (s *Store) ImportJSON(rawJSON string) (Preset, error) {
 	if p.Name == "" {
 		return Preset{}, errors.New("プロファイル名が含まれていません")
 	}
-	if p.DPI.StageCount < 1 || p.DPI.StageCount > rapoo.MaxDPIStage {
-		return Preset{}, errors.New("DPIステージ数が不正です")
-	}
-	if len(p.Buttons) > 0 {
-		if err := rapoo.ValidateButtonMappings(p.Buttons); err != nil {
-			return Preset{}, errors.New("左クリックが1つも割り当てられていないプロファイルはインポートできません")
-		}
+	if err := ValidatePreset(p); err != nil {
+		return Preset{}, err
 	}
 	now := time.Now().UTC()
 	p.ID = fmt.Sprintf("preset-%d", now.UnixNano())
@@ -227,6 +252,51 @@ func (s *Store) ImportJSON(rawJSON string) (Preset, error) {
 	s.mu.Lock()
 	s.user[p.ID] = p
 	err := s.saveLocked()
+	if err != nil {
+		delete(s.user, p.ID)
+	}
 	s.mu.Unlock()
 	return p, err
+}
+
+func ValidatePreset(p Preset) error {
+	if p.PollingHz < 0 || p.PollingHz > 8000 {
+		return fmt.Errorf("ポーリングレート %d Hz が不正です", p.PollingHz)
+	}
+	if p.DPI.StageCount < 1 || p.DPI.StageCount > rapoo.MaxDPIStage {
+		return errors.New("DPIステージ数が不正です")
+	}
+	if p.DPI.CurrentStage < 1 || p.DPI.CurrentStage > p.DPI.StageCount {
+		return errors.New("現在のDPIステージが不正です")
+	}
+	if len(p.DPI.Stages) < p.DPI.StageCount {
+		return errors.New("DPIステージの値が不足しています")
+	}
+	stages := p.DPI.Stages
+	if len(p.DPI.AllStages) > 0 {
+		if len(p.DPI.AllStages) < rapoo.MaxDPIStage {
+			return errors.New("DPI全ステージの値が不足しています")
+		}
+		stages = p.DPI.AllStages
+	}
+	for i, st := range stages {
+		if st.X < 50 || st.X > 26000 || st.Y < 50 || st.Y > 26000 {
+			return fmt.Errorf("DPIステージ %d の値が範囲外です", i+1)
+		}
+	}
+	if p.Sensor.LiftOffLevel != nil && (*p.Sensor.LiftOffLevel < 0 || *p.Sensor.LiftOffLevel > 10) {
+		return errors.New("リフトオフディスタンスが範囲外です")
+	}
+	if p.Sensor.SleepMinutes != nil && (*p.Sensor.SleepMinutes < 2 || *p.Sensor.SleepMinutes > 120) {
+		return errors.New("スリープ時間が範囲外です")
+	}
+	if p.Sensor.SensorAngleDeg != nil && (*p.Sensor.SensorAngleDeg < -30 || *p.Sensor.SensorAngleDeg > 30) {
+		return errors.New("センサー角度が範囲外です")
+	}
+	if len(p.Buttons) > 0 {
+		if err := rapoo.ValidateButtonMappings(p.Buttons); err != nil {
+			return fmt.Errorf("ボタン割り当てが不正です: %w", err)
+		}
+	}
+	return nil
 }

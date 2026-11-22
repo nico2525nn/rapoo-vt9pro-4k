@@ -81,6 +81,7 @@ type ModelSpec struct {
 	VendorID      uint16         `json:"vendorId"`
 	ProductID     uint16         `json:"productId"`
 	Connection    ConnectionMode `json:"connection"`
+	ProtocolGen   int            `json:"protocolGen"`
 	TargetByte    byte           `json:"targetByte"`
 	Opcodes       OpcodeSet      `json:"opcodes"`
 	PreferColName string         `json:"-"` // "col06" (10B) on GenA, "col05" (7B) on GenB
@@ -97,6 +98,7 @@ var SupportedModels = []ModelSpec{
 		VendorID:      VendorIDRapoo,
 		ProductID:     0x4411,
 		Connection:    ConnectionWired,
+		ProtocolGen:   1,
 		TargetByte:    TargetLocalOrWired,
 		Opcodes:       OpcodesGenA,
 		PreferColName: "col06",
@@ -110,6 +112,7 @@ var SupportedModels = []ModelSpec{
 		VendorID:      VendorIDRapoo,
 		ProductID:     0x1211,
 		Connection:    ConnectionWireless4K,
+		ProtocolGen:   1,
 		TargetByte:    TargetWirelessMouse,
 		Opcodes:       OpcodesGenA,
 		PreferColName: "col06",
@@ -123,6 +126,7 @@ var SupportedModels = []ModelSpec{
 		VendorID:      VendorIDRapoo,
 		ProductID:     0x4427,
 		Connection:    ConnectionWired,
+		ProtocolGen:   2,
 		TargetByte:    TargetLocalOrWired,
 		Opcodes:       OpcodesGenB,
 		PreferColName: "col05",
@@ -136,6 +140,7 @@ var SupportedModels = []ModelSpec{
 		VendorID:      VendorIDRapoo,
 		ProductID:     0x1227,
 		Connection:    ConnectionWireless4K,
+		ProtocolGen:   2,
 		TargetByte:    TargetWirelessMouse,
 		Opcodes:       OpcodesGenB,
 		PreferColName: "col05",

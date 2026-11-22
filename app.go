@@ -269,12 +269,31 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 	if selected == "" {
 		return "", nil
 	}
+	if !isOfficialUpdaterName(selected) {
+		return "", errors.New("Rapoo公式ソフト（RapooGameDev.exe または FirmwareExe.exe）を選択してください")
+	}
+	if !filepath.IsAbs(selected) {
+		return "", errors.New("公式ソフトの絶対パスを選択してください")
+	}
+	info, err := os.Stat(selected)
+	if err != nil || info.IsDir() {
+		return "", errors.New("公式ソフトが見つかりません")
+	}
 	cmd := exec.Command(selected)
 	cmd.Dir = filepath.Dir(selected)
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
 	return selected, nil
+}
+
+func isOfficialUpdaterName(path string) bool {
+	switch strings.ToLower(filepath.Base(path)) {
+	case "rapoogamedev.exe", "firmwareexe.exe":
+		return true
+	default:
+		return false
+	}
 }
 
 // SavePresetFile opens a native OS Save File dialog to export a preset JSON file reliably on Windows & Linux.

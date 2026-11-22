@@ -389,15 +389,40 @@ func DecodeButtonTable(mem600 []byte) ([]ButtonMapping, error) {
 	return out, nil
 }
 
-// ValidateButtonMappings ensures at least one physical clickable button retains Left Click
-// so the user cannot accidentally lock themselves out of clicking in their OS.
+// ValidateButtonMappings validates a complete 10-slot table against the
+// canonical VT9 Pro 4K button layout. Input slot metadata is never trusted.
 func ValidateButtonMappings(mappings []ButtonMapping) error {
+	if len(mappings) != len(VT9Pro4KButtons) {
+		return fmt.Errorf("rapoo: button table has %d entries, want %d", len(mappings), len(VT9Pro4KButtons))
+	}
+
+	seen := make(map[ButtonID]bool, len(VT9Pro4KButtons))
+	hasLeftClick := false
 	for _, m := range mappings {
-		if m.Slot.Clickable && m.Action.Type == ActionLeftClick {
-			return nil
+		slot, ok := LookupButtonSlot(m.Slot.ID)
+		if !ok {
+			return fmt.Errorf("rapoo: unknown button ID %d", m.Slot.ID)
+		}
+		if seen[slot.ID] {
+			return fmt.Errorf("rapoo: duplicate button ID %d", slot.ID)
+		}
+		seen[slot.ID] = true
+		if _, err := EncodeButtonAction(m.Action); err != nil {
+			return fmt.Errorf("rapoo: button %d: %w", slot.ID, err)
+		}
+		if slot.Clickable && m.Action.Type == ActionLeftClick {
+			hasLeftClick = true
 		}
 	}
-	return ErrMissingLeftClick
+	if !hasLeftClick {
+		return ErrMissingLeftClick
+	}
+	for _, slot := range VT9Pro4KButtons {
+		if !seen[slot.ID] {
+			return fmt.Errorf("rapoo: missing button ID %d", slot.ID)
+		}
+	}
+	return nil
 }
 
 // DefaultButtonMappings returns the factory default 10-button mappings for VT9 Pro 4K.

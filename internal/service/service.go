@@ -36,7 +36,7 @@ const (
 const LinuxUdevRuleSnippet = `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="24ae", ATTRS{idProduct}=="1211|4411|1227|4427", MODE="0660", TAG+="uaccess"`
 
 // LinuxUdevInstallCmd is a copyable one-liner for Linux users if EACCES occurs.
-const LinuxUdevInstallCmd = `echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="24ae", MODE="0660", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/70-rapoo-vt9pro.rules && sudo udevadm control --reload-rules && sudo udevadm trigger`
+const LinuxUdevInstallCmd = `echo 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="24ae", ATTRS{idProduct}=="1211|4411|1227|4427", MODE="0660", TAG+="uaccess"' | sudo tee /etc/udev/rules.d/70-rapoo-vt9pro.rules && sudo udevadm control --reload-rules && sudo udevadm trigger`
 
 // State represents the observable UI state for system tray icons and the Wails frontend.
 type State struct {
@@ -475,6 +475,9 @@ func (s *MouseService) ApplyPreset(id string) (rapoo.DeviceSnapshot, error) {
 	if !ok {
 		return rapoo.DeviceSnapshot{}, errors.New("指定されたプロファイルが見つかりません")
 	}
+	if err := profile.ValidatePreset(preset); err != nil {
+		return rapoo.DeviceSnapshot{}, err
+	}
 	c, err := s.writableClient()
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, err
@@ -862,6 +865,7 @@ func (s *MouseService) markDisconnected(err error) {
 	s.state.Connection = ""
 	s.state.ProductID = 0
 	s.state.PermissionDenied = permDenied
+	s.cachedSnap = nil
 	if err != nil && !errors.Is(err, rapoo.ErrDeviceNotFound) {
 		s.state.LastError = friendlyError(err)
 	} else {

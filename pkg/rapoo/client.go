@@ -715,24 +715,92 @@ func (c *Client) SetButtonMapping(buttonID ButtonID, action ButtonAction) error 
 }
 
 // SetAllButtonMappings validates and writes a full set of button mappings.
+// New Left Click assignments are written first so a transient failure cannot
+// leave the user without any clickable button.
 func (c *Client) SetAllButtonMappings(mappings []ButtonMapping) error {
 	if err := ValidateButtonMappings(mappings); err != nil {
 		return err
 	}
+
+	current, err := c.ReadButtonMappings()
+	if err != nil {
+		return err
+	}
+	currentById := make(map[ButtonID]ButtonMapping, len(current))
+	for _, m := range current {
+		currentById[m.Slot.ID] = m
+	}
+
+	encoded := make(map[ButtonID][4]byte, len(mappings))
 	for _, m := range mappings {
-		slot, ok := LookupButtonSlot(m.Slot.ID)
-		if !ok {
-			continue
-		}
 		raw, err := EncodeButtonAction(m.Action)
 		if err != nil {
 			return err
 		}
+		encoded[m.Slot.ID] = raw
+	}
+
+	// Write new Left Click targets before removing any existing Left Click.
+	for _, m := range mappings {
+		if m.Action.Type != ActionLeftClick {
+			continue
+		}
+		if currentById[m.Slot.ID].Action.Type == ActionLeftClick {
+			continue
+		}
+		slot, _ := LookupButtonSlot(m.Slot.ID)
+		raw := encoded[m.Slot.ID]
 		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
 			return err
 		}
 	}
+
+	for _, m := range mappings {
+		if m.Action.Type == ActionLeftClick && currentById[m.Slot.ID].Action.Type != ActionLeftClick {
+			continue
+		}
+		slot, _ := LookupButtonSlot(m.Slot.ID)
+		raw := encoded[m.Slot.ID]
+		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+			return err
+		}
+	}
+
+	verify, err := c.ReadButtonMappings()
+	if err != nil {
+		return fmt.Errorf("rapoo: verify button mappings: %w", err)
+	}
+	verifyById := make(map[ButtonID]ButtonMapping, len(verify))
+	for _, m := range verify {
+		verifyById[m.Slot.ID] = m
+	}
+	for _, expected := range mappings {
+		actual, ok := verifyById[expected.Slot.ID]
+		if !ok || !buttonActionsEqual(expected.Action, actual.Action) {
+			return fmt.Errorf("rapoo: button %d did not match after write", expected.Slot.ID)
+		}
+	}
 	return nil
+}
+
+func buttonActionsEqual(a, b ButtonAction) bool {
+	if a.Type != b.Type {
+		return false
+	}
+	switch a.Type {
+	case ActionKeyboard:
+		return a.KeyCode == b.KeyCode && a.Modifiers.Mask() == b.Modifiers.Mask()
+	case ActionUnknown:
+		if len(a.Raw) != len(b.Raw) {
+			return false
+		}
+		for i := range a.Raw {
+			if a.Raw[i] != b.Raw[i] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // FactoryReset sends the hardware factory reset command (0xAD 0x52 0x3D on Gen-A / 0xD0 on Gen-B).
