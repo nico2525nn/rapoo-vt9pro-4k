@@ -10,6 +10,8 @@ namespace RapooControl.Views;
 
 public sealed partial class SettingsPage : Page, IConfigPageActions
 {
+    private bool _languageReady;
+
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
 
@@ -20,6 +22,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     public SettingsPage()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(this);
         Feedback.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PageFeedback.IsBusy))
@@ -27,10 +30,14 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
                 UpdateControls();
             }
         };
+        LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
+        _languageReady = true;
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        LocalizationService.Instance.Apply(this);
+        LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if (ViewModel.DeviceService is not { } service)
@@ -56,6 +63,24 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => ViewModel.PropertyChanged -= DeviceStatusChanged;
+
+    private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_languageReady || LanguageCombo.SelectedItem is not ComboBoxItem { Tag: string language })
+        {
+            return;
+        }
+
+        var localization = LocalizationService.Instance;
+        if (localization.Language == language)
+        {
+            return;
+        }
+        localization.SetLanguage(language);
+        localization.Apply(App.Instance.MainWindow?.Content);
+        ViewModel.RefreshLocalization();
+        Feedback.Message = language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English.";
+    }
 
     private void DeviceStatusChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -161,6 +186,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             CloseButtonText = "キャンセル",
             DefaultButton = ContentDialogButton.Close,
         };
+        LocalizationService.Instance.ApplyDialog(confirmation);
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary || !ViewModel.CanConfigureDevice)
         {
             return;
@@ -177,9 +203,9 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     {
         var idle = ViewModel.DeviceService is not null && !Feedback.IsBusy;
         ModeButton.IsEnabled = idle;
-        ModeButton.Content = ViewModel.IsPassive ? "通常に戻す" : "0-TX に切り替え";
+        ModeButton.Content = LocalizationService.Instance.T(ViewModel.IsPassive ? "通常に戻す" : "0-TX に切り替え");
         DemoButton.IsEnabled = idle;
-        DemoButton.Content = ViewModel.IsDemoMode ? "終了" : "開始";
+        DemoButton.Content = LocalizationService.Instance.T(ViewModel.IsDemoMode ? "終了" : "開始");
         UpdaterButton.IsEnabled = BrowseButton.IsEnabled = idle;
         ResetButton.IsEnabled = idle && ViewModel.CanConfigureDevice;
         DeviceNotice.Text = ViewModel.DeviceService is null ? ViewModel.SettingsNotice : ViewModel.ConnectionMessage;

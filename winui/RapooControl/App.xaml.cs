@@ -18,6 +18,7 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        LocalizationService.Instance.Initialize();
 
         var queue = DispatcherQueue.GetForCurrentThread();
         if (queue is not null)

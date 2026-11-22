@@ -1,3 +1,4 @@
+using RapooControl.Services;
 using RapooControl.ViewModels;
 
 namespace RapooControl.Views;
@@ -17,6 +18,7 @@ public sealed class PageFeedback : ObservableObject
         get => _message;
         set
         {
+            value = LocalizationService.Instance.Error(value);
             if (SetProperty(ref _message, value))
             {
                 OnPropertyChanged(nameof(HasMessage));
@@ -34,7 +36,7 @@ public sealed class PageFeedback : ObservableObject
         }
 
         IsBusy = true;
-        Message = "処理中…";
+        Message = LocalizationService.Instance.T("処理中…");
         OnPropertyChanged(nameof(IsBusy));
         try
         {
@@ -43,7 +45,7 @@ public sealed class PageFeedback : ObservableObject
         }
         catch (Exception ex)
         {
-            Message = ex.Message;
+            Message = LocalizationService.Instance.Error(ex.Message);
         }
         finally
         {

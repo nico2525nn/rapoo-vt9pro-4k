@@ -21,6 +21,7 @@ public sealed partial class ProfilesPage : Page, IConfigPageActions
     public ProfilesPage()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(this);
         Feedback.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PageFeedback.IsBusy))
@@ -100,6 +101,7 @@ public sealed partial class ProfilesPage : Page, IConfigPageActions
             CloseButtonText = "キャンセル",
         };
         name.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(name.Text);
+        LocalizationService.Instance.ApplyDialog(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary || !ViewModel.CanConfigureDevice)
         {
             return;
@@ -144,6 +146,7 @@ public sealed partial class ProfilesPage : Page, IConfigPageActions
             CloseButtonText = "キャンセル",
             DefaultButton = ContentDialogButton.Close,
         };
+        LocalizationService.Instance.ApplyDialog(dialog);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
         {
             return;

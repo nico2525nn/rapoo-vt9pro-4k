@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { t } from "@/lib/i18n";
 import type { DeviceSnapshot, Preset } from "@/types/rapoo";
 
 interface ProfilesToolsTabProps {
@@ -47,7 +48,7 @@ export function ProfilesToolsTab({
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!name.trim()) {
-      toast.error("プロファイル名を入力してください");
+      toast.error(t("Enter a preset name"));
       return;
     }
     setSaving(true);
@@ -66,22 +67,22 @@ export function ProfilesToolsTab({
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader className="items-center">
-          <CardTitle>プリセット</CardTitle>
+          <CardTitle>{t("Presets")}</CardTitle>
           <CardAction>
             <Button variant="outline" disabled={!snapshot?.dpi} onClick={() => setSaveOpen(true)}>
-              保存
+              {t("Save")}
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
           {presets.length === 0 ? (
-            <p className="text-sm text-muted-foreground">保存したプリセットはありません。</p>
+            <p className="text-sm text-muted-foreground">{t("No saved presets.")}</p>
           ) : (
             <Table className="table-fixed [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>名前</TableHead>
-                  <TableHead className="w-40 text-right">操作</TableHead>
+                  <TableHead>{t("Name")}</TableHead>
+                  <TableHead className="w-40 text-right">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -98,25 +99,25 @@ export function ProfilesToolsTab({
                           disabled={!writable}
                           onClick={() => void onApplyPreset(preset)}
                         >
-                          適用
+                          {t("Apply")}
                         </Button>
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button variant="outline" size="sm">
-                              削除
+                              {t("Delete")}
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>「{preset.name}」を削除しますか？</AlertDialogTitle>
+                              <AlertDialogTitle>{t("Delete “{name}”?", { name: preset.name })}</AlertDialogTitle>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
-                              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                              <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                               <AlertDialogAction
                                 variant="destructive"
                                 onClick={() => void onDeletePreset(preset.id)}
                               >
-                                削除
+                                {t("Delete")}
                               </AlertDialogAction>
                             </AlertDialogFooter>
                           </AlertDialogContent>
@@ -135,26 +136,26 @@ export function ProfilesToolsTab({
         <DialogContent>
           <form onSubmit={(event) => void handleSave(event)} className="flex flex-col gap-4">
             <DialogHeader>
-              <DialogTitle>プリセットを保存</DialogTitle>
+              <DialogTitle>{t("Save preset")}</DialogTitle>
             </DialogHeader>
             <div className="flex flex-col gap-2">
               <label htmlFor="preset-name" className="text-sm font-medium">
-                名前
+                {t("Name")}
               </label>
               <Input
                 id="preset-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="例: FPS 800 DPI"
+                placeholder="e.g. FPS 800 DPI"
                 autoFocus
               />
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setSaveOpen(false)}>
-                キャンセル
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={saving}>
-                保存
+                {t("Save")}
               </Button>
             </DialogFooter>
           </form>

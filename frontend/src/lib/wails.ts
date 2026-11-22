@@ -1,4 +1,5 @@
 import { estimateBatteryHours, normalizeDpi } from "@/lib/utils";
+import { t } from "@/lib/i18n";
 import type {
   AppPreferences,
   ButtonAction,
@@ -38,6 +39,7 @@ interface WailsAppBindings {
   SavePresetFile(id: string, suggestedName: string): Promise<string>;
   ImportPresetJSON(rawJson: string): Promise<Preset>;
   GetAppPreferences(): Promise<AppPreferences>;
+  SetLanguage(language: string): Promise<AppPreferences>;
   SetCloseToTray(enabled: boolean): Promise<AppPreferences>;
   SetAutoStart(enabled: boolean): Promise<AppPreferences>;
   SetWindowTheme(dark: boolean): Promise<void>;
@@ -227,7 +229,7 @@ function makeDefaultSnapshot(): DeviceSnapshot {
   ];
   return {
     model: {
-      name: "Rapoo VT9 Pro 4K (デモ)",
+      name: t("Rapoo VT9 Pro 4K (Demo)"),
       vendorId: 0x24ae,
       productId: 0x1211,
       connection: "wireless_4k",
@@ -294,6 +296,7 @@ class FallbackSimulator {
     closeToTray: true,
     autoStart: false,
     platform: "windows",
+    language: "en",
   };
   private presets: Preset[] = [];
 
@@ -378,10 +381,10 @@ class FallbackSimulator {
 
   private assertWritable() {
     if (this.mode === "passive_only") {
-      throw new Error("ゲーム中ロック (完全受動モード) が有効なため設定を変更できません。上部のロックを解除してください。");
+      throw new Error(t("Game lock (full passive mode) is enabled, so settings cannot be changed. Unlock it at the top of the window."));
     }
     if (!this.demoMode) {
-      throw new Error("Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。");
+      throw new Error(t("Rapoo VT9 Pro 4K (4K receiver or USB cable) was not found."));
     }
   }
 
@@ -394,7 +397,7 @@ class FallbackSimulator {
 
   readSnapshot(): DeviceSnapshot {
     if (!this.demoMode) {
-      throw new Error("Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。");
+      throw new Error(t("Rapoo VT9 Pro 4K (4K receiver or USB cable) was not found."));
     }
     return structuredClone(this.snap);
   }
@@ -406,7 +409,7 @@ class FallbackSimulator {
     }
     this.publishAll();
     if (!enabled) {
-      throw new Error("Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。");
+      throw new Error(t("Rapoo VT9 Pro 4K (4K receiver or USB cable) was not found."));
     }
     return structuredClone(this.snap);
   }
@@ -510,7 +513,7 @@ class FallbackSimulator {
     const hasLeft = next.some((b) => b.slot.clickable && b.action.type === "left_click");
     if (!hasLeft) {
       throw new Error(
-        "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
+        t("To prevent an unusable mouse, at least one physical button must keep Left Click. First assign Left Click to another button.")
       );
     }
     this.snap.buttons = next;
@@ -537,7 +540,7 @@ class FallbackSimulator {
   }
 
   savePreset(id: string, name: string, _description: string): Preset {
-    if (!name.trim()) throw new Error("プロファイル名を入力してください");
+    if (!name.trim()) throw new Error(t("Enter a preset name"));
     const sc = this.snap.sensor!;
     const now = new Date().toISOString();
     const pid = id ? id : `preset-${Date.now()}`;
@@ -571,7 +574,7 @@ class FallbackSimulator {
   applyPreset(id: string): DeviceSnapshot {
     this.assertWritable();
     const p = this.presets.find((x) => x.id === id);
-    if (!p) throw new Error("指定されたプロファイルが見つかりません");
+    if (!p) throw new Error(t("The selected preset was not found."));
     const maxRate = this.snap.model.maxRateHz || 4000;
     this.setPollingRate(Math.min(p.pollingHz, maxRate));
     this.setDPIConfig(p.dpi);
@@ -589,20 +592,20 @@ class FallbackSimulator {
 
   exportPresetJson(id: string): string {
     const p = this.presets.find((x) => x.id === id);
-    if (!p) throw new Error("指定されたプロファイルが見つかりません");
+    if (!p) throw new Error(t("The selected preset was not found."));
     return JSON.stringify(p, null, 2);
   }
 
   importPresetJson(rawJson: string): Preset {
     const parsed = JSON.parse(rawJson) as Preset;
-    if (!parsed.name?.trim()) throw new Error("プロファイル名が含まれていません");
+    if (!parsed.name?.trim()) throw new Error(t("The preset name is missing."));
     if (!parsed.dpi || parsed.dpi.stageCount < 1 || parsed.dpi.stageCount > 7) {
-      throw new Error("DPIステージ数が不正です");
+      throw new Error(t("Invalid DPI stage count."));
     }
     if (parsed.buttons?.length) {
       const hasLeft = parsed.buttons.some((b) => b.slot.clickable && b.action.type === "left_click");
       if (!hasLeft) {
-        throw new Error("左クリックが1つも割り当てられていないプロファイルはインポートできません");
+        throw new Error(t("Cannot import a preset with no Left Click assignment."));
       }
     }
     const now = new Date().toISOString();
@@ -617,6 +620,11 @@ class FallbackSimulator {
   }
 
   getPrefs(): AppPreferences {
+    return { ...this.prefs };
+  }
+
+  setLanguage(language: string): AppPreferences {
+    this.prefs.language = language === "ja" ? "ja" : "en";
     return { ...this.prefs };
   }
 
@@ -804,6 +812,14 @@ export const rapooApi = {
     const app = getWailsApp();
     return app ? app.GetAppPreferences() : fallbackSim.getPrefs();
   },
+  async setLanguage(language: string): Promise<AppPreferences> {
+    const app = getWailsApp();
+    try {
+      return app ? await app.SetLanguage(language) : fallbackSim.setLanguage(language);
+    } catch (e) {
+      throw unwrapError(e);
+    }
+  },
   async setCloseToTray(enabled: boolean): Promise<AppPreferences> {
     const app = getWailsApp();
     try {
@@ -833,7 +849,7 @@ export const rapooApi = {
   async openFirmwareUpdater(): Promise<string> {
     const app = getWailsApp();
     if (!app?.OpenFirmwareUpdater) {
-      throw new Error("ファームウェア更新はWindows版の公式ソフトでのみ利用できます");
+      throw new Error(t("Firmware updates are only available in the official Windows software."));
     }
     try {
       return await app.OpenFirmwareUpdater();

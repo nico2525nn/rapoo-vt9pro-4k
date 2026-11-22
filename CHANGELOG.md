@@ -1,41 +1,49 @@
 # Changelog
 
+## v1.1.0 — 2026-11-22
+
+### Added
+
+- English is the default UI language; Japanese is available in Settings → Language
+- `RAPOO_LANG=en|ja` environment variable support for both UIs and the WinUI sidecar
+- Language preference persistence
+
+### Changed
+
+- README, changelog, and release notes are now in English
+- Version bumped to 1.1.0
+
 ## v1.0.0 — 2026-11-22
 
-### 追加
+### Added
 
-- WinUI 3 ネイティブアプリ（`winui/RapooControl`）を追加
-  - Go 製 `rapoo-bridge` sidecar 経由で実機の HID を操作
-  - 概要 / DPI / センサー / ボタン / プロファイル / 設定の全ページ
-  - 10ボタンの変更、キーボード割り当て、左クリック保護
-  - プロファイルの保存・適用・削除
-  - ファームウェア表示と公式アップデータ起動（本アプリは書き込まない）
-  - 0-TX（完全受動）モード、デモモード、工場出荷時リセット
-  - サイドバー右下のアイコンのみの「再読み込み」「適用」に操作を統一
-  - 配布用は `RapooControl.exe` 1ファイル。HID sidecar を exe に埋め込み、初回起動時に `%LOCALAPPDATA%` へ展開
-- Wails 版の配色を WinUI 3 の実測トークンに統一
-  - ダーク: `#202020` / `#272727` / `#323232`
-  - ライト: `#F3F3F3` / `#F9F9F9` / `#FFFFFF`
-  - スイッチとフォーカスに WinUI アクセント色を使用
-- `rapoo-bridge-v1.0.0-windows-amd64.exe` を単体配布
+- Native WinUI 3 app (`winui/RapooControl`) backed by the Go `rapoo-bridge` sidecar
+  - Overview, DPI, sensor, buttons, profiles, and settings pages
+  - 10-button remapping, keyboard assignments, and left-click protection
+  - Profile save / apply / delete
+  - Firmware version display and official updater launch (this app never flashes)
+  - 0-TX (passive) mode, demo mode, factory reset
+  - Icon-only Reload/Apply actions at the bottom-right of the sidebar
+- Single-file WinUI distribution: the sidecar is embedded and extracted to `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` on first launch
+- Wails palette aligned with WinUI 3 in dark and light themes
+- `rapoo-bridge` sidecar package
 
-### 修正
+### Fixed
 
-- Windows HID の Close 時に進行中 I/O の完了を待機
-- Linux HID の `HIDIOCGINPUT` 不正長をエラー化し、不要な write フォールバックを停止
-- Linux の物理デバイス ID でコマンド / 通知コレクションをペアリング
-- 0-TX 切替時に既存 HID クライアントを同期的にクローズ
-- ポーリングモードを保存し、起動直後の HID オープン前から適用
-- 公式アップデータ起動中は HID を完全受動にし、終了後に元のモードへ復帰
-- ボタン書き込みの 10 スロット検証、左クリック保護、読み戻し検証を強化
-- プリセットの事前検証、原子的保存、読み込み失敗の通知を追加
-- プリセットに LED 省電力設定を保存
-- WinUI のサイドバー余白・ページ余白・フッター位置を実測して調整
+- Windows HID close now waits for in-flight I/O
+- Linux HID rejects invalid `HIDIOCGINPUT` lengths and only falls back on `ENOTTY`
+- Linux command/report collections pair by physical device ID
+- 0-TX closes the active HID client synchronously
+- Polling mode is persisted and applied before the first HID open
+- The official updater runs with HID in passive mode and restores the previous mode
+- Button writes validate all 10 slots, protect left click, and read back
+- Presets are validated before apply, saved atomically, and report load errors
+- Presets persist the LED low-power setting
 
-### 既知の制限
+### Known limitations
 
-- WinUI 版と Wails 版 / トレイは同時に HID を開けません。どちらか一方だけ起動してください。
-- WinUI 版は unpackaged アプリです。配布用 exe は1ファイルですが、初回起動時に sidecar を `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` へ展開します。
-- Linux の hidraw 複数コレクション構成には未対応の環境があります。
-- 公式アップデートサーバーの署名パラメータは未解明です。更新確認は公式ソフトで行ってください。
-- マクロ機能はありません。マウス本体のオンボード領域にはボタンごとの単一アクション（4 バイト）のみ保存できます。
+- WinUI and Wails/tray cannot own HID at the same time.
+- WinUI is unpackaged; the single-file executable extracts the sidecar on first launch.
+- Some Linux hidraw multi-collection layouts are not supported.
+- The official update server signature parameters are not known; use the official software.
+- Macros are not supported. The onboard memory stores one 4-byte action per button.

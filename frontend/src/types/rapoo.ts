@@ -215,4 +215,5 @@ export interface AppPreferences {
   closeToTray: boolean;
   autoStart: boolean;
   platform: string;
+  language?: string;
 }

@@ -37,7 +37,7 @@ public sealed class MainViewModel : ObservableObject
 
     public RealRapooService? DeviceService => _service as RealRapooService;
 
-    public string DeviceName => _status.DeviceName;
+    public string DeviceName => LocalizationService.Instance.T(_status.DeviceName);
 
     public string FirmwareText => IsConnected ? _status.Firmware : "—";
 
@@ -53,17 +53,19 @@ public sealed class MainViewModel : ObservableObject
 
     public string ConnectionMessage => _status switch
     {
-        _ when !IsConnected => "マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。",
-        { MouseOnline: false } => "マウスがスリープ中です。マウスを動かして復帰させてください。",
-        { IsMock: true } => "モックデータを表示しています。",
+        _ when !IsConnected => LocalizationService.Instance.T("マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。"),
+        { MouseOnline: false } => LocalizationService.Instance.T("マウスがスリープ中です。マウスを動かして復帰させてください。"),
+        { IsMock: true } => LocalizationService.Instance.T("モックデータを表示しています。"),
         _ => string.Empty,
     };
 
     public bool HasConnectionMessage => ConnectionMessage.Length > 0;
 
     public string SettingsNotice => DeviceService is null
-        ? "このページの設定は実機またはデモモードで利用できます。"
-        : IsPassive ? "0-TX モード中です。変更するには「設定」で通常に戻してください。" : ConnectionMessage;
+        ? LocalizationService.Instance.T("このページの設定は実機またはデモモードで利用できます。")
+        : IsPassive
+            ? LocalizationService.Instance.T("0-TX モード中です。変更するには「設定」で通常に戻してください。")
+            : ConnectionMessage;
 
     public string DpiNotice => DeviceService is null ? ConnectionMessage : SettingsNotice;
 
@@ -91,10 +93,21 @@ public sealed class MainViewModel : ObservableObject
         ApplyStatus(status);
     }
 
+    public void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(DeviceName));
+        OnPropertyChanged(nameof(ConnectionMessage));
+        OnPropertyChanged(nameof(HasConnectionMessage));
+        OnPropertyChanged(nameof(SettingsNotice));
+        OnPropertyChanged(nameof(DpiNotice));
+        OnPropertyChanged(nameof(HasDpiNotice));
+        Dpi.RefreshLocalization();
+    }
+
     public void SetError(string message)
     {
         _hasError = true;
-        _errorMessage = message;
+        _errorMessage = LocalizationService.Instance.Error(message);
         OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(ErrorMessage));
     }

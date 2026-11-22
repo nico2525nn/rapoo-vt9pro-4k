@@ -1,5 +1,6 @@
 import { toast } from "sonner";
 import { SettingRow } from "@/components/SettingRow";
+import { t, type Language } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,8 @@ interface SettingsTabProps {
   busy: boolean;
   darkMode: boolean;
   onChangeTheme: (dark: boolean) => void;
+  language: Language;
+  onChangeLanguage: (language: Language) => void;
   onSetPollingMode: (mode: PollingMode) => Promise<void>;
   onToggleDemoMode: (enabled: boolean) => void;
   onUpdateCloseToTray: (enabled: boolean) => Promise<void>;
@@ -45,6 +48,8 @@ export function SettingsTab({
   busy,
   darkMode,
   onChangeTheme,
+  language,
+  onChangeLanguage,
   onSetPollingMode,
   onToggleDemoMode,
   onUpdateCloseToTray,
@@ -57,9 +62,9 @@ export function SettingsTab({
     if (!catalog?.linuxUdevInstallCmd) return;
     try {
       await navigator.clipboard.writeText(catalog.linuxUdevInstallCmd);
-      toast.success("udev 設定コマンドをコピーしました");
+      toast.success(t("Copied the udev setup command"));
     } catch {
-      toast.error("コピーに失敗しました");
+      toast.error(t("Copy failed"));
     }
   };
 
@@ -70,59 +75,59 @@ export function SettingsTab({
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>デバイス</CardTitle>
+          <CardTitle>{t("Device")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="ファームウェア">{firmware}</SettingRow>
-          <SettingRow label="レシーバーのバージョン">{dongle}</SettingRow>
+          <SettingRow label={t("Firmware")}>{firmware}</SettingRow>
+          <SettingRow label={t("Receiver version")}>{dongle}</SettingRow>
 
           {(catalog?.platform === "linux" || state.permissionDenied) && catalog?.linuxUdevInstallCmd && (
             <div className="flex flex-col gap-2 border-b py-3">
-              <label htmlFor="udev-command" className="text-sm">udev 設定</label>
+              <label htmlFor="udev-command" className="text-sm">{t("udev setup")}</label>
               <div className="flex gap-2">
                 <Input id="udev-command" readOnly value={catalog.linuxUdevInstallCmd} className="min-w-0 font-mono" />
                 <Button variant="outline" onClick={() => void copyUdev()}>
-                  コピー
+                  {t("Copy")}
                 </Button>
               </div>
             </div>
           )}
 
           {state.platform === "windows" && (
-            <SettingRow label="ファームウェア更新">
+            <SettingRow label={t("Firmware update")}>
               <Button variant="outline" size="sm" onClick={() => void onOpenFirmwareUpdater()}>
-                公式ソフトを開く
+                {t("Open official software")}
               </Button>
             </SettingRow>
           )}
 
-          <SettingRow label="マウスの初期化">
+          <SettingRow label={t("Reset mouse")}>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm" disabled={!writable}>
-                  工場出荷時設定に戻す
+                  {t("Restore factory defaults")}
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>マウスを初期化しますか？</AlertDialogTitle>
+                  <AlertDialogTitle>{t("Reset the mouse?")}</AlertDialogTitle>
                   <AlertDialogDescription>
-                    DPI・センサー・ボタン割り当てを含むすべての設定を工場出荷時の状態に戻します。
+                    {t("This restores all settings, including DPI, sensor, and button assignments, to factory defaults.")}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                  <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                   <AlertDialogAction variant="destructive" onClick={() => void onFactoryReset()}>
-                    初期化
+                    {t("Reset")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
           </SettingRow>
 
-          <SettingRow label="デバイス情報">
+          <SettingRow label={t("Device information")}>
             <Button variant="outline" size="sm" disabled={busy} onClick={onRefresh}>
-              再読み込み
+              {t("Reload")}
             </Button>
           </SettingRow>
         </CardContent>
@@ -130,59 +135,71 @@ export function SettingsTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>アプリ</CardTitle>
+          <CardTitle>{t("App")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="バックグラウンド取得" description="読み取り間隔と設定ロック">
+          <SettingRow label={t("Background polling")} description={t("Read interval and configuration lock")}>
             <Select
               value={state.mode}
               onValueChange={(value) => void onSetPollingMode(value as PollingMode)}
             >
-              <SelectTrigger className="w-full" aria-label="バックグラウンド取得">
+              <SelectTrigger className="w-full" aria-label={t("Background polling")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="normal">通常</SelectItem>
-                <SelectItem value="low_freq">省電力</SelectItem>
-                <SelectItem value="passive_only">ゲーム中ロック (0-TX)</SelectItem>
+                <SelectItem value="normal">{t("Normal")}</SelectItem>
+                <SelectItem value="low_freq">{t("Power saving")}</SelectItem>
+                <SelectItem value="passive_only">{t("In-game lock (0-TX)")}</SelectItem>
               </SelectContent>
             </Select>
           </SettingRow>
 
           {prefs?.platform === "windows" && (
             <>
-              <SettingRow label="閉じるボタンでトレイに格納" description="ウィンドウを閉じてもバックグラウンドで実行">
+              <SettingRow label={t("Minimize to tray on close")} description={t("Keeps running in the background when the window is closed")}>
                 <Switch
                   checked={prefs.closeToTray}
                   onCheckedChange={(value) => void onUpdateCloseToTray(value)}
-                  aria-label="閉じるボタンでトレイに格納"
+                  aria-label={t("Minimize to tray on close")}
                 />
               </SettingRow>
-              <SettingRow label="Windows スタートアップ" description="サインイン時に起動">
+              <SettingRow label={t("Windows startup")} description={t("Launch at sign-in")}>
                 <Switch
                   checked={prefs.autoStart}
                   onCheckedChange={(value) => void onUpdateAutoStart(value)}
-                  aria-label="Windows スタートアップ"
+                  aria-label={t("Windows startup")}
                 />
               </SettingRow>
             </>
           )}
 
-          <SettingRow label="外観">
-            <Select value={darkMode ? "dark" : "light"} onValueChange={(value) => onChangeTheme(value === "dark")}>
-              <SelectTrigger className="w-full" aria-label="外観">
+          <SettingRow label={t("Language")}>
+            <Select value={language} onValueChange={(value) => onChangeLanguage(value as Language)}>
+              <SelectTrigger className="w-full" aria-label={t("Language")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="dark">ダーク</SelectItem>
-                <SelectItem value="light">ライト</SelectItem>
+                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="ja">日本語</SelectItem>
               </SelectContent>
             </Select>
           </SettingRow>
 
-          <SettingRow label="デモモード" description="実機を使わずに設定を試す">
+          <SettingRow label={t("Appearance")}>
+            <Select value={darkMode ? "dark" : "light"} onValueChange={(value) => onChangeTheme(value === "dark")}>
+              <SelectTrigger className="w-full" aria-label={t("Appearance")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dark">{t("Dark")}</SelectItem>
+                <SelectItem value="light">{t("Light")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingRow>
+
+          <SettingRow label={t("Demo mode")} description={t("Try settings without hardware")}>
             <Button variant="outline" size="sm" disabled={busy} onClick={() => onToggleDemoMode(!state.demoMode)}>
-              {state.demoMode ? "終了" : "開始"}
+              {state.demoMode ? t("Exit") : t("Start")}
             </Button>
           </SettingRow>
         </CardContent>

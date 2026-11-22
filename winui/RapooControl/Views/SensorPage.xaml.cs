@@ -26,6 +26,7 @@ public sealed partial class SensorPage : Page, IConfigPageActions
     public SensorPage()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(this);
         Feedback.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PageFeedback.IsBusy))
@@ -49,6 +50,7 @@ public sealed partial class SensorPage : Page, IConfigPageActions
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        LocalizationService.Instance.Apply(this);
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if (IsDirty || ViewModel.DeviceService is not { } service)

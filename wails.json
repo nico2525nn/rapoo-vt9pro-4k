@@ -12,7 +12,7 @@
   "info": {
     "companyName": "Rapoo Open Tools",
     "productName": "Rapoo Control",
-    "productVersion": "1.0.0",
+    "productVersion": "1.1.0",
     "copyright": "MIT License",
     "comments": "Lightweight, zero-bloat configuration & battery utility for Rapoo VT9 Pro 4K"
   }

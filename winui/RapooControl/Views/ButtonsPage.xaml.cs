@@ -11,10 +11,12 @@ public sealed class ButtonAssignment(BridgeButtonSlot slot, BridgeButtonAction a
 {
     public BridgeButtonSlot Slot { get; } = slot;
     public int Id => Slot.Id;
-    public string Name => Slot.NameJa ?? Slot.NameEn ?? $"ボタン {Id}";
+    public string Name => LocalizationService.Instance.IsJapanese
+        ? Slot.NameJa ?? Slot.NameEn ?? LocalizationService.Instance.Format("ボタン {0}", Id)
+        : Slot.NameEn ?? Slot.NameJa ?? LocalizationService.Instance.Format("ボタン {0}", Id);
     public BridgeButtonAction Action { get; } = action;
-    public string ActionLabel => Action.LabelJa ?? Action.Type ?? "—";
-    public string EditLabel => $"{Name}を変更";
+    public string ActionLabel => LocalizationService.Instance.ActionLabel(Action);
+    public string EditLabel => LocalizationService.Instance.Format("{0}を変更", Name);
 }
 
 public sealed partial class ButtonsPage : Page, IConfigPageActions
@@ -70,6 +72,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
     public ButtonsPage()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(this);
         Feedback.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PageFeedback.IsBusy))
@@ -228,17 +231,23 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
         }
 
         var current = assignment.Action;
+        var localizedActions = Actions
+            .Select(option => new ActionOption(option.Type, LocalizationService.Instance.T(option.Label)))
+            .ToArray();
         var actions = new ComboBox
         {
             Header = "アクション",
             PlaceholderText = "アクションを選択",
             HorizontalAlignment = HorizontalAlignment.Stretch,
-            ItemsSource = Actions,
+            ItemsSource = localizedActions,
             DisplayMemberPath = nameof(ActionOption.Label),
-            SelectedItem = Actions.FirstOrDefault(action => action.Type == current.Type),
+            SelectedItem = localizedActions.FirstOrDefault(action => action.Type == current.Type),
         };
 
-        var availableKeys = new List<BridgeKey> { new() { Name = "なし（修飾キーのみ）" } };
+        var availableKeys = new List<BridgeKey>
+        {
+            new() { Name = LocalizationService.Instance.T("なし（修飾キーのみ）") },
+        };
         availableKeys.AddRange(_keys);
         if (current.KeyCode != 0 && !availableKeys.Any(key => key.Code == current.KeyCode))
         {
@@ -268,6 +277,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
             PrimaryButtonText = "保存",
             CloseButtonText = "キャンセル",
         };
+        LocalizationService.Instance.ApplyDialog(dialog);
 
         bool HasModifier() => ctrl.IsChecked == true || shift.IsChecked == true || alt.IsChecked == true || win.IsChecked == true;
 
@@ -313,7 +323,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
             if (action.Modifiers.Alt) { parts.Add("Alt"); }
             if (action.Modifiers.Meta) { parts.Add("Win"); }
             if (key is { Code: > 0 }) { parts.Add(key.Name); }
-            action.LabelJa = $"キー: {string.Join(" + ", parts)}";
+            action.LabelJa = string.Join(" + ", parts);
         }
 
         var saved = _saved.First(mapping => mapping.Id == assignment.Id).Action;

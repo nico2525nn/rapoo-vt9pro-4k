@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { Cpu, Crosshair, FolderOpen, Mouse, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { t } from "@/lib/i18n";
 import { windowApi } from "@/lib/wails";
 import type { DeviceSnapshot, ServiceState } from "@/types/rapoo";
 
@@ -15,10 +16,10 @@ interface AppSidebarProps {
 
 export const NAV_ITEMS = [
   { value: "dpi", label: "DPI", icon: Crosshair },
-  { value: "sensor", label: "センサー", icon: Cpu },
-  { value: "buttons", label: "ボタン", icon: Mouse },
-  { value: "profiles", label: "プロファイル", icon: FolderOpen },
-  { value: "settings", label: "設定", icon: Settings },
+  { value: "sensor", label: "Sensor", icon: Cpu },
+  { value: "buttons", label: "Buttons", icon: Mouse },
+  { value: "profiles", label: "Profiles", icon: FolderOpen },
+  { value: "settings", label: "Settings", icon: Settings },
 ] as const;
 
 export type Page = (typeof NAV_ITEMS)[number]["value"];
@@ -26,9 +27,9 @@ export type Page = (typeof NAV_ITEMS)[number]["value"];
 const number = new Intl.NumberFormat("ja-JP");
 
 function connectionLabel(state: ServiceState): string {
-  if (!state.connected) return "未接続";
-  if (state.demoMode) return "デモ";
-  if (state.sleeping) return "スリープ";
+  if (!state.connected) return t("Disconnected");
+  if (state.demoMode) return t("Demo");
+  if (state.sleeping) return t("Sleeping");
   return state.connection === "wired" ? "USB-C" : "4K";
 }
 
@@ -64,7 +65,7 @@ export function AppSidebar({ state, snapshot, activeTab, onNavigate }: AppSideba
         <p className="truncate text-sm font-semibold">Rapoo Control</p>
       </div>
 
-      <nav aria-label="メインメニュー" className="flex flex-1 flex-col gap-1 pt-3">
+      <nav aria-label={t("Main menu")} className="flex flex-1 flex-col gap-1 pt-3">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.value;
@@ -78,7 +79,7 @@ export function AppSidebar({ state, snapshot, activeTab, onNavigate }: AppSideba
               className="h-10 w-full justify-start gap-3 px-3 font-normal text-sidebar-foreground hover:bg-sidebar-accent aria-[current=page]:bg-sidebar-accent motion-reduce:transition-none"
             >
               <Icon aria-hidden="true" />
-              {item.label}
+              {t(item.label)}
             </Button>
           );
         })}

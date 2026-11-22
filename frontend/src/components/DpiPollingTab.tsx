@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { getLanguage, t } from "@/lib/i18n";
 import { normalizeDpi } from "@/lib/utils";
 import type { DeviceSnapshot, DPIConfig, DPIStage } from "@/types/rapoo";
 
@@ -37,6 +38,7 @@ export function DpiPollingTab({
   onChangePollingRate,
 }: DpiPollingTabProps) {
   const { dpi, sensor, model } = snapshot;
+  const locale = getLanguage() === "ja" ? "ja-JP" : "en-US";
   const [stages, setStages] = useState<DPIStage[]>(dpi ? allStagesFrom(dpi) : []);
   const [stageCount, setStageCount] = useState<number>(dpi?.stageCount ?? 1);
   const [currentStage, setCurrentStage] = useState<number>(dpi?.currentStage ?? 1);
@@ -125,21 +127,21 @@ export function DpiPollingTab({
       <Card>
         <CardContent>
           <SettingRow
-            label="ポーリングレート"
-            description={model.maxRateHz < 4000 ? `この接続では最大 ${model.maxRateHz.toLocaleString("ja-JP")} Hz` : undefined}
+            label={t("Polling rate")}
+            description={model.maxRateHz < 4000 ? t("Up to {hz} Hz on this connection", { hz: model.maxRateHz.toLocaleString(locale) }) : undefined}
           >
             <Select
               value={String(sensor.pollingRateHz)}
               onValueChange={(value) => void onChangePollingRate(Number(value))}
               disabled={!writable}
             >
-              <SelectTrigger className="w-full" aria-label="ポーリングレート">
+              <SelectTrigger className="w-full" aria-label={t("Polling rate")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {pollingRates.map((hz) => (
                   <SelectItem key={hz} value={String(hz)} disabled={hz > model.maxRateHz}>
-                    {hz.toLocaleString("ja-JP")} Hz
+                    {hz.toLocaleString(locale)} Hz
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -149,14 +151,14 @@ export function DpiPollingTab({
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle>ステージ</CardTitle>
+          <CardTitle>{t("Stages")}</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="grid gap-4 @min-[28rem]:grid-cols-3">
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium">ステージ数</span>
+              <span className="text-sm font-medium">{t("Stage count")}</span>
               <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable}>
-                <SelectTrigger className="w-full" aria-label="ステージ数">
+                <SelectTrigger className="w-full" aria-label={t("Stage count")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -170,15 +172,15 @@ export function DpiPollingTab({
             </div>
 
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium">使用ステージ</span>
+              <span className="text-sm font-medium">{t("Active stage")}</span>
               <Select value={String(currentStage)} onValueChange={changeCurrentStage} disabled={!writable}>
-                <SelectTrigger className="w-full" aria-label="使用ステージ">
+                <SelectTrigger className="w-full" aria-label={t("Active stage")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {Array.from({ length: stageCount }, (_, i) => i + 1).map((stage) => (
                     <SelectItem key={stage} value={String(stage)}>
-                      Stage {stage}
+                      {t("Stage {stage}", { stage })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -186,13 +188,13 @@ export function DpiPollingTab({
             </div>
 
             <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium">X/Y 独立</span>
+              <span className="text-sm font-medium">{t("Independent X/Y")}</span>
               <div className="flex h-8 items-center">
                 <Switch
                   checked={independentXY}
                   onCheckedChange={changeIndependentXY}
                   disabled={!writable}
-                  aria-label="X/Y 独立"
+                  aria-label={t("Independent X/Y")}
                 />
               </div>
             </div>
@@ -201,7 +203,7 @@ export function DpiPollingTab({
           <Table className="[&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="w-28">ステージ</TableHead>
+                <TableHead className="w-28">{t("Stage")}</TableHead>
                 <TableHead>X (DPI)</TableHead>
                 {independentXY && <TableHead>Y (DPI)</TableHead>}
               </TableRow>
@@ -209,7 +211,7 @@ export function DpiPollingTab({
             <TableBody>
               {stages.slice(0, stageCount).map((stage) => (
                 <TableRow key={stage.index}>
-                  <TableCell className="font-medium">Stage {stage.index}</TableCell>
+                  <TableCell className="font-medium">{t("Stage {stage}", { stage: stage.index })}</TableCell>
                   <TableCell>
                     <Input
                       type="number"
@@ -217,7 +219,7 @@ export function DpiPollingTab({
                       max={26000}
                       step={50}
                       value={stage.x}
-                      aria-label={`Stage ${stage.index} X`}
+                      aria-label={t("Stage {stage} X", { stage: stage.index })}
                       disabled={!writable}
                       onChange={(event) =>
                         setStages((prev) =>
@@ -241,7 +243,7 @@ export function DpiPollingTab({
                         max={26000}
                         step={50}
                         value={stage.y}
-                        aria-label={`Stage ${stage.index} Y`}
+                        aria-label={t("Stage {stage} Y", { stage: stage.index })}
                         disabled={!writable}
                         onChange={(event) =>
                           setStages((prev) =>

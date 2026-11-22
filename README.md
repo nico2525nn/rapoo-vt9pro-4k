@@ -1,89 +1,99 @@
 # Rapoo VT9 Pro 4K
 
-Rapoo VT9 Pro 4K 用の Windows ツールと HID プロトコル実装。
+Windows tools and a HID protocol implementation for the Rapoo VT9 Pro 4K.
 
-## ダウンロード
+## Download
 
 [Releases](https://github.com/nico2525nn/rapoo-vt9pro-4k/releases)
 
-- `rapoo-control-v1.0.0-windows-amd64.exe` — Wails 設定アプリ（Windows）
-- `rapoo-control-v1.0.0-linux-amd64` — Wails 設定アプリ（Linux）
-- `rapoo-control-winui-v1.0.0-windows-amd64.exe` — WinUI 3 ネイティブアプリ（Windows、1ファイル）
-- `vt9tray-v1.0.0-windows-amd64.exe` — タスクトレイ電池表示
-- `vt9ctl-v1.0.0-windows-amd64.exe` / `vt9ctl-v1.0.0-linux-amd64` — CLI
-- `rapoo-bridge-v1.0.0-windows-amd64.exe` — WinUI 用 HID sidecar（単体）
+- `rapoo-control-winui-v1.1.0-windows-amd64.exe` — native WinUI 3 app (Windows, single file)
+- `rapoo-control-v1.1.0-windows-amd64.exe` — Wails app (Windows)
+- `rapoo-control-v1.1.0-linux-amd64` — Wails app (Linux)
+- `vt9tray-v1.1.0-windows-amd64.exe` — battery tray app
+- `vt9ctl-v1.1.0-windows-amd64.exe` / `vt9ctl-v1.1.0-linux-amd64` — CLI
+- `checksums.txt` — SHA256 checksums
 
-## 使い方
+## Usage
 
-- `vt9tray.exe`: 起動するだけ。右クリックで更新モードと終了。
-- `rapoo-control.exe`: 左サイドバーから DPI、センサー、ボタン、プロファイル、設定を変更。
-- `vt9ctl.exe`: `list` / `battery` / `info` / `watch`
+- `vt9tray.exe`: run it. Right-click for polling mode and exit.
+- `rapoo-control.exe`: configure DPI, sensor, buttons, profiles, and app settings from the sidebar.
+- `vt9ctl.exe`: `list`, `battery`, `info`, `watch`.
 
-対応機能: DPI、ポーリングレート、LOD、Motion Sync、デバウンス、10ボタン、プリセット、ゲーム中ロック (0-TX)、デモモード。
+Features: DPI, polling rate, lift-off distance, Motion Sync, debounce, 10 buttons, profiles, 0-TX (gaming lock), and demo mode.
 
-### WinUI 3 版
+### WinUI 3 app
 
-`rapoo-control-winui-v1.0.0-windows-amd64.exe` を起動するだけです。HID sidecar は exe に埋め込まれており、初回起動時に `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` へ展開されます。追加ファイルは不要です。
+Run `rapoo-control-winui-v1.1.0-windows-amd64.exe`. It is a single file; the Go HID sidecar is embedded and extracted to `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` on first launch.
 
-- 全ページが実機の設定を読み書きします（DPI、センサー、10ボタン、プロファイル、設定）。
-- ファームウェア更新は表示のみで、公式 Rapoo ソフトの起動だけを行います。本アプリは書き込みません。
-- WinUI 版はサイドバー右下の「再読み込み」「適用」で変更をまとめて反映します。
-- HID を開けるのは 1 プロセスだけです。WinUI 版と Wails 版 / トレイを同時に起動しないでください。
+- All pages read and write the device: DPI, sensor, 10 buttons, profiles, settings.
+- Firmware update is read-only in this app. It launches the official Rapoo software and never flashes firmware itself.
+- Use the icon-only Reload and Apply buttons at the bottom-right of the sidebar to apply staged changes.
+- Only one process can own the HID handle. Do not run the WinUI app and the Wails app/tray at the same time.
+
+## Language
+
+English is the default. Change the language in Settings → Language: **English** or **日本語**.
+
+To set it globally before launch:
+
+```bat
+setx RAPOO_LANG en
+setx RAPOO_LANG ja
+```
+
+The setting is stored in the app preferences. `RAPOO_LANG` is also passed to the WinUI sidecar.
 
 ## UI
 
-- Linux / Windows Wails UI: React 19 + Tailwind CSS v4 + 現行 shadcn/ui
-- Windows ネイティブ: `winui/RapooControl`（WinUI 3 / Windows App SDK、Go sidecar 経由で実機接続）
+- Linux / Windows Wails UI: React 19 + Tailwind CSS v4 + current shadcn/ui
+- Windows native: `winui/RapooControl` (WinUI 3 / Windows App SDK, real device access via the Go sidecar)
 
-Wails と WinUI は同じ WinUI 3 の配色トークン（背景・コンテンツ・カード・アクセント）を使用します。
+Both UIs use the WinUI 3 color tokens for surfaces, cards, text, and accent states.
 
-## ビルド
+## Build
 
 ```bash
 go test ./...
 
-# Windows トレイ / CLI
+# Windows tray / CLI
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-H=windowsgui -s -w" -o dist/vt9tray.exe ./cmd/vt9tray
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/vt9ctl.exe ./cmd/vt9ctl
 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/vt9ctl ./cmd/vt9ctl
 
-# WinUI 用 sidecar
+# WinUI sidecar
 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o build/bin/rapoo-bridge.exe ./cmd/rapoo-bridge
 
-# Wails アプリ
+# Wails app
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.1
 wails build -platform windows/amd64
 wails build -platform linux/amd64 -tags webkit2_41
 
-# フロントエンド
+# Frontend
 cd frontend && npm ci && npm test && npm run build
 
-# WinUI 3（Windows + .NET 9 SDK）
-# 通常の開発ビルド
+# WinUI 3 (Windows + .NET 9 SDK)
 dotnet build winui/RapooControl/RapooControl.csproj -c Release -p:Platform=x64
 
-# 配布用 1ファイル（sidecar を埋め込み）
+# Single-file WinUI release (embeds the sidecar)
 dotnet publish winui/RapooControl/RapooControl.csproj -c Release -p:Platform=x64 -p:PublishSingleFile=true -p:RapooBridgePath=C:\path\to\rapoo-bridge.exe -o dist/winui
 ```
 
-`RapooControl.csproj` は `build/bin/rapoo-bridge.exe` が存在する場合、開発ビルド出力へコピーします。配布用 1ファイルでは `RapooBridgePath` の sidecar を exe に埋め込みます。
+## Troubleshooting
 
-## トラブル時
-
-- 認識しない: 4K レシーバーまたは USB-C ケーブルを確認する。
-- 設定を変更できない: ゲーム中ロック (0-TX) を解除する。
-- Linux で権限エラー: hidraw の udev ルールを設定する。
+- Not detected: check the 4K receiver or the USB-C cable.
+- Cannot change settings: disable 0-TX (gaming lock).
+- Linux permission error: install the hidraw udev rule.
 
   ```udev
   SUBSYSTEM=="hidraw", ATTRS{idVendor}=="24ae", MODE="0660", TAG+="uaccess"
   ```
 
-- ファームウェア更新: 本アプリは書き込まない。公式 Rapoo ソフトで実行する。
+- Firmware update: this project never flashes firmware. Use the official Rapoo software.
 
-## プロトコル
+## Protocol
 
 [docs/PROTOCOL.md](docs/PROTOCOL.md)
 
-## ライセンス
+## License
 
 MIT

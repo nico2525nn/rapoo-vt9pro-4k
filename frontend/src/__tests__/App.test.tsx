@@ -2,10 +2,11 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import App from "@/App";
+import { setLanguage } from "@/lib/i18n";
 import { fallbackSim } from "@/lib/wails";
 
 async function enterDemo(user: UserEvent) {
-  await user.click(await screen.findByRole("button", { name: "デモモード" }));
+  await user.click(await screen.findByRole("button", { name: "Demo mode" }));
   expect(await within(screen.getByRole("complementary")).findByText(/82%$/)).toBeInTheDocument();
 }
 
@@ -16,6 +17,7 @@ async function selectOption(user: UserEvent, label: string, option: string) {
 
 describe("Rapoo Control", () => {
   beforeEach(() => {
+    setLanguage("en");
     fallbackSim.resetForTests();
     window.localStorage.clear();
   });
@@ -24,10 +26,10 @@ describe("Rapoo Control", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByText("マウスが接続されていません")).toBeInTheDocument();
+    expect(await screen.findByText("Mouse not connected")).toBeInTheDocument();
     await enterDemo(user);
 
-    expect(within(screen.getByRole("complementary")).getByRole("status")).toHaveTextContent(/^デモ · .* · 82%$/);
+    expect(within(screen.getByRole("complementary")).getByRole("status")).toHaveTextContent(/^Demo · .* · 82%$/);
     expect(screen.getByRole("button", { name: "DPI" })).toBeInTheDocument();
     expect(screen.getByText("Stage 1")).toBeInTheDocument();
   });
@@ -44,10 +46,10 @@ describe("Rapoo Control", () => {
     const sidebar = screen.getByRole("complementary");
     expect(await within(sidebar).findByText(/1,600 DPI/)).toBeInTheDocument();
 
-    await selectOption(user, "ポーリングレート", "4,000 Hz");
+    await selectOption(user, "Polling rate", "4,000 Hz");
     expect(within(sidebar).getByText(/4,000 Hz/)).toBeInTheDocument();
 
-    const axisSwitch = screen.getByRole("switch", { name: "X/Y 独立" });
+    const axisSwitch = screen.getByRole("switch", { name: "Independent X/Y" });
     await user.click(axisSwitch);
     const yInput = await screen.findByLabelText("Stage 2 Y");
     await user.clear(yInput);
@@ -65,18 +67,18 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("button", { name: "センサー" }));
+    await user.click(screen.getByRole("button", { name: "Sensor" }));
 
     const motionSync = screen.getByRole("switch", { name: "Motion Sync" });
     expect(motionSync).toHaveAttribute("data-state", "unchecked");
     await user.click(motionSync);
     expect(motionSync).toHaveAttribute("data-state", "checked");
 
-    await selectOption(user, "押下デバウンス", "1 ms");
-    expect(screen.getByLabelText("押下デバウンス")).toHaveTextContent("1 ms");
+    await selectOption(user, "Press debounce", "1 ms");
+    expect(screen.getByLabelText("Press debounce")).toHaveTextContent("1 ms");
 
-    await selectOption(user, "リフトオフディスタンス", "1.0 mm");
-    expect(screen.getByLabelText("リフトオフディスタンス")).toHaveTextContent("1.0 mm");
+    await selectOption(user, "Lift-off distance", "1.0 mm");
+    expect(screen.getByLabelText("Lift-off distance")).toHaveTextContent("1.0 mm");
   });
 
   it("edits button mappings and protects the last left click", async () => {
@@ -84,23 +86,23 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("button", { name: "ボタン" }));
-    expect(screen.getByText("底面 DIY ボタン")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Buttons" }));
+    expect(screen.getByText("Bottom DIY Button")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "左クリック を変更" }));
+    await user.click(screen.getByRole("button", { name: "Change Left Click" }));
     const guardDialog = await screen.findByRole("dialog");
-    await user.click(within(guardDialog).getByLabelText("動作"));
-    await user.click(await screen.findByRole("option", { name: "無効" }));
-    expect(within(guardDialog).getByText(/左クリックは1つ以上/)).toBeInTheDocument();
-    expect(within(guardDialog).getByRole("button", { name: "保存" })).toBeDisabled();
-    await user.click(within(guardDialog).getByRole("button", { name: "キャンセル" }));
+    await user.click(within(guardDialog).getByLabelText("Action"));
+    await user.click(await screen.findByRole("option", { name: "Disabled" }));
+    expect(within(guardDialog).getByText(/At least one button must keep Left Click/)).toBeInTheDocument();
+    expect(within(guardDialog).getByRole("button", { name: "Save" })).toBeDisabled();
+    await user.click(within(guardDialog).getByRole("button", { name: "Cancel" }));
 
-    await user.click(screen.getByRole("button", { name: "底面 DIY ボタン を変更" }));
+    await user.click(screen.getByRole("button", { name: "Change Bottom DIY Button" }));
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByLabelText("動作"));
-    await user.click(await screen.findByRole("option", { name: "ポーリングレート切替" }));
-    await user.click(within(dialog).getByRole("button", { name: "保存" }));
-    expect(await screen.findByText("ポーリングレート切替")).toBeInTheDocument();
+    await user.click(within(dialog).getByLabelText("Action"));
+    await user.click(await screen.findByRole("option", { name: "Polling rate switch" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Polling rate switch")).toBeInTheDocument();
   });
 
   it("saves presets and locks presets in passive mode", async () => {
@@ -108,25 +110,40 @@ describe("Rapoo Control", () => {
     render(<App />);
     await enterDemo(user);
 
-    await user.click(screen.getByRole("button", { name: "プロファイル" }));
-    expect(screen.getByText("保存したプリセットはありません。")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "適用" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Profiles" }));
+    expect(screen.getByText("No saved presets.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apply" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
     const saveDialog = await screen.findByRole("dialog");
-    await user.type(within(saveDialog).getByLabelText("名前"), "カスタム");
-    await user.click(within(saveDialog).getByRole("button", { name: "保存" }));
-    expect(await screen.findByText("カスタム")).toBeInTheDocument();
+    await user.type(within(saveDialog).getByLabelText("Name"), "Custom");
+    await user.click(within(saveDialog).getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Custom")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "設定" }));
-    await selectOption(user, "バックグラウンド取得", "ゲーム中ロック (0-TX)");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await selectOption(user, "Background polling", "In-game lock (0-TX)");
     expect(within(screen.getByRole("complementary")).getByText(/0-TX/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "プロファイル" }));
-    expect(screen.getByRole("button", { name: "適用" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Profiles" }));
+    expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "設定" }));
-    await selectOption(user, "バックグラウンド取得", "通常");
-    await user.click(screen.getByRole("button", { name: "プロファイル" }));
-    expect(screen.getByRole("button", { name: "適用" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await selectOption(user, "Background polling", "Normal");
+    await user.click(screen.getByRole("button", { name: "Profiles" }));
+    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+  });
+
+  it("switches to Japanese and back from Settings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await enterDemo(user);
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+    await selectOption(user, "Language", "日本語");
+    expect(screen.getByText("デバイス")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ボタン" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "プロファイル" })).toBeInTheDocument();
+
+    await selectOption(user, "言語", "English");
+    expect(screen.getByText("Device")).toBeInTheDocument();
   });
 });

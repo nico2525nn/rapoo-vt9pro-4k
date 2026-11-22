@@ -1,4 +1,5 @@
 using RapooControl.Models;
+using RapooControl.Services;
 
 namespace RapooControl.ViewModels;
 
@@ -12,18 +13,24 @@ public sealed class DpiStageViewModel : ObservableObject
     public DpiStageViewModel(int index, double x, double y)
     {
         Index = index;
-        Label = $"Stage {index}";
         _x = Normalize(x, 800);
         _y = Normalize(y, 800);
     }
 
     public int Index { get; }
 
-    public string Label { get; }
+    public string Label => LocalizationService.Instance.IsJapanese ? $"ステージ {Index}" : $"Stage {Index}";
 
     public string XLabel => $"{Label} X DPI";
 
     public string YLabel => $"{Label} Y DPI";
+
+    internal void RefreshLocalization()
+    {
+        OnPropertyChanged(nameof(Label));
+        OnPropertyChanged(nameof(XLabel));
+        OnPropertyChanged(nameof(YLabel));
+    }
 
     public double X
     {

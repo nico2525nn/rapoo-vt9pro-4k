@@ -39,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getLanguage, t } from "@/lib/i18n";
 import { ACTION_LABEL_MAP } from "@/lib/wails";
 import type {
   ButtonAction,
@@ -58,17 +59,68 @@ interface ButtonsTabProps {
   onResetAllButtons: () => Promise<boolean>;
 }
 
+const ACTION_EN: Record<ButtonActionType, string> = {
+  left_click: "Left Click",
+  right_click: "Right Click",
+  middle_click: "Middle Click",
+  forward: "Forward (Mouse 5)",
+  back: "Back (Mouse 4)",
+  wheel_default: "Standard scroll",
+  fire_triple: "Fire key (3-shot burst)",
+  dpi_plus: "DPI + (raise stage)",
+  dpi_minus: "DPI - (lower stage)",
+  dpi_cycle: "DPI cycle",
+  sniper_dpi: "Sniper button (low DPI while held)",
+  polling_switch: "Polling rate switch",
+  receiver_switch: "Receiver switch",
+  profile_switch: "Onboard profile switch",
+  media_play_pause: "Play / Pause",
+  media_stop: "Stop",
+  media_prev: "Previous track",
+  media_next: "Next track",
+  media_vol_up: "Volume up",
+  media_vol_down: "Volume down",
+  media_mute: "Mute",
+  media_player: "Open media player",
+  app_calculator: "Open calculator",
+  app_explorer: "Open File Explorer",
+  app_mail: "Open mail",
+  keyboard: "Keyboard input",
+  disabled: "Disabled (button off)",
+  unknown: "Custom",
+};
+
+const ACTION_HINT_EN: Partial<Record<ButtonActionType, string>> = {
+  fire_triple: "Three left clicks per press",
+  dpi_cycle: "Cycle through DPI stages",
+  sniper_dpi: "Low DPI only while held",
+  polling_switch: "Cycle the polling rate on each press",
+  receiver_switch: "Switch the receiver target",
+  profile_switch: "Switch onboard profiles",
+};
+
+function actionLabel(action: ButtonAction): string {
+  if (action.type === "keyboard") return action.labelJa;
+  return getLanguage() === "ja"
+    ? (ACTION_LABEL_MAP[action.type]?.labelJa ?? action.labelJa)
+    : (ACTION_EN[action.type] ?? action.labelJa);
+}
+
+function actionText(type: ButtonActionType): string {
+  return getLanguage() === "ja" ? ACTION_LABEL_MAP[type].labelJa : ACTION_EN[type];
+}
+
 const GROUPS: Array<{ label: string; types: ButtonActionType[] }> = [
   {
-    label: "マウス",
+    label: "Mouse",
     types: ["left_click", "right_click", "middle_click", "forward", "back", "wheel_default", "fire_triple"],
   },
   {
-    label: "DPI・ハードウェア",
+    label: "DPI & hardware",
     types: ["dpi_plus", "dpi_minus", "dpi_cycle", "sniper_dpi", "polling_switch", "profile_switch", "receiver_switch"],
   },
   {
-    label: "メディア・アプリ",
+    label: "Media & apps",
     types: [
       "media_play_pause",
       "media_stop",
@@ -94,7 +146,7 @@ function formatCombo(mods: KeyModifiers, keyName: string): string {
   if (mods.alt) parts.push("Alt");
   if (mods.meta) parts.push("Win");
   if (keyName) parts.push(keyName);
-  return parts.length > 0 ? parts.join(" + ") : "未設定";
+  return parts.length > 0 ? parts.join(" + ") : t("Not set");
 }
 
 function hasModifier(mods: KeyModifiers): boolean {
@@ -246,25 +298,25 @@ export function ButtonsTab({
   return (
     <Card>
       <CardHeader className="items-center">
-        <CardTitle>割り当て</CardTitle>
+        <CardTitle>{t("Assignments")}</CardTitle>
         <CardAction>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm" disabled={!writable}>
-                初期化
+                {t("Reset")}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>全ボタンを初期値に戻しますか？</AlertDialogTitle>
+                <AlertDialogTitle>{t("Reset all buttons to defaults?")}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  10箇所のボタン割り当てを工場出荷時の設定に戻します。
+                  {t("This restores all 10 button assignments to their factory defaults.")}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                <AlertDialogCancel>{t("Cancel")}</AlertDialogCancel>
                 <AlertDialogAction variant="destructive" onClick={() => void onResetAllButtons()}>
-                  初期化
+                  {t("Reset")}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -276,25 +328,25 @@ export function ButtonsTab({
         <Table className="[&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:pr-0 [&_td:last-child]:pr-0">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>ボタン</TableHead>
-              <TableHead>割り当て</TableHead>
-              <TableHead className="w-24 text-right">操作</TableHead>
+              <TableHead>{t("Button")}</TableHead>
+              <TableHead>{t("Assignment")}</TableHead>
+              <TableHead className="w-24 text-right">{t("Actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {buttons.map((mapping) => (
               <TableRow key={mapping.slot.id}>
-                <TableCell className="font-medium">{mapping.slot.nameJa}</TableCell>
-                <TableCell>{mapping.action.labelJa}</TableCell>
+                <TableCell className="font-medium">{getLanguage() === "ja" ? mapping.slot.nameJa : mapping.slot.nameEn}</TableCell>
+                <TableCell>{actionLabel(mapping.action)}</TableCell>
                 <TableCell className="text-right">
                   <Button
                     variant="outline"
                     size="sm"
                     disabled={!writable}
-                    aria-label={`${mapping.slot.nameJa} を変更`}
+                    aria-label={t("Change {button}", { button: getLanguage() === "ja" ? mapping.slot.nameJa : mapping.slot.nameEn })}
                     onClick={() => openEditor(mapping)}
                   >
-                    変更
+                    {t("Change")}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -306,12 +358,12 @@ export function ButtonsTab({
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && closeEditor()}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editing?.slot.nameJa}</DialogTitle>
+            <DialogTitle>{editing ? (getLanguage() === "ja" ? editing.slot.nameJa : editing.slot.nameEn) : ""}</DialogTitle>
           </DialogHeader>
 
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">動作</label>
+              <label className="text-sm font-medium">{t("Action")}</label>
               <Select
                 value={actionType}
                 onValueChange={(value) => {
@@ -322,49 +374,49 @@ export function ButtonsTab({
                   }
                 }}
               >
-                <SelectTrigger className="w-full" aria-label="動作">
+                <SelectTrigger className="w-full" aria-label={t("Action")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {GROUPS.map((group) => (
                     <SelectGroup key={group.label}>
-                      <SelectLabel>{group.label}</SelectLabel>
+                      <SelectLabel>{t(group.label)}</SelectLabel>
                       {group.types.map((type) => (
                         <SelectItem key={type} value={type}>
-                          {ACTION_LABEL_MAP[type].labelJa}
+                          {actionText(type)}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   ))}
                   <SelectGroup>
-                    <SelectLabel>その他</SelectLabel>
-                    <SelectItem value="keyboard">キーボード</SelectItem>
-                    <SelectItem value="disabled">無効</SelectItem>
+                    <SelectLabel>{t("Other")}</SelectLabel>
+                    <SelectItem value="keyboard">{t("Keyboard")}</SelectItem>
+                    <SelectItem value="disabled">{t("Disabled")}</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
               {ACTION_LABEL_MAP[actionType]?.hint && (
-                <p className="text-xs text-muted-foreground">{ACTION_LABEL_MAP[actionType].hint}</p>
+                <p className="text-xs text-muted-foreground">{getLanguage() === "ja" ? ACTION_LABEL_MAP[actionType].hint : ACTION_HINT_EN[actionType]}</p>
               )}
             </div>
 
             {actionType === "keyboard" && (
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium">キー</label>
+                <label className="text-sm font-medium">{t("Key")}</label>
                 <Input
                   readOnly
-                  value={capturing ? "キーを押してください..." : formatCombo(mods, keyName)}
-                  aria-label="キー"
+                  value={capturing ? t("Press a key...") : formatCombo(mods, keyName)}
+                  aria-label={t("Key")}
                   className="cursor-pointer"
                   onClick={startCapture}
                 />
                 <p className="text-xs text-muted-foreground">
                   {capturing ? (
                     <>
-                      <Kbd>Esc</Kbd> でキャンセルします。
+                      <Kbd>Esc</Kbd> {t("to cancel.")}
                     </>
                   ) : (
-                    "クリックしてキーを入力します。修飾キー単体も設定できます。"
+                    t("Click and press a key. Modifier-only bindings are also supported.")
                   )}
                 </p>
               </div>
@@ -372,9 +424,9 @@ export function ButtonsTab({
 
             {violatesGuard && (
               <Alert variant="destructive">
-                <AlertTitle>左クリック保護</AlertTitle>
+                <AlertTitle>{t("Left-click protection")}</AlertTitle>
                 <AlertDescription>
-                  左クリックは1つ以上のボタンに残す必要があります。
+                  {t("At least one button must keep Left Click.")}
                 </AlertDescription>
               </Alert>
             )}
@@ -382,10 +434,10 @@ export function ButtonsTab({
 
           <DialogFooter>
             <Button variant="outline" onClick={closeEditor}>
-              キャンセル
+              {t("Cancel")}
             </Button>
             <Button onClick={() => void handleSave()} disabled={saving || violatesGuard || invalidKeyboard}>
-              保存
+              {t("Save")}
             </Button>
           </DialogFooter>
         </DialogContent>

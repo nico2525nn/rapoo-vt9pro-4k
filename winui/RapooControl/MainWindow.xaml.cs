@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using RapooControl.Views;
+using RapooControl.Services;
 
 namespace RapooControl;
 
@@ -13,6 +14,11 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(Content as DependencyObject);
+        if (Content is FrameworkElement root)
+        {
+            root.Loaded += (_, _) => LocalizationService.Instance.Apply(root);
+        }
 
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(WindowDragArea);
@@ -30,6 +36,7 @@ public sealed partial class MainWindow : Window
             _activeActions.ActionsChanged -= PageActionsChanged;
         }
 
+        LocalizationService.Instance.Apply(e.Content as DependencyObject);
         _activeActions = ContentFrame.Content as IConfigPageActions;
         if (_activeActions is not null)
         {

@@ -59,6 +59,20 @@
                     </Grid>
                 </StackPanel>
             </Border>
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="アプリ" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="言語" />
+                        <ComboBox x:Name="LanguageCombo" Grid.Column="1" MinWidth="180" VerticalAlignment="Center"
+                            SelectionChanged="LanguageCombo_SelectionChanged">
+                            <ComboBoxItem Content="English" Tag="en" />
+                            <ComboBoxItem Content="日本語" Tag="ja" />
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

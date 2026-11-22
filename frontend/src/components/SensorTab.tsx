@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { t } from "@/lib/i18n";
 import type { DebounceStep, DeviceSnapshot, SensorPatch } from "@/types/rapoo";
 
 interface SensorTabProps {
@@ -53,16 +54,16 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader>
-          <CardTitle>トラッキング</CardTitle>
+          <CardTitle>{t("Tracking")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="リフトオフディスタンス" description="センサーが反応する高さ">
+          <SettingRow label={t("Lift-off distance")} description={t("Height at which the sensor responds")}>
             <Select
               value={String(sensor.liftOffLevel)}
               onValueChange={(value) => void onUpdateSensor({ liftOffLevel: Number(value) })}
               disabled={!writable}
             >
-              <SelectTrigger className="w-full" aria-label="リフトオフディスタンス">
+              <SelectTrigger className="w-full" aria-label={t("Lift-off distance")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -75,7 +76,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="センサー角度" description="水平軸の補正角度">
+          <SettingRow label={t("Sensor angle")} description={t("Horizontal axis correction angle")}>
             <div className="flex w-full items-center gap-2">
               <Input
                 type="number"
@@ -83,7 +84,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
                 max={30}
                 step={1}
                 value={angle}
-                aria-label="センサー角度"
+                aria-label={t("Sensor angle")}
                 disabled={!writable}
                 onChange={(event) => setAngle(Number(event.target.value))}
                 onBlur={() => void commitAngle()}
@@ -104,7 +105,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </div>
           </SettingRow>
 
-          <SettingRow label="Motion Sync" description="ポーリング周期に同期">
+          <SettingRow label="Motion Sync" description={t("Sync with the polling interval")}>
             <Switch
               checked={sensor.motionSync}
               onCheckedChange={(value) => toggle("motionSync", value)}
@@ -113,30 +114,30 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             />
           </SettingRow>
 
-          <SettingRow label="リップル補正" description="高DPI時の揺れを抑制">
+          <SettingRow label={t("Ripple control")} description={t("Reduces jitter at high DPI")}>
             <Switch
               checked={sensor.rippleControl}
               onCheckedChange={(value) => toggle("rippleControl", value)}
               disabled={!writable}
-              aria-label="リップル補正"
+              aria-label={t("Ripple control")}
             />
           </SettingRow>
 
-          <SettingRow label="直線補正" description="手ぶれを直線に補正">
+          <SettingRow label={t("Linear correction")} description={t("Corrects hand shake into straight lines")}>
             <Switch
               checked={sensor.linearCorrection}
               onCheckedChange={(value) => toggle("linearCorrection", value)}
               disabled={!writable}
-              aria-label="直線補正"
+              aria-label={t("Linear correction")}
             />
           </SettingRow>
 
-          <SettingRow label="ガラス面モード" description="ガラス面での追従を改善">
+          <SettingRow label={t("Glass surface mode")} description={t("Improves tracking on glass")}>
             <Switch
               checked={sensor.glassMode}
               onCheckedChange={(value) => toggle("glassMode", value)}
               disabled={!writable}
-              aria-label="ガラス面モード"
+              aria-label={t("Glass surface mode")}
             />
           </SettingRow>
 
@@ -145,10 +146,10 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
 
       <Card>
         <CardHeader>
-          <CardTitle>スイッチと電源</CardTitle>
+          <CardTitle>{t("Switches & power")}</CardTitle>
         </CardHeader>
         <CardContent>
-          <SettingRow label="押下デバウンス" description="押した時のチャタリング防止">
+          <SettingRow label={t("Press debounce")} description={t("Prevents chatter when pressing")}>
             <Select
               value={String(
                 debounceSteps.find((step) => selectedDebounce(step, true))?.index ?? sensor.pressDebounceStep
@@ -159,7 +160,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               }}
               disabled={!writable}
             >
-              <SelectTrigger className="w-full" aria-label="押下デバウンス">
+              <SelectTrigger className="w-full" aria-label={t("Press debounce")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -172,7 +173,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="解放デバウンス" description="離した時のチャタリング防止">
+          <SettingRow label={t("Release debounce")} description={t("Prevents chatter when releasing")}>
             <Select
               value={String(
                 debounceSteps.find((step) => selectedDebounce(step, false))?.index ?? sensor.releaseDebounceStep
@@ -183,7 +184,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               }}
               disabled={!writable}
             >
-              <SelectTrigger className="w-full" aria-label="解放デバウンス">
+              <SelectTrigger className="w-full" aria-label={t("Release debounce")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -196,31 +197,31 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
             </Select>
           </SettingRow>
 
-          <SettingRow label="スリープ時間" description="無操作時のスリープ移行">
+          <SettingRow label={t("Sleep time")} description={t("Enter sleep after inactivity")}>
             <Select
               value={String(sensor.sleepMinutes)}
               onValueChange={(value) => void onUpdateSensor({ sleepMinutes: Number(value) })}
               disabled={!writable}
             >
-              <SelectTrigger className="w-full" aria-label="スリープ時間">
+              <SelectTrigger className="w-full" aria-label={t("Sleep time")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 {sleepOptions.map((minutes) => (
                   <SelectItem key={minutes} value={String(minutes)}>
-                    {minutes} 分
+                    {t("{minutes} min", { minutes })}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </SettingRow>
 
-          <SettingRow label="LED 省電力" description="LEDの点灯時間を短縮">
+          <SettingRow label={t("LED power saving")} description={t("Reduces LED on-time")}>
             <Switch
               checked={sensor.ledLowPowerMode > 0}
               onCheckedChange={(value) => void onUpdateSensor({ ledLowPowerMode: value ? 1 : 0 })}
               disabled={!writable}
-              aria-label="LED 省電力"
+              aria-label={t("LED power saving")}
             />
           </SettingRow>
         </CardContent>

@@ -9,6 +9,7 @@ import { SensorTab } from "@/components/SensorTab";
 import { WindowControls } from "@/components/WindowControls";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { normalizeLanguage, setLanguage as setI18nLanguage, t, type Language } from "@/lib/i18n";
 import { rapooApi, windowApi } from "@/lib/wails";
 import type {
   AppPreferences,
@@ -53,6 +54,7 @@ export default function App() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [prefs, setPrefs] = useState<AppPreferences | null>(null);
   const [busy, setBusy] = useState<boolean>(false);
+  const [language, setLanguageState] = useState<Language>("en");
 
   const hasLoadedSnapshotRef = useRef<boolean>(false);
 
@@ -104,6 +106,9 @@ export default function App() {
       setState(st);
       setPresets(presetList);
       setPrefs(appPrefs);
+      const initialLanguage = normalizeLanguage(appPrefs.language);
+      setI18nLanguage(initialLanguage);
+      setLanguageState(initialLanguage);
 
       if (st.connected) {
         try {
@@ -149,6 +154,20 @@ export default function App() {
     };
   }, [fetchSnapshotQuietly]);
 
+  useEffect(() => {
+    setI18nLanguage(language);
+  }, [language]);
+
+  const handleChangeLanguage = async (next: Language) => {
+    setI18nLanguage(next);
+    setLanguageState(next);
+    try {
+      setPrefs(await rapooApi.setLanguage(next));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("Failed to change language"));
+    }
+  };
+
   const runMutation = async (
     fn: () => Promise<DeviceSnapshot>,
     successMessage?: string
@@ -162,7 +181,7 @@ export default function App() {
       if (successMessage) toast.success(successMessage);
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "設定の保存に失敗しました");
+      toast.error(error instanceof Error ? error.message : t("Failed to save settings"));
       return false;
     } finally {
       setBusy(false);
@@ -181,7 +200,7 @@ export default function App() {
         if (snap.dpi) hasLoadedSnapshotRef.current = true;
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "マウス情報の取得に失敗しました");
+      toast.error(error instanceof Error ? error.message : t("Failed to read mouse information"));
     } finally {
       setBusy(false);
     }
@@ -194,14 +213,14 @@ export default function App() {
       setSnapshot(snap);
       hasLoadedSnapshotRef.current = Boolean(snap?.dpi);
       setState(await rapooApi.getState());
-      toast.success(enabled ? "デモモードを開始しました" : "実機モードに切り替えました");
+      toast.success(enabled ? t("Demo mode started") : t("Switched to hardware mode"));
     } catch {
       const nextState = await rapooApi.getState();
       setState(nextState);
       if (!enabled) {
         hasLoadedSnapshotRef.current = false;
         setSnapshot(null);
-        toast.info("デモモードを終了しました");
+        toast.info(t("Demo mode ended"));
       }
     } finally {
       setBusy(false);
@@ -213,15 +232,15 @@ export default function App() {
       const nextState = await rapooApi.setPollingMode(mode);
       setState(nextState);
       if (mode === "passive_only") {
-        toast.info("ゲーム中ロックを有効にしました");
+        toast.info(t("In-game lock enabled"));
       } else {
-        toast.success("通常の取得モードに戻りました");
+        toast.success(t("Returned to normal polling mode"));
         if (nextState.connected && !hasLoadedSnapshotRef.current) {
           void fetchSnapshotQuietly();
         }
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "モードの変更に失敗しました");
+      toast.error(error instanceof Error ? error.message : t("Failed to change mode"));
     }
   };
 
@@ -239,10 +258,10 @@ export default function App() {
     try {
       await rapooApi.savePreset("", name, "");
       setPresets(await rapooApi.listPresets());
-      toast.success(`プリセット「${name}」を保存しました`);
+      toast.success(t("Saved preset “{name}”", { name }));
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "プリセットの保存に失敗しました");
+      toast.error(error instanceof Error ? error.message : t("Failed to save preset"));
       return false;
     }
   };
@@ -251,10 +270,10 @@ export default function App() {
     try {
       await rapooApi.deletePreset(id);
       setPresets(await rapooApi.listPresets());
-      toast.success("プリセットを削除しました");
+      toast.success(t("Preset deleted"));
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "削除に失敗しました");
+      toast.error(error instanceof Error ? error.message : t("Delete failed"));
       return false;
     }
   };
@@ -262,9 +281,9 @@ export default function App() {
   const handleOpenFirmwareUpdater = async () => {
     try {
       const path = await rapooApi.openFirmwareUpdater();
-      if (path) toast.success("公式ソフトを起動しました");
+      if (path) toast.success(t("Launched the official software"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "公式ソフトを起動できませんでした");
+      toast.error(error instanceof Error ? error.message : t("Could not launch the official software"));
     }
   };
 
@@ -296,7 +315,7 @@ export default function App() {
         <main key={activeTab} className="min-h-0 flex-1 overflow-y-auto bg-content-layer">
           <div className="@container px-6 pt-3 pb-8 lg:px-8 xl:px-10">
             <h1 className="mb-6 text-[1.75rem] leading-tight font-semibold">
-              {NAV_ITEMS.find((item) => item.value === activeTab)?.label}
+              {t(NAV_ITEMS.find((item) => item.value === activeTab)?.label ?? "")}
             </h1>
 
             {activeTab === "dpi" &&
@@ -307,7 +326,7 @@ export default function App() {
                   pollingRates={catalog?.pollingRates ?? [125, 250, 500, 1000, 2000, 4000]}
                   onSaveDpiConfig={(config: DPIConfig) => runMutation(() => rapooApi.setDPIConfig(config))}
                   onChangePollingRate={(hz: number) =>
-                    runMutation(() => rapooApi.setPollingRate(hz), `${hz} Hz に変更しました`)
+                    runMutation(() => rapooApi.setPollingRate(hz), t("Changed polling rate to {hz} Hz", { hz }))
                   }
                 />
               ) : (
@@ -334,19 +353,19 @@ export default function App() {
                   writable={writable}
                   readOnlyReason={
                     state.mode === "passive_only"
-                      ? "ゲーム中ロック中は変更できません。"
+                      ? t("Cannot change while in-game lock is active.")
                       : state.sleeping
-                        ? "マウスがスリープ中です。"
+                        ? t("The mouse is sleeping.")
                         : undefined
                   }
                   onSaveButtonMapping={(buttonId: number, action: ButtonAction) =>
                     runMutation(
                       () => rapooApi.setButtonMapping(buttonId, action),
-                      "ボタン割り当てを変更しました"
+                      t("Button assignment updated")
                     )
                   }
                   onResetAllButtons={() =>
-                    runMutation(() => rapooApi.resetButtonsToDefault(), "ボタン割り当てを初期化しました")
+                    runMutation(() => rapooApi.resetButtonsToDefault(), t("Button assignments reset"))
                   }
                 />
               ) : (
@@ -362,7 +381,7 @@ export default function App() {
                 onApplyPreset={(preset) =>
                   runMutation(
                     () => rapooApi.applyPreset(preset.id),
-                    `プリセット「${preset.name}」を適用しました`
+                    t("Applied preset “{name}”", { name: preset.name })
                   )
                 }
                 onDeletePreset={handleDeletePreset}
@@ -379,25 +398,27 @@ export default function App() {
                 busy={busy}
                 darkMode={darkMode}
                 onChangeTheme={setDarkMode}
+                language={language}
+                onChangeLanguage={handleChangeLanguage}
                 onRefresh={() => void handleManualRefresh()}
                 onSetPollingMode={handleSetPollingMode}
                 onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
                 onUpdateCloseToTray={async (enabled) => {
                   const next = await rapooApi.setCloseToTray(enabled);
                   setPrefs(next);
-                  toast.success(enabled ? "閉じたらトレイに格納します" : "閉じたらアプリを終了します");
+                  toast.success(enabled ? t("Closing will minimize to the tray") : t("Closing will exit the app"));
                 }}
                 onUpdateAutoStart={async (enabled) => {
                   try {
                     const next = await rapooApi.setAutoStart(enabled);
                     setPrefs(next);
-                    toast.success(enabled ? "スタートアップに登録しました" : "スタートアップから解除しました");
+                    toast.success(enabled ? t("Added to startup") : t("Removed from startup"));
                   } catch (error) {
-                    toast.error(error instanceof Error ? error.message : "自動起動の変更に失敗しました");
+                    toast.error(error instanceof Error ? error.message : t("Failed to change auto-start"));
                   }
                 }}
                 onFactoryReset={() =>
-                  runMutation(() => rapooApi.factoryReset(), "工場出荷時設定に戻しました")
+                  runMutation(() => rapooApi.factoryReset(), t("Restored factory defaults"))
                 }
                 onOpenFirmwareUpdater={handleOpenFirmwareUpdater}
               />
@@ -425,20 +446,20 @@ function DeviceUnavailableCard({
 }) {
   const sleeping = state.connected && state.sleeping;
   const unavailableMessage = sleeping
-    ? "マウスを動かすと設定を読み込みます。"
+    ? t("Move the mouse to load settings.")
     : state.permissionDenied
-      ? "hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"
-      : state.lastError || "4K レシーバーまたは USB-C ケーブルを接続してください。";
+      ? t("No permission to access hidraw. Check the udev setup in Settings.")
+      : state.lastError || t("Connect the 4K receiver or USB-C cable.");
 
   return (
     <Card>
       <CardHeader className="grid-cols-1 @min-[27rem]:grid-cols-[1fr_auto]">
-        <CardTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</CardTitle>
+        <CardTitle>{sleeping ? t("The mouse is sleeping") : t("Mouse not connected")}</CardTitle>
         <CardDescription>{unavailableMessage}</CardDescription>
         <CardAction className="col-start-1 row-span-1 row-start-auto mt-2 justify-self-start @min-[27rem]:col-start-2 @min-[27rem]:row-span-2 @min-[27rem]:row-start-1 @min-[27rem]:mt-0 @min-[27rem]:self-center @min-[27rem]:justify-self-end">
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy} onClick={onEnableDemo}>デモモード</Button>
-            <Button variant="outline" disabled={busy} onClick={onRefresh}>再読み込み</Button>
+            <Button variant="outline" disabled={busy} onClick={onEnableDemo}>{t("Demo mode")}</Button>
+            <Button variant="outline" disabled={busy} onClick={onRefresh}>{t("Reload")}</Button>
           </div>
         </CardAction>
       </CardHeader>

@@ -18,6 +18,7 @@ public sealed partial class DpiPage : Page, IConfigPageActions
     public DpiPage()
     {
         InitializeComponent();
+        LocalizationService.Instance.Apply(this);
         Feedback.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PageFeedback.IsBusy))
@@ -30,6 +31,7 @@ public sealed partial class DpiPage : Page, IConfigPageActions
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        LocalizationService.Instance.Apply(this);
         ViewModel.PropertyChanged += StateChanged;
         ViewModel.Dpi.PropertyChanged += StateChanged;
         if (ViewModel.Dpi.IsDirty)

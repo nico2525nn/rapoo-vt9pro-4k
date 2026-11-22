@@ -142,6 +142,14 @@ public sealed class DpiPageViewModel : ObservableObject
         LoadConfiguration(configuration, status.PollingRateHz);
     }
 
+    internal void RefreshLocalization()
+    {
+        foreach (var stage in Stages)
+        {
+            stage.RefreshLocalization();
+        }
+    }
+
     internal void InvalidateConfiguration()
     {
         if (_savedConfiguration is not null)
