@@ -34,7 +34,11 @@ public sealed record DeviceStatus(
     int PollingRateHz,
     string Firmware,
     DateTimeOffset UpdatedAt,
-    bool IsMock = true)
+    bool IsMock = true,
+    bool Connected = false,
+    bool DemoMode = false,
+    string Mode = "normal",
+    int MaxRateHz = 4000)
 {
     public string ConnectionLabel => !MouseOnline
         ? "スリープ中"

@@ -7,6 +7,7 @@ namespace RapooControl.ViewModels;
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IRapooService _service;
+    private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
     private DeviceStatus _status;
     private bool _hasError;
     private string _errorMessage = string.Empty;
@@ -59,10 +60,11 @@ public sealed class MainViewModel : ObservableObject
 
     public async Task InitializeAsync()
     {
+        await _service.StartAsync();
+
         var status = await _service.GetStatusAsync();
         ApplyStatus(status);
 
-        await _service.StartAsync();
         await Dpi.LoadAsync();
     }
 
@@ -76,7 +78,13 @@ public sealed class MainViewModel : ObservableObject
 
     private void OnStatusChanged(object? sender, DeviceStatus status)
     {
-        ApplyStatus(status);
+        if (_uiContext is null || SynchronizationContext.Current == _uiContext)
+        {
+            ApplyStatus(status);
+            return;
+        }
+
+        _uiContext.Post(_ => ApplyStatus(status), null);
     }
 
     private void ApplyStatus(DeviceStatus status)
