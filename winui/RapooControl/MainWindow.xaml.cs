@@ -1,17 +1,17 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using RapooControl.ViewModels;
+using Microsoft.UI.Xaml.Navigation;
 using RapooControl.Views;
 
 namespace RapooControl;
 
 public sealed partial class MainWindow : Window
 {
-    public MainViewModel ViewModel { get; }
+    private IConfigPageActions? _activeActions;
+    private bool _runningAction;
 
     public MainWindow()
     {
-        ViewModel = App.Instance.ViewModel;
         InitializeComponent();
 
         ExtendsContentIntoTitleBar = true;
@@ -21,6 +21,65 @@ public sealed partial class MainWindow : Window
 
         NavView.SelectedItem = NavView.MenuItems[0];
         NavigateTo("overview");
+    }
+
+    private void ContentFrame_Navigated(object sender, NavigationEventArgs e)
+    {
+        if (_activeActions is not null)
+        {
+            _activeActions.ActionsChanged -= PageActionsChanged;
+        }
+
+        _activeActions = ContentFrame.Content as IConfigPageActions;
+        if (_activeActions is not null)
+        {
+            _activeActions.ActionsChanged += PageActionsChanged;
+        }
+        UpdateActionButtons();
+    }
+
+    private void PageActionsChanged(object? sender, EventArgs e) => UpdateActionButtons();
+
+    private void UpdateActionButtons()
+    {
+        ReloadButton.IsEnabled = !_runningAction && _activeActions?.CanReload == true;
+        ApplyButton.IsEnabled = !_runningAction && _activeActions?.CanApply == true;
+    }
+
+    private async void Reload_Click(object sender, RoutedEventArgs e)
+    {
+        if (_activeActions is { CanReload: true } page)
+        {
+            await RunActionAsync(page.ReloadAsync);
+        }
+    }
+
+    private async void Apply_Click(object sender, RoutedEventArgs e)
+    {
+        if (_activeActions is { CanApply: true } page)
+        {
+            await RunActionAsync(page.ApplyAsync);
+        }
+    }
+
+    private async Task RunActionAsync(Func<Task> action)
+    {
+        if (_runningAction)
+        {
+            return;
+        }
+
+        _runningAction = true;
+        UpdateActionButtons();
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _runningAction = false;
+            UpdateActionButtons();
+        }
     }
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

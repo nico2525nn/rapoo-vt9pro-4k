@@ -8,15 +8,25 @@ using WinRT.Interop;
 
 namespace RapooControl.Views;
 
-public sealed partial class SettingsPage : Page
+public sealed partial class SettingsPage : Page, IConfigPageActions
 {
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
 
+    public bool CanReload => !Feedback.IsBusy && ViewModel.DeviceService is not null && ViewModel.CanConfigureDevice;
+    public bool CanApply => false;
+    public event EventHandler? ActionsChanged;
+
     public SettingsPage()
     {
         InitializeComponent();
-        Feedback.PropertyChanged += (_, _) => UpdateControls();
+        Feedback.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PageFeedback.IsBusy))
+            {
+                UpdateControls();
+            }
+        };
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
@@ -30,13 +40,17 @@ public sealed partial class SettingsPage : Page
         await Feedback.RunAsync(async () =>
         {
             await ViewModel.InitializeAsync();
-            if (ViewModel.CanConfigureDevice)
+            if (service.CachedSnapshot is { } snapshot)
+            {
+                LoadFirmware(snapshot);
+            }
+            else if (ViewModel.CanConfigureDevice)
             {
                 LoadFirmware(await service.RefreshSnapshotAsync());
             }
-            else if (service.CachedSnapshot is { } snapshot)
+            else
             {
-                LoadFirmware(snapshot);
+                MouseFirmware.Text = DongleFirmware.Text = "—";
             }
         });
     }
@@ -59,18 +73,11 @@ public sealed partial class SettingsPage : Page
 
     private static string FirmwareText(string? value) => string.IsNullOrWhiteSpace(value) || value == "unknown" ? "—" : value;
 
-    private async void Refresh_Click(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel.DeviceService is { } service && !ViewModel.IsPassive)
-        {
-            await Feedback.RunAsync(async () =>
-            {
-                var snapshot = await service.RefreshSnapshotAsync();
-                LoadFirmware(snapshot);
-                ViewModel.UpdateDpi(snapshot);
-            }, "デバイス情報を再読み込みしました。");
-        }
-    }
+    public Task ReloadAsync() => CanReload && ViewModel.DeviceService is { } service
+        ? Feedback.RunAsync(async () => LoadFirmware(await service.RefreshSnapshotAsync()), PageFeedback.Reloaded)
+        : Task.CompletedTask;
+
+    public Task ApplyAsync() => Task.CompletedTask;
 
     private async void PollingMode_Click(object sender, RoutedEventArgs e)
     {
@@ -93,7 +100,6 @@ public sealed partial class SettingsPage : Page
                 MouseFirmware.Text = DongleFirmware.Text = "—";
                 var snapshot = await service.SetDemoModeAsync(enable);
                 LoadFirmware(snapshot);
-                ViewModel.UpdateDpi(snapshot);
             }, enable ? "デモモードを開始しました。" : "デモモードを終了しました。");
         }
     }
@@ -164,14 +170,12 @@ public sealed partial class SettingsPage : Page
         {
             var snapshot = await service.FactoryResetAsync();
             LoadFirmware(snapshot);
-            ViewModel.UpdateDpi(snapshot);
         }, "工場出荷時設定に戻しました。");
     }
 
     private void UpdateControls()
     {
         var idle = ViewModel.DeviceService is not null && !Feedback.IsBusy;
-        RefreshButton.IsEnabled = idle && !ViewModel.IsPassive;
         ModeButton.IsEnabled = idle;
         ModeButton.Content = ViewModel.IsPassive ? "通常に戻す" : "0-TX に切り替え";
         DemoButton.IsEnabled = idle;
@@ -180,5 +184,6 @@ public sealed partial class SettingsPage : Page
         ResetButton.IsEnabled = idle && ViewModel.CanConfigureDevice;
         DeviceNotice.Text = ViewModel.DeviceService is null ? ViewModel.SettingsNotice : ViewModel.ConnectionMessage;
         DeviceNotice.Visibility = DeviceNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ActionsChanged?.Invoke(this, EventArgs.Empty);
     }
 }

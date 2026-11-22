@@ -7,41 +7,59 @@ using RapooControl.ViewModels;
 
 namespace RapooControl.Views;
 
-public sealed partial class ProfilesPage : Page
+public sealed partial class ProfilesPage : Page, IConfigPageActions
 {
     private bool _loaded;
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
     public ObservableCollection<BridgePreset> Presets { get; } = [];
 
+    public bool CanReload => !Feedback.IsBusy && ViewModel.DeviceService is not null;
+    public bool CanApply => CanReload && _loaded && ViewModel.CanConfigureDevice && ProfilesList.SelectedItem is BridgePreset;
+    public event EventHandler? ActionsChanged;
+
     public ProfilesPage()
     {
         InitializeComponent();
-        Feedback.PropertyChanged += (_, _) => UpdateControls();
+        Feedback.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PageFeedback.IsBusy))
+            {
+                UpdateControls();
+            }
+        };
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
-        if (ViewModel.DeviceService is not { } service)
+        if (_loaded || ViewModel.DeviceService is not { } service)
         {
             return;
         }
-        await Feedback.RunAsync(async () =>
+        await Feedback.RunAsync(() => ReadProfilesAsync(service));
+    }
+
+    public Task ReloadAsync() => CanReload && ViewModel.DeviceService is { } service
+        ? Feedback.RunAsync(() => ReadProfilesAsync(service), PageFeedback.Reloaded)
+        : Task.CompletedTask;
+
+    private async Task ReadProfilesAsync(RealRapooService service)
+    {
+        await ViewModel.InitializeAsync();
+        var selectedId = (ProfilesList.SelectedItem as BridgePreset)?.Id;
+        var presets = await service.ListPresetsAsync();
+        Presets.Clear();
+        foreach (var preset in presets)
         {
-            await ViewModel.InitializeAsync();
-            var presets = await service.ListPresetsAsync();
-            Presets.Clear();
-            foreach (var preset in presets)
+            if (!preset.BuiltIn)
             {
-                if (!preset.BuiltIn)
-                {
-                    Presets.Add(preset);
-                }
+                Presets.Add(preset);
             }
-            _loaded = true;
-        });
+        }
+        ProfilesList.SelectedItem = Presets.FirstOrDefault(preset => preset.Id == selectedId);
+        _loaded = true;
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => ViewModel.PropertyChanged -= DeviceStatusChanged;
@@ -54,7 +72,14 @@ public sealed partial class ProfilesPage : Page
         }
     }
 
-    private void PresetSelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateControls();
+    private void PresetSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!Feedback.IsBusy)
+        {
+            Feedback.Message = string.Empty;
+        }
+        UpdateControls();
+    }
 
     private async void Save_Click(object sender, RoutedEventArgs e)
     {
@@ -88,16 +113,19 @@ public sealed partial class ProfilesPage : Page
         }, "プロファイルを保存しました。");
     }
 
-    private async void Apply_Click(object sender, RoutedEventArgs e)
+    public Task ApplyAsync()
     {
-        if (ViewModel.DeviceService is { } service && ProfilesList.SelectedItem is BridgePreset preset &&
-            ViewModel.CanConfigureDevice)
+        if (!CanApply || ViewModel.DeviceService is not { } service ||
+            ProfilesList.SelectedItem is not BridgePreset preset)
         {
-            await Feedback.RunAsync(async () =>
-            {
-                ViewModel.UpdateDpi(await service.ApplyPresetAsync(preset.Id));
-            }, "プロファイルを適用しました。");
+            return Task.CompletedTask;
         }
+
+        return Feedback.RunAsync(async () =>
+        {
+            await service.ApplyPresetAsync(preset.Id);
+            ProfilesList.SelectedItem = null;
+        }, PageFeedback.Applied);
     }
 
     private async void Delete_Click(object sender, RoutedEventArgs e)
@@ -132,10 +160,11 @@ public sealed partial class ProfilesPage : Page
         var idle = _loaded && !Feedback.IsBusy;
         var selected = ProfilesList.SelectedItem is BridgePreset;
         SaveButton.IsEnabled = idle && ViewModel.CanConfigureDevice;
-        ApplyButton.IsEnabled = SaveButton.IsEnabled && selected;
         DeleteButton.IsEnabled = idle && selected;
+        ProfilesList.IsEnabled = idle;
         EmptyNotice.Visibility = _loaded && Presets.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         DeviceNotice.Text = ViewModel.SettingsNotice;
         DeviceNotice.Visibility = DeviceNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ActionsChanged?.Invoke(this, EventArgs.Empty);
     }
 }
