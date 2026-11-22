@@ -29,6 +29,7 @@ type AppPreferences struct {
 	AutoStart   bool   `json:"autoStart"`
 	Platform    string `json:"platform"`
 	Mode        string `json:"mode"`
+	Language    string `json:"language"`
 }
 
 // App binds MouseService and desktop shell controls to the Wails v2 frontend.
@@ -58,9 +59,11 @@ func NewApp() *App {
 			CloseToTray: runtime.GOOS == "windows",
 			Platform:    runtime.GOOS,
 			Mode:        string(service.ModeNormal),
+			Language:    initialLanguage(),
 		},
 	}
 	a.loadPrefs()
+	_ = os.Setenv("RAPOO_LANG", a.prefs.Language)
 
 	initialMode := service.ModeNormal
 	switch service.PollingMode(a.prefs.Mode) {
@@ -87,6 +90,7 @@ func (a *App) loadPrefs() {
 	var disk struct {
 		CloseToTray *bool   `json:"closeToTray"`
 		Mode        *string `json:"mode"`
+		Language    *string `json:"language"`
 	}
 	if json.Unmarshal(raw, &disk) == nil {
 		if disk.CloseToTray != nil {
@@ -98,6 +102,25 @@ func (a *App) loadPrefs() {
 				a.prefs.Mode = *disk.Mode
 			}
 		}
+		if disk.Language != nil {
+			a.prefs.Language = normalizeLanguage(*disk.Language)
+		}
+	}
+}
+
+func initialLanguage() string {
+	return normalizeLanguage(os.Getenv("RAPOO_LANG"))
+}
+
+// normalizeLanguage maps environment/UI values to the two supported UI languages.
+// English is the default when nothing is set.
+func normalizeLanguage(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch {
+	case strings.HasPrefix(value, "ja"), value == "jp":
+		return "ja"
+	default:
+		return "en"
 	}
 }
 
@@ -105,6 +128,7 @@ func (a *App) savePrefsLocked() {
 	raw, err := json.MarshalIndent(map[string]any{
 		"closeToTray": a.prefs.CloseToTray,
 		"mode":        a.prefs.Mode,
+		"language":    a.prefs.Language,
 	}, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(a.prefsPath, raw, 0o644)
@@ -188,6 +212,18 @@ func (a *App) GetAppPreferences() AppPreferences {
 	p.Platform = runtime.GOOS
 	p.AutoStart = tray.IsAutoStartEnabled(wailsRegistryAutoStartKey)
 	return p
+}
+
+// SetLanguage changes the UI language (en/ja), persists it, and exposes it to
+// child processes through RAPOO_LANG.
+func (a *App) SetLanguage(language string) AppPreferences {
+	language = normalizeLanguage(language)
+	a.prefsMu.Lock()
+	a.prefs.Language = language
+	_ = os.Setenv("RAPOO_LANG", language)
+	a.savePrefsLocked()
+	a.prefsMu.Unlock()
+	return a.GetAppPreferences()
 }
 
 // SetCloseToTray configures whether closing the window hides to the Windows system tray.
