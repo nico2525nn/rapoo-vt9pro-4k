@@ -57,6 +57,11 @@
                         <SymbolIcon Symbol="TouchPointer" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="プロファイル" Tag="profiles">
+                    <NavigationViewItem.Icon>
+                        <SymbolIcon Symbol="Folder" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Content="設定" Tag="settings">
                     <NavigationViewItem.Icon>
                         <SymbolIcon Symbol="Setting" />

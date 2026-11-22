@@ -1,62 +1,67 @@
 <Page
     x:Class="RapooControl.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
             <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="設定" />
 
+            <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+            <TextBlock
+                AutomationProperties.LiveSetting="Polite"
+                Style="{StaticResource PageSubtitleStyle}"
+                Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+
             <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="4">
-                    <TextBlock Margin="0,0,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="データ" />
-                    <Grid Style="{StaticResource SettingsRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="サンプルデータ" />
-                        <Button
-                            Grid.Column="1"
-                            VerticalAlignment="Center"
-                            Click="RefreshButton_Click"
-                            Content="再読み込み" />
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウス ファームウェア" />
+                        <TextBlock x:Name="MouseFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
                     </Grid>
-                    <TextBlock
-                        x:Name="RefreshStatusText"
-                        AutomationProperties.LiveSetting="Polite"
-                        Style="{StaticResource PageSubtitleStyle}" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="レシーバー ファームウェア" />
+                        <TextBlock x:Name="DongleFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デバイス情報" />
+                        <Button x:Name="RefreshButton" Grid.Column="1" VerticalAlignment="Center"
+                            Click="Refresh_Click" Content="再読み込み" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア更新" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                            <Button x:Name="UpdaterButton" Click="OpenUpdater_Click" Content="公式ソフトを開く" />
+                            <Button x:Name="BrowseButton" Click="BrowseUpdater_Click" Content="ファイルを選択" />
+                        </StackPanel>
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウスの初期化" />
+                        <Button x:Name="ResetButton" Grid.Column="1" VerticalAlignment="Center"
+                            Click="FactoryReset_Click" Content="工場出荷時設定に戻す" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
             <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="4">
-                    <TextBlock Margin="0,0,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="Windows" />
-                    <Grid Style="{StaticResource SettingsRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="閉じるボタンでトレイに格納" />
-                        <ToggleSwitch
-                            Grid.Column="1"
-                            AutomationProperties.Name="閉じるボタンでトレイに格納"
-                            IsEnabled="False"
-                            IsOn="True" />
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="接続と動作" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ゲーム優先モード（0-TX）" />
+                            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                                Text="0-TX 中はマウスへの読み書きを停止します。設定を変更するには通常に戻してください。" />
+                        </StackPanel>
+                        <Button x:Name="ModeButton" Grid.Column="1" VerticalAlignment="Center" Click="PollingMode_Click" />
                     </Grid>
-                    <Grid Style="{StaticResource SettingsRowStyle}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="Windows スタートアップ" />
-                        <ToggleSwitch
-                            Grid.Column="1"
-                            AutomationProperties.Name="Windows スタートアップ"
-                            IsEnabled="False"
-                            IsOn="False" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デモモード" />
+                        <Button x:Name="DemoButton" Grid.Column="1" VerticalAlignment="Center" Click="DemoMode_Click" />
                     </Grid>
-                    <TextBlock Style="{StaticResource MetricLabelStyle}" Text="Windows 統合はプレビューでは利用できません。" />
                 </StackPanel>
             </Border>
         </StackPanel>

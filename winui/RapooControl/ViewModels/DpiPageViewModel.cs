@@ -14,6 +14,8 @@ public sealed class DpiPageViewModel : ObservableObject
     private int _currentStage = 2;
     private int _pollingRateHz = 4000;
     private bool _isBusy;
+    private bool _deviceWritable;
+    private bool _loaded;
     private string _applyStatus = string.Empty;
 
     public DpiPageViewModel(IRapooService service)
@@ -101,20 +103,58 @@ public sealed class DpiPageViewModel : ObservableObject
         {
             if (SetProperty(ref _isBusy, value))
             {
-                OnPropertyChanged(nameof(CanApply));
+                OnPropertyChanged(nameof(CanEdit));
             }
         }
     }
 
-    public bool CanApply => !_isBusy;
+    public bool DeviceWritable
+    {
+        set
+        {
+            if (SetProperty(ref _deviceWritable, value))
+            {
+                OnPropertyChanged(nameof(CanEdit));
+            }
+        }
+    }
+
+    public bool CanEdit => _loaded && _deviceWritable && !_isBusy;
+
+    public bool HasConfiguration => _loaded;
 
     public string ApplyStatus => _applyStatus;
 
     public async Task LoadAsync()
     {
-        var configuration = await _service.GetDpiConfigurationAsync();
-        var status = await _service.GetStatusAsync();
+        try
+        {
+            var configuration = await _service.GetDpiConfigurationAsync();
+            var status = await _service.GetStatusAsync();
+            LoadConfiguration(configuration, status.PollingRateHz);
+        }
+        catch (Exception ex)
+        {
+            ReportLoadError(ex.Message);
+        }
+    }
 
+    internal void ReportLoadError(string message)
+    {
+        _applyStatus = message;
+        OnPropertyChanged(nameof(ApplyStatus));
+    }
+
+    internal void InvalidateConfiguration()
+    {
+        if (SetProperty(ref _loaded, false, nameof(HasConfiguration)))
+        {
+            OnPropertyChanged(nameof(CanEdit));
+        }
+    }
+
+    internal void LoadConfiguration(DpiConfiguration configuration, int pollingRateHz)
+    {
         for (var index = 1; index <= RapooLimits.MaxDpiStages; index++)
         {
             var configured = configuration.Stages.FirstOrDefault(stage => stage.Index == index);
@@ -126,15 +166,17 @@ public sealed class DpiPageViewModel : ObservableObject
 
         SetStageCount(configuration.StageCount);
         SetCurrentStage(configuration.CurrentStage);
-        SetPollingRate(status.PollingRateHz);
+        SetPollingRate(pollingRateHz);
 
+        SetProperty(ref _loaded, true, nameof(HasConfiguration));
         _applyStatus = string.Empty;
+        OnPropertyChanged(nameof(CanEdit));
         OnPropertyChanged(nameof(ApplyStatus));
     }
 
     public async Task ApplyAsync()
     {
-        if (_isBusy)
+        if (!CanEdit)
         {
             return;
         }

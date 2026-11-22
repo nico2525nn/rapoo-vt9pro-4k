@@ -39,6 +39,7 @@ public sealed partial class MainWindow : Window
             "dpi" => typeof(DpiPage),
             "sensor" => typeof(SensorPage),
             "buttons" => typeof(ButtonsPage),
+            "profiles" => typeof(ProfilesPage),
             "settings" => typeof(SettingsPage),
             _ => null,
         };

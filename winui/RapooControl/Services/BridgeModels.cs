@@ -87,8 +87,10 @@ public sealed class BridgeSensor
     [JsonPropertyName("liftOffDistanceMm")] public double LiftOffDistanceMm { get; set; }
     [JsonPropertyName("motionSync")] public bool MotionSync { get; set; }
     [JsonPropertyName("pressDebounceStep")] public int PressDebounceStep { get; set; }
+    [JsonPropertyName("pressDebounceMs")] public int PressDebounceMs { get; set; }
     [JsonPropertyName("pressDebounceLabel")] public string? PressDebounceLabel { get; set; }
     [JsonPropertyName("releaseDebounceStep")] public int ReleaseDebounceStep { get; set; }
+    [JsonPropertyName("releaseDebounceMs")] public int ReleaseDebounceMs { get; set; }
     [JsonPropertyName("releaseDebounceLabel")] public string? ReleaseDebounceLabel { get; set; }
     [JsonPropertyName("sleepMinutes")] public int SleepMinutes { get; set; }
     [JsonPropertyName("rippleControl")] public bool RippleControl { get; set; }
@@ -121,6 +123,27 @@ public sealed class BridgeButtonAction
     [JsonPropertyName("category")] public string? Category { get; set; }
     [JsonPropertyName("keyCode")] public int KeyCode { get; set; }
     [JsonPropertyName("keyName")] public string? KeyName { get; set; }
+    [JsonPropertyName("modifiers")] public BridgeKeyModifiers? Modifiers { get; set; }
+}
+
+public sealed class BridgeKeyModifiers
+{
+    [JsonPropertyName("ctrl")] public bool Ctrl { get; set; }
+    [JsonPropertyName("shift")] public bool Shift { get; set; }
+    [JsonPropertyName("alt")] public bool Alt { get; set; }
+    [JsonPropertyName("meta")] public bool Meta { get; set; }
+}
+
+public sealed class BridgeKey
+{
+    [JsonPropertyName("code")] public int Code { get; set; }
+    [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
+}
+
+public sealed class BridgeDebounceStep
+{
+    [JsonPropertyName("index")] public int Index { get; set; }
+    [JsonPropertyName("label")] public string Label { get; set; } = string.Empty;
 }
 
 public sealed class BridgeCatalog
@@ -128,6 +151,8 @@ public sealed class BridgeCatalog
     [JsonPropertyName("platform")] public string? Platform { get; set; }
     [JsonPropertyName("pollingRates")] public List<int>? PollingRates { get; set; }
     [JsonPropertyName("buttons")] public List<BridgeButtonSlot>? Buttons { get; set; }
+    [JsonPropertyName("supportedKeys")] public List<BridgeKey>? SupportedKeys { get; set; }
+    [JsonPropertyName("debounceSteps")] public List<BridgeDebounceStep>? DebounceSteps { get; set; }
 }
 
 public sealed class BridgePreset

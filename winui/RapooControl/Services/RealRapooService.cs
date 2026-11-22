@@ -6,7 +6,7 @@ namespace RapooControl.Services;
 /// Real device service backed by the Go sidecar. HID ownership and all protocol
 /// work stay in Go; this class only maps the bridge JSON to the UI models.
 /// </summary>
-public sealed class RealRapooService : IRapooService, IAsyncDisposable
+public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
 {
     private readonly RapooBridgeClient _client = new();
     private BridgeState? _lastState;
@@ -16,6 +16,12 @@ public sealed class RealRapooService : IRapooService, IAsyncDisposable
     {
         _client.StateChanged += (_, state) =>
         {
+            if (_lastState is { } previous &&
+                (previous.Connected != state.Connected || previous.DemoMode != state.DemoMode ||
+                 previous.Connection != state.Connection || previous.ProductId != state.ProductId))
+            {
+                _lastSnapshot = null;
+            }
             _lastState = state;
             StatusChanged?.Invoke(this, MapStatus(state));
         };
@@ -69,17 +75,19 @@ public sealed class RealRapooService : IRapooService, IAsyncDisposable
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
         var snapshot = _lastSnapshot ?? await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
-        var dpi = snapshot.Dpi ?? throw new InvalidOperationException(
-            "DPI設定を読み取れませんでした。マウスが接続され、スリープしていないことを確認してください。");
+        return snapshot.Dpi is { } dpi
+            ? MapDpiConfiguration(dpi)
+            : throw new InvalidOperationException("DPI設定を読み取れませんでした。");
+    }
 
-        return new DpiConfiguration(
+    internal static DpiConfiguration MapDpiConfiguration(BridgeDpiConfig dpi) =>
+        new(
             dpi.StageCount,
             dpi.CurrentStage,
-            (dpi.Stages ?? [])
+            (dpi.AllStages ?? dpi.Stages ?? [])
                 .OrderBy(stage => stage.Index)
                 .Select(stage => new DpiStage(stage.Index, stage.X, stage.Y))
                 .ToArray());
-    }
 
     public async Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
@@ -124,21 +132,19 @@ public sealed class RealRapooService : IRapooService, IAsyncDisposable
         return PublishStatus(snapshot);
     }
 
-    public async Task<DeviceStatus> SetDemoModeAsync(
+    public Task<BridgeSnapshot> SetDemoModeAsync(
         bool enabled,
-        CancellationToken cancellationToken = default)
-    {
-        var snapshot = await _client.SetDemoModeAsync(enabled, cancellationToken).ConfigureAwait(false);
-        _lastSnapshot = snapshot;
-        return PublishStatus(snapshot);
-    }
+        CancellationToken cancellationToken = default) =>
+        UpdateSnapshotAsync(_client.SetDemoModeAsync(enabled, cancellationToken));
 
     public async Task<DeviceStatus> SetPollingModeAsync(
         string mode,
         CancellationToken cancellationToken = default)
     {
         _lastState = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
-        return MapStatus(_lastState);
+        var status = MapStatus(_lastState);
+        StatusChanged?.Invoke(this, status);
+        return status;
     }
 
     public async ValueTask DisposeAsync()

@@ -14,6 +14,22 @@ public sealed partial class DpiPage : Page
         InitializeComponent();
     }
 
+    private async void Page_Loaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            await ViewModel.InitializeAsync();
+            if (ViewModel.DeviceService is { } service && ViewModel.CanConfigureDevice && !ViewModel.Dpi.HasConfiguration)
+            {
+                ViewModel.UpdateDpi(await service.RefreshSnapshotAsync());
+            }
+        }
+        catch (Exception ex)
+        {
+            ViewModel.Dpi.ReportLoadError(ex.Message);
+        }
+    }
+
     private async void ApplyButton_Click(object sender, RoutedEventArgs e)
     {
         await ViewModel.Dpi.ApplyAsync();
