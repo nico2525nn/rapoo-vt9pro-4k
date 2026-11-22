@@ -36,7 +36,7 @@
                             VerticalAlignment="Center"
                             AutomationProperties.Name="ポーリングレート"
                             IsEnabled="{x:Bind ViewModel.Dpi.CanEdit, Mode=OneWay}"
-                            ItemsSource="{x:Bind ViewModel.Dpi.PollingRateOptions}"
+                            ItemsSource="{x:Bind ViewModel.Dpi.PollingRateOptions, Mode=OneWay}"
                             SelectedIndex="{x:Bind ViewModel.Dpi.PollingRateIndex, Mode=TwoWay}" />
                     </Grid>
                 </StackPanel>

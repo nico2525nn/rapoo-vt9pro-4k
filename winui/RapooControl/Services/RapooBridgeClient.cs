@@ -237,6 +237,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             throw new InvalidOperationException("rapoo-bridge.exe が起動していません。");
         }
 
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        var token = timeout.Token;
+
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = completion;
@@ -250,7 +254,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         try
         {
-            await _writeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            await _writeLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
                 await process.StandardInput.WriteLineAsync(payload).ConfigureAwait(false);
@@ -261,15 +265,20 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 _writeLock.Release();
             }
 
-            using var registration = cancellationToken.Register(() =>
+            using var registration = token.Register(() =>
             {
                 if (_pending.TryRemove(id, out var pending))
                 {
-                    pending.TrySetCanceled(cancellationToken);
+                    pending.TrySetCanceled(token);
                 }
             });
 
             return await completion.Task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            _pending.TryRemove(id, out _);
+            throw new TimeoutException($"rapoo-bridge: {method} が15秒以内に応答しませんでした。");
         }
         catch
         {

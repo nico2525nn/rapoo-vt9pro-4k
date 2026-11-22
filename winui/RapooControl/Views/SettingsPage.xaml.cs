@@ -98,7 +98,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     private void LanguageCombo_DropDownClosed(object? sender, object e) =>
         ApplyLanguageSelection();
 
-    private async void ApplyLanguageSelection()
+    private void ApplyLanguageSelection()
     {
         if (!_languageReady || LanguageCombo.SelectedItem is not ComboBoxItem { Tag: string language })
         {
@@ -125,17 +125,6 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             return;
         }
         localization.SetLanguage(language);
-        if (ViewModel.DeviceService is { } service)
-        {
-            try
-            {
-                await service.SetLanguageAsync(language);
-            }
-            catch
-            {
-                // The UI language still applies; the sidecar will pick it up next launch.
-            }
-        }
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
         UpdateControls();
@@ -144,6 +133,22 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             LoadFirmware(snapshot);
         }
         Feedback.Message = language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English.";
+        if (ViewModel.DeviceService is { } service)
+        {
+            _ = SyncSidecarLanguageAsync(service, language);
+        }
+    }
+
+    private static async Task SyncSidecarLanguageAsync(RealRapooService service, string language)
+    {
+        try
+        {
+            await service.SetLanguageAsync(language).WaitAsync(TimeSpan.FromSeconds(2));
+        }
+        catch
+        {
+            // The UI language still applies; the sidecar will pick it up next launch.
+        }
     }
 
     private void DeviceStatusChanged(object? sender, PropertyChangedEventArgs e)

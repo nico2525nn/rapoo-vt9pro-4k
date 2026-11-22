@@ -87,6 +87,7 @@ public sealed partial class DpiPage : Page, IConfigPageActions
         }
 
         var snapshot = (refresh ? null : service.CachedSnapshot) ?? await service.RefreshSnapshotAsync();
+        ViewModel.Dpi.SetMaxRate(snapshot.Model?.MaxRateHz ?? 4000);
         var dpi = snapshot.Dpi ?? throw new InvalidOperationException("DPI設定を読み取れませんでした。");
         var rate = snapshot.Sensor?.PollingRateHz ?? (await service.GetStatusAsync()).PollingRateHz;
         ViewModel.Dpi.LoadConfiguration(RealRapooService.MapDpiConfiguration(dpi), rate);

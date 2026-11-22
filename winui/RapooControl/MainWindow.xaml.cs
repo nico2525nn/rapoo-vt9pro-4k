@@ -50,8 +50,10 @@ public sealed partial class MainWindow : Window
         TrayDemoItem.Command = new RelayCommand(() => _ = ToggleDemoAsync());
         TrayAutoStartItem.Command = new RelayCommand(() =>
         {
-            TrayPreferences.Current.SetAutoStart(TrayAutoStartItem.IsChecked);
-            TrayAutoStartItem.IsChecked = TrayPreferences.Current.AutoStart;
+            var next = !TrayPreferences.Current.AutoStart;
+            TrayPreferences.Current.SetAutoStart(next);
+            TrayAutoStartItem.IsChecked = next;
+            UpdateTray();
         });
         TrayQuitItem.Command = new RelayCommand(QuitFromTray);
         AppWindow.Closing += OnClosing;
@@ -79,7 +81,7 @@ public sealed partial class MainWindow : Window
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
-        if (_quitting || !_trayReady || !TrayPreferences.Current.CloseToTray)
+        if (_quitting || !TrayIcon.IsCreated || !TrayPreferences.Current.CloseToTray)
         {
             return;
         }
@@ -124,9 +126,13 @@ public sealed partial class MainWindow : Window
             percent >= 0 && percent <= 20 && !ViewModel.IsCharging ? Colors.OrangeRed : Colors.White);
         var tooltip = ViewModel.TrayTooltip;
         TrayIcon.ToolTipText = tooltip.Length > 63 ? tooltip[..60] + "..." : tooltip;
+        UpdateTrayMenu();
     }
 
-    private void TrayMenu_Opening(object sender, object e)
+    private void TrayMenu_Opening(object sender, object e) =>
+        UpdateTray();
+
+    private void UpdateTrayMenu()
     {
         var loc = LocalizationService.Instance;
         TrayBatteryItem.Text = $"{loc.T("バッテリー")}: {ViewModel.BatteryText}";
@@ -143,7 +149,6 @@ public sealed partial class MainWindow : Window
         TrayPassiveItem.IsChecked = ViewModel.Mode == "passive_only";
         TrayDemoItem.IsChecked = ViewModel.IsDemoMode;
         TrayAutoStartItem.IsChecked = TrayPreferences.Current.AutoStart;
-        UpdateTray();
     }
 
     private async Task ReloadFromTrayAsync()
@@ -165,7 +170,7 @@ public sealed partial class MainWindow : Window
                 LogTray($"polling mode failed: {ex.Message}");
             }
         }
-        TrayMenu_Opening(TrayMenu, EventArgs.Empty);
+        UpdateTray();
     }
 
     private async Task ToggleDemoAsync()
@@ -181,7 +186,7 @@ public sealed partial class MainWindow : Window
                 LogTray($"demo mode failed: {ex.Message}");
             }
         }
-        TrayMenu_Opening(TrayMenu, EventArgs.Empty);
+        UpdateTray();
     }
 
     private void QuitFromTray()

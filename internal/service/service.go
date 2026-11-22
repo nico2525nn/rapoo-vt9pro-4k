@@ -124,6 +124,7 @@ type MouseService struct {
 	subscribers map[int]Listener
 	language    atomic.Value // string: "en" or "ja"
 
+	connectMu sync.Mutex
 	refreshCh chan struct{}
 	reopenCh  chan struct{}
 	cancel    context.CancelFunc
@@ -276,6 +277,9 @@ func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 
 // SetPollingMode switches between Normal (60s), LowFrequency (5m), and PassiveOnly (0-TX).
 func (s *MouseService) SetPollingMode(mode PollingMode) {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+
 	s.mu.Lock()
 	changed := s.state.Mode != mode
 	wasPassive := s.state.Mode == ModePassiveOnly
@@ -682,6 +686,9 @@ func (s *MouseService) closeClient() {
 }
 
 func (s *MouseService) ensureConnectedAndPoll() {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+
 	s.mu.RLock()
 	hasClient := s.client != nil
 	mode := s.state.Mode

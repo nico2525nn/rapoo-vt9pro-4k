@@ -295,6 +295,12 @@ func ValidatePreset(p Preset) error {
 	if p.Sensor.SensorAngleDeg != nil && (*p.Sensor.SensorAngleDeg < -30 || *p.Sensor.SensorAngleDeg > 30) {
 		return errors.New("センサー角度が範囲外です")
 	}
+	if p.Sensor.PressDebounceStep != nil && (*p.Sensor.PressDebounceStep < 0 || *p.Sensor.PressDebounceStep > 6) {
+		return errors.New("押下デバウンスが範囲外です")
+	}
+	if p.Sensor.ReleaseDebounceStep != nil && (*p.Sensor.ReleaseDebounceStep < 0 || *p.Sensor.ReleaseDebounceStep > 6) {
+		return errors.New("解放デバウンスが範囲外です")
+	}
 	if p.Sensor.LEDLowPowerMode != nil && *p.Sensor.LEDLowPowerMode > 1 {
 		return errors.New("LED 省電力モードの値が不正です")
 	}

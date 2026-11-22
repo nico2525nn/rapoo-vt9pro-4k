@@ -31,33 +31,13 @@ public partial class App : Application
 
     public App()
     {
+        _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
         _instanceMutex = new Mutex(true, InstanceMutexName, out var createdNew);
         if (!createdNew)
         {
-            try
-            {
-                EventWaitHandle.OpenExisting(ShowEventName).Set();
-            }
-            catch
-            {
-                // The first instance is shutting down.
-            }
+            _showEvent.Set();
             Environment.Exit(0);
         }
-
-        _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
-        ThreadPool.RegisterWaitForSingleObject(
-            _showEvent,
-            (_, _) =>
-            {
-                if (MainWindow is RapooControl.MainWindow window)
-                {
-                    window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
-                }
-            },
-            null,
-            Timeout.Infinite,
-            executeOnlyOnce: false);
 
         InitializeComponent();
         LocalizationService.Instance.Initialize();
@@ -78,6 +58,18 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         MainWindow = new MainWindow();
+        ThreadPool.RegisterWaitForSingleObject(
+            _showEvent,
+            (_, _) =>
+            {
+                if (MainWindow is RapooControl.MainWindow window)
+                {
+                    window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
+                }
+            },
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
         if (Environment.GetEnvironmentVariable("RAPOO_HEADLESS_TEST") == "1" && MainWindow is not null)
         {
             MainWindow.AppWindow.Move(new PointInt32(-2000, -2000));

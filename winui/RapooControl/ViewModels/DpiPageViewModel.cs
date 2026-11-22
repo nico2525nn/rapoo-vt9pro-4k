@@ -45,8 +45,24 @@ public sealed class DpiPageViewModel : ObservableObject
 
     public IReadOnlyList<int> StageCountOptions { get; } = Enumerable.Range(1, RapooLimits.MaxDpiStages).ToArray();
 
-    public IReadOnlyList<string> PollingRateOptions { get; } =
-        Rates.Select(rate => $"{rate:N0} Hz").ToArray();
+    private int _maxRateHz = 4000;
+
+    private int[] CurrentRates => Rates.Where(rate => rate <= _maxRateHz).ToArray();
+
+    public IReadOnlyList<string> PollingRateOptions =>
+        CurrentRates.Select(rate => $"{rate:N0} Hz").ToArray();
+
+    internal void SetMaxRate(int maxRateHz)
+    {
+        var next = Rates.Where(rate => rate <= maxRateHz).DefaultIfEmpty(1000).Max();
+        if (_maxRateHz == next)
+        {
+            return;
+        }
+        _maxRateHz = next;
+        OnPropertyChanged(nameof(PollingRateOptions));
+        OnPropertyChanged(nameof(PollingRateIndex));
+    }
 
     public IReadOnlyList<int> CurrentStageOptions { get; private set; } = [];
 
@@ -92,12 +108,14 @@ public sealed class DpiPageViewModel : ObservableObject
     {
         get
         {
-            var index = Array.IndexOf(Rates, _pollingRateHz);
-            return index >= 0 ? index : Rates.Length - 1;
+            var rates = CurrentRates;
+            var index = Array.IndexOf(rates, _pollingRateHz);
+            return index >= 0 ? index : Math.Max(0, rates.Length - 1);
         }
         set
         {
-            if (value >= 0 && value < Rates.Length && SetProperty(ref _pollingRateHz, Rates[value]))
+            var rates = CurrentRates;
+            if (value >= 0 && value < rates.Length && SetProperty(ref _pollingRateHz, rates[value]))
             {
                 OnPropertyChanged(nameof(PollingRateIndex));
                 OnPropertyChanged(nameof(IsDirty));
