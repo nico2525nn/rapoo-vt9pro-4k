@@ -27,6 +27,7 @@ type AppPreferences struct {
 	CloseToTray bool   `json:"closeToTray"`
 	AutoStart   bool   `json:"autoStart"`
 	Platform    string `json:"platform"`
+	Mode        string `json:"mode"`
 }
 
 // App binds MouseService and desktop shell controls to the Wails v2 frontend.
@@ -55,12 +56,18 @@ func NewApp() *App {
 		prefs: AppPreferences{
 			CloseToTray: runtime.GOOS == "windows",
 			Platform:    runtime.GOOS,
+			Mode:        string(service.ModeNormal),
 		},
 	}
 	a.loadPrefs()
 
+	initialMode := service.ModeNormal
+	switch service.PollingMode(a.prefs.Mode) {
+	case service.ModeNormal, service.ModeLowFrequency, service.ModePassiveOnly:
+		initialMode = service.PollingMode(a.prefs.Mode)
+	}
 	a.svc = service.NewMouseService(nil, service.Config{
-		InitialMode: service.ModeNormal,
+		InitialMode: initialMode,
 		PresetDir:   cfgDir,
 		OnEventEmit: func(eventName string, payload any) {
 			if a.ctx != nil {
@@ -77,16 +84,26 @@ func (a *App) loadPrefs() {
 		return
 	}
 	var disk struct {
-		CloseToTray *bool `json:"closeToTray"`
+		CloseToTray *bool   `json:"closeToTray"`
+		Mode        *string `json:"mode"`
 	}
-	if json.Unmarshal(raw, &disk) == nil && disk.CloseToTray != nil {
-		a.prefs.CloseToTray = *disk.CloseToTray
+	if json.Unmarshal(raw, &disk) == nil {
+		if disk.CloseToTray != nil {
+			a.prefs.CloseToTray = *disk.CloseToTray
+		}
+		if disk.Mode != nil {
+			switch service.PollingMode(*disk.Mode) {
+			case service.ModeNormal, service.ModeLowFrequency, service.ModePassiveOnly:
+				a.prefs.Mode = *disk.Mode
+			}
+		}
 	}
 }
 
 func (a *App) savePrefsLocked() {
 	raw, err := json.MarshalIndent(map[string]any{
 		"closeToTray": a.prefs.CloseToTray,
+		"mode":        a.prefs.Mode,
 	}, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(a.prefsPath, raw, 0o644)
@@ -246,12 +263,7 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 		if err != nil || info.IsDir() {
 			continue
 		}
-		cmd := exec.Command(path)
-		cmd.Dir = filepath.Dir(path)
-		if err := cmd.Start(); err != nil {
-			return "", err
-		}
-		return path, nil
+		return a.launchOfficialUpdater(path)
 	}
 
 	if a.ctx == nil {
@@ -279,12 +291,25 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 	if err != nil || info.IsDir() {
 		return "", errors.New("公式ソフトが見つかりません")
 	}
-	cmd := exec.Command(selected)
-	cmd.Dir = filepath.Dir(selected)
+	return a.launchOfficialUpdater(selected)
+}
+
+func (a *App) launchOfficialUpdater(path string) (string, error) {
+	previousMode := a.svc.GetState().Mode
+	// Release the vendor HID handle before the official updater takes over.
+	a.svc.SetPollingMode(service.ModePassiveOnly)
+
+	cmd := exec.Command(path)
+	cmd.Dir = filepath.Dir(path)
 	if err := cmd.Start(); err != nil {
+		a.svc.SetPollingMode(previousMode)
 		return "", err
 	}
-	return selected, nil
+	go func() {
+		_ = cmd.Wait()
+		a.svc.SetPollingMode(previousMode)
+	}()
+	return path, nil
 }
 
 func isOfficialUpdaterName(path string) bool {
@@ -366,6 +391,10 @@ func (a *App) SetPollingMode(mode string) service.State {
 	switch service.PollingMode(mode) {
 	case service.ModeNormal, service.ModeLowFrequency, service.ModePassiveOnly:
 		a.svc.SetPollingMode(service.PollingMode(mode))
+		a.prefsMu.Lock()
+		a.prefs.Mode = mode
+		a.savePrefsLocked()
+		a.prefsMu.Unlock()
 	}
 	return a.svc.GetState()
 }
