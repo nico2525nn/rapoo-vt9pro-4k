@@ -8,6 +8,7 @@ public sealed class TrayPreferences
 {
     private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunValueName = "RapooControl";
+    private const int CurrentVersion = 2;
 
     private readonly string _prefsPath;
     private bool _loaded;
@@ -34,14 +35,28 @@ public sealed class TrayPreferences
             return;
         }
         _loaded = true;
+        var migrated = false;
         try
         {
             if (File.Exists(_prefsPath))
             {
                 using var document = JsonDocument.Parse(File.ReadAllText(_prefsPath));
-                if (document.RootElement.TryGetProperty("closeToTray", out var close))
+                var root = document.RootElement;
+                var version = root.TryGetProperty("version", out var versionElement)
+                    ? versionElement.GetInt32()
+                    : 0;
+
+                // Version 1 defaulted close-to-tray to true. That default
+                // stranded windows when the notification icon was hidden, so
+                // require an explicit opt-in after the upgrade.
+                if (version >= CurrentVersion &&
+                    root.TryGetProperty("closeToTray", out var close))
                 {
                     CloseToTray = close.GetBoolean();
+                }
+                else
+                {
+                    migrated = true;
                 }
             }
         }
@@ -51,6 +66,10 @@ public sealed class TrayPreferences
         }
 
         AutoStart = IsAutoStartEnabled();
+        if (migrated)
+        {
+            Save();
+        }
     }
 
     public void SetCloseToTray(bool enabled)
@@ -110,6 +129,7 @@ public sealed class TrayPreferences
                 _prefsPath,
                 JsonSerializer.Serialize(new
                 {
+                    version = CurrentVersion,
                     closeToTray = CloseToTray,
                     autoStart = AutoStart,
                 }, new JsonSerializerOptions { WriteIndented = true }));

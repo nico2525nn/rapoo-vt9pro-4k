@@ -13,7 +13,11 @@ public partial class App : Application
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int command);
 
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
+
     private const int SwShowNoActivate = 4;
+    private const int AsfwAny = -1;
 
     private const string InstanceMutexName = @"Local\RapooControlWinUI";
     private const string ShowEventName = @"Local\RapooControlWinUI.Show";
@@ -35,6 +39,8 @@ public partial class App : Application
         _instanceMutex = new Mutex(true, InstanceMutexName, out var createdNew);
         if (!createdNew)
         {
+            // Let the already-running instance bring its window to the front.
+            AllowSetForegroundWindow(AsfwAny);
             _showEvent.Set();
             Environment.Exit(0);
         }

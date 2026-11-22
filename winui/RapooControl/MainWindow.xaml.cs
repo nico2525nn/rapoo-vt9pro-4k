@@ -18,7 +18,30 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int command);
 
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
     private const int SwShowNoActivate = 4;
+    private const int SwShow = 5;
+    private const int SwRestore = 9;
 
     private IConfigPageActions? _activeActions;
     private bool _runningAction;
@@ -65,17 +88,9 @@ public sealed partial class MainWindow : Window
             LogTray($"created={_trayReady}");
             if (_trayReady)
             {
-                try
-                {
-                    TrayIcon.ShowNotification(
-                        "Rapoo Control",
-                        LocalizationService.Instance.T("通知領域に残量を表示しています。"),
-                        H.NotifyIcon.Core.NotificationIcon.Info);
-                }
-                catch
-                {
-                    // Notifications are optional.
-                }
+                // The icon is promoted in the notification area; do not show a
+                // balloon on every launch.
+                _ = PromoteTrayAsync();
             }
         }
         catch (Exception ex)
@@ -129,7 +144,32 @@ public sealed partial class MainWindow : Window
         }
 
         AppWindow.Show();
+        var hwnd = WindowNative.GetWindowHandle(this);
+        ShowWindow(hwnd, IsIconic(hwnd) ? SwRestore : SwShow);
+        ForceForeground(hwnd);
         Activate();
+    }
+
+    private static void ForceForeground(IntPtr hwnd)
+    {
+        var foreground = GetForegroundWindow();
+        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        var currentThread = GetCurrentThreadId();
+        var attached = foregroundThread != 0 &&
+                       foregroundThread != currentThread &&
+                       AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
     }
 
     private void UpdateTray()
@@ -215,6 +255,13 @@ public sealed partial class MainWindow : Window
             // Best effort.
         }
         Close();
+    }
+
+    private static async Task PromoteTrayAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(2));
+        var promoted = TrayVisibility.Promote(Environment.ProcessPath);
+        LogTray($"promoted={promoted}");
     }
 
     private static void LogTray(string message)
