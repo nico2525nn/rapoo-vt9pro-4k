@@ -11,8 +11,6 @@ public partial class App : Application
 
     public IRapooService RapooService { get; }
 
-    public MacroService Macros { get; }
-
     public MainViewModel ViewModel { get; }
 
     public Window? MainWindow { get; private set; }
@@ -29,14 +27,9 @@ public partial class App : Application
 
         var useMock = Environment.GetEnvironmentVariable("RAPOO_USE_MOCK") == "1";
         RapooService = useMock ? new MockRapooService() : new RealRapooService();
-        Macros = new MacroService();
         ViewModel = new MainViewModel(RapooService);
 
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-        {
-            Macros.Dispose();
-            StopService();
-        };
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => StopService();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -63,16 +56,6 @@ public partial class App : Application
 
     private async void InitializeService()
     {
-        try
-        {
-            await Macros.StartAsync();
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine(ex);
-            ViewModel.SetError($"マクロの初期化に失敗しました: {ex.GetType().Name}: {ex.Message}");
-        }
-
         try
         {
             await ViewModel.InitializeAsync();
