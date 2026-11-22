@@ -1,21 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Moon, WifiOff } from "lucide-react";
 import { Toaster, toast } from "sonner";
-import { AppSidebar } from "@/components/AppSidebar";
+import { AppSidebar, NAV_ITEMS, type Page } from "@/components/AppSidebar";
 import { ButtonsTab } from "@/components/ButtonsTab";
 import { DpiPollingTab } from "@/components/DpiPollingTab";
 import { ProfilesToolsTab } from "@/components/ProfilesToolsTab";
+import { SettingsTab } from "@/components/SettingsTab";
 import { SensorTab } from "@/components/SensorTab";
 import { WindowControls } from "@/components/WindowControls";
 import { Button } from "@/components/ui/button";
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty";
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { rapooApi, windowApi } from "@/lib/wails";
 import type {
   AppPreferences,
@@ -44,23 +37,16 @@ const INITIAL_STATE: ServiceState = {
   updatedAt: "",
 };
 
-const PAGE_TITLES: Record<string, string> = {
-  dpi: "DPI",
-  sensor: "センサー",
-  buttons: "ボタン",
-  profiles: "プロファイル",
-};
-
 const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
 
 export default function App() {
-  const [darkMode] = useState<boolean>(() => {
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     const saved = window.localStorage?.getItem("rapoo-theme");
     return saved ? saved === "dark" : true;
   });
 
-  const [activeTab, setActiveTab] = useState<string>("dpi");
+  const [activeTab, setActiveTab] = useState<Page>("dpi");
   const [catalog, setCatalog] = useState<UICatalog | null>(null);
   const [state, setState] = useState<ServiceState>(INITIAL_STATE);
   const [snapshot, setSnapshot] = useState<DeviceSnapshot | null>(null);
@@ -85,6 +71,12 @@ export default function App() {
     void rapooApi.setWindowTheme(darkMode);
   }, [darkMode]);
 
+  useEffect(() => {
+    if (state.connected && state.lastError) {
+      toast.error(state.lastError, { id: "device-error" });
+    }
+  }, [state.connected, state.lastError]);
+
   const fetchSnapshotQuietly = useCallback(async () => {
     try {
       const snap = await rapooApi.readSnapshot();
@@ -93,7 +85,7 @@ export default function App() {
         hasLoadedSnapshotRef.current = true;
       }
     } catch {
-      // The header shows connection and sleep state.
+      // Connection and sleep state remain available in the sidebar.
     }
   }, []);
 
@@ -279,6 +271,7 @@ export default function App() {
   const unavailable = (
     <DeviceUnavailableCard
       state={state}
+      busy={busy}
       onEnableDemo={() => void handleToggleDemoMode(true)}
       onRefresh={() => void handleManualRefresh()}
     />
@@ -293,25 +286,18 @@ export default function App() {
         onNavigate={setActiveTab}
       />
 
-        <main className="no-scrollbar relative min-w-0 flex-1 overflow-y-auto">
-          <div
-            className="absolute inset-x-0 top-0 z-10 h-10"
-            style={dragStyle}
-            onDoubleClick={() => void windowApi.toggleMaximise()}
-          />
-          <div className="mx-auto w-full max-w-4xl p-6 pt-12">
-            <h1 className="mb-6 text-2xl font-semibold tracking-tight">
-              {PAGE_TITLES[activeTab] ?? "DPI"}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <div
+          className="mr-36 h-10 shrink-0"
+          style={dragStyle}
+          onDoubleClick={() => void windowApi.toggleMaximise()}
+          aria-hidden="true"
+        />
+        <main key={activeTab} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="@container max-w-5xl px-8 pt-3 pb-8">
+            <h1 className="mb-6 text-[1.75rem] leading-tight font-semibold">
+              {NAV_ITEMS.find((item) => item.value === activeTab)?.label}
             </h1>
-
-            {state.lastError && (
-              <div
-                role="alert"
-                className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-              >
-                {state.lastError}
-              </div>
-            )}
 
             {activeTab === "dpi" &&
               (hasDeviceData && snapshot ? (
@@ -369,11 +355,8 @@ export default function App() {
 
             {activeTab === "profiles" && (
               <ProfilesToolsTab
-                state={state}
                 snapshot={snapshot}
-                catalog={catalog}
                 presets={presets}
-                prefs={prefs}
                 writable={writable}
                 onSavePreset={handleSavePreset}
                 onApplyPreset={(preset) =>
@@ -383,6 +366,20 @@ export default function App() {
                   )
                 }
                 onDeletePreset={handleDeletePreset}
+              />
+            )}
+
+            {activeTab === "settings" && (
+              <SettingsTab
+                state={state}
+                snapshot={snapshot}
+                catalog={catalog}
+                prefs={prefs}
+                writable={writable}
+                busy={busy}
+                darkMode={darkMode}
+                onChangeTheme={setDarkMode}
+                onRefresh={() => void handleManualRefresh()}
                 onSetPollingMode={handleSetPollingMode}
                 onToggleDemoMode={(enabled) => void handleToggleDemoMode(enabled)}
                 onUpdateCloseToTray={async (enabled) => {
@@ -407,8 +404,9 @@ export default function App() {
             )}
           </div>
         </main>
+      </div>
 
-        <WindowControls />
+      <WindowControls />
       <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
     </div>
   );
@@ -418,35 +416,32 @@ function DeviceUnavailableCard({
   state,
   onEnableDemo,
   onRefresh,
+  busy,
 }: {
   state: ServiceState;
   onEnableDemo: () => void;
   onRefresh: () => void;
+  busy: boolean;
 }) {
   const sleeping = state.connected && state.sleeping;
   const unavailableMessage = sleeping
     ? "マウスを動かすと設定を読み込みます。"
     : state.permissionDenied
-      ? "hidraw へのアクセス権限がありません。プロファイルタブの udev 設定を確認してください。"
-      : "4K レシーバーまたは USB-C ケーブルを接続してください。";
+      ? "hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"
+      : state.lastError || "4K レシーバーまたは USB-C ケーブルを接続してください。";
 
   return (
-    <Empty className="border">
-      <EmptyHeader>
-        <EmptyMedia variant="icon">
-          {sleeping ? <Moon /> : <WifiOff />}
-        </EmptyMedia>
-        <EmptyTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</EmptyTitle>
-        <EmptyDescription>{unavailableMessage}</EmptyDescription>
-      </EmptyHeader>
-      <EmptyContent>
-        <div className="flex gap-2">
-          <Button onClick={onEnableDemo}>デモモード</Button>
-          <Button variant="outline" onClick={onRefresh}>
-            再読み込み
-          </Button>
-        </div>
-      </EmptyContent>
-    </Empty>
+    <Card>
+      <CardHeader className="grid-cols-1 @min-[27rem]:grid-cols-[1fr_auto]">
+        <CardTitle>{sleeping ? "マウスがスリープ中です" : "マウスが接続されていません"}</CardTitle>
+        <CardDescription>{unavailableMessage}</CardDescription>
+        <CardAction className="col-start-1 row-span-1 row-start-auto mt-2 justify-self-start @min-[27rem]:col-start-2 @min-[27rem]:row-span-2 @min-[27rem]:row-start-1 @min-[27rem]:mt-0 @min-[27rem]:self-center @min-[27rem]:justify-self-end">
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" disabled={busy} onClick={onEnableDemo}>デモモード</Button>
+            <Button variant="outline" disabled={busy} onClick={onRefresh}>再読み込み</Button>
+          </div>
+        </CardAction>
+      </CardHeader>
+    </Card>
   );
 }

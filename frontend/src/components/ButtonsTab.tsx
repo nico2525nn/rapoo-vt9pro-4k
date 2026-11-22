@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -245,29 +245,31 @@ export function ButtonsTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="items-center">
         <CardTitle>割り当て</CardTitle>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="outline" size="sm" disabled={!writable}>
-              初期化
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>全ボタンを初期値に戻しますか？</AlertDialogTitle>
-              <AlertDialogDescription>
-                10箇所のボタン割り当てを工場出荷時の設定に戻します。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>キャンセル</AlertDialogCancel>
-              <AlertDialogAction variant="destructive" onClick={() => void onResetAllButtons()}>
+        <CardAction>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={!writable}>
                 初期化
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>全ボタンを初期値に戻しますか？</AlertDialogTitle>
+                <AlertDialogDescription>
+                  10箇所のボタン割り当てを工場出荷時の設定に戻します。
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>キャンセル</AlertDialogCancel>
+                <AlertDialogAction variant="destructive" onClick={() => void onResetAllButtons()}>
+                  初期化
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {!writable && readOnlyReason && <p className="text-xs text-muted-foreground">{readOnlyReason}</p>}

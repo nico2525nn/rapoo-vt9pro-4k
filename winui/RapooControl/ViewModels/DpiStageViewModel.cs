@@ -21,6 +21,10 @@ public sealed class DpiStageViewModel : ObservableObject
 
     public string Label { get; }
 
+    public string XLabel => $"{Label} X DPI";
+
+    public string YLabel => $"{Label} Y DPI";
+
     public double X
     {
         get => _x;

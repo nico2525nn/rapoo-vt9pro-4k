@@ -15,8 +15,8 @@ public sealed partial class ButtonsPage : Page
         new("戻る", "ブラウザー: 戻る"),
         new("DPI +", "DPI ステージ +"),
         new("DPI -", "DPI ステージ -"),
-        new("ボタン 8", "キーボード: Ctrl+C (モック)"),
-        new("ボタン 9", "キーボード: Ctrl+V (モック)"),
+        new("ボタン 8", "キーボード: Ctrl+C"),
+        new("ボタン 9", "キーボード: Ctrl+V"),
         new("ボタン 10", "マクロ: 未割り当て"),
     ];
 

@@ -6,7 +6,7 @@ import { fallbackSim } from "@/lib/wails";
 
 async function enterDemo(user: UserEvent) {
   await user.click(await screen.findByRole("button", { name: "デモモード" }));
-  await screen.findByText(/電池 82%/);
+  expect(await within(screen.getByRole("complementary")).findByText(/82%$/)).toBeInTheDocument();
 }
 
 async function selectOption(user: UserEvent, label: string, option: string) {
@@ -27,7 +27,7 @@ describe("Rapoo Control", () => {
     expect(await screen.findByText("マウスが接続されていません")).toBeInTheDocument();
     await enterDemo(user);
 
-    expect(screen.getByText(/デモ · .*電池 82%/)).toBeInTheDocument();
+    expect(within(screen.getByRole("complementary")).getByRole("status")).toHaveTextContent(/^デモ · .* · 82%$/);
     expect(screen.getByRole("button", { name: "DPI" })).toBeInTheDocument();
     expect(screen.getByText("Stage 1")).toBeInTheDocument();
   });
@@ -42,10 +42,22 @@ describe("Rapoo Control", () => {
     await user.type(xInput, "1600");
     await user.tab();
     const sidebar = screen.getByRole("complementary");
-    expect(await within(sidebar).findByText(/1600 DPI/)).toBeInTheDocument();
+    expect(await within(sidebar).findByText(/1,600 DPI/)).toBeInTheDocument();
 
-    await selectOption(user, "ポーリングレート", "4000 Hz");
-    expect(within(sidebar).getByText(/4000 Hz/)).toBeInTheDocument();
+    await selectOption(user, "ポーリングレート", "4,000 Hz");
+    expect(within(sidebar).getByText(/4,000 Hz/)).toBeInTheDocument();
+
+    const axisSwitch = screen.getByRole("switch", { name: "X/Y 独立" });
+    await user.click(axisSwitch);
+    const yInput = await screen.findByLabelText("Stage 2 Y");
+    await user.clear(yInput);
+    await user.type(yInput, "1200");
+    await user.tab();
+    expect(await within(sidebar).findByText(/1,600\/1,200 DPI/)).toBeInTheDocument();
+
+    await user.click(axisSwitch);
+    expect(screen.queryByLabelText("Stage 2 Y")).not.toBeInTheDocument();
+    expect(within(sidebar).getByText(/1,600 DPI/)).toBeInTheDocument();
   });
 
   it("updates sensor settings", async () => {
@@ -106,10 +118,15 @@ describe("Rapoo Control", () => {
     await user.click(within(saveDialog).getByRole("button", { name: "保存" }));
     expect(await screen.findByText("カスタム")).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "設定" }));
     await selectOption(user, "バックグラウンド取得", "ゲーム中ロック (0-TX)");
-    expect(screen.getAllByRole("button", { name: "適用" })[0]).toBeDisabled();
+    expect(within(screen.getByRole("complementary")).getByText(/0-TX/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "プロファイル" }));
+    expect(screen.getByRole("button", { name: "適用" })).toBeDisabled();
 
+    await user.click(screen.getByRole("button", { name: "設定" }));
     await selectOption(user, "バックグラウンド取得", "通常");
-    expect(screen.getAllByRole("button", { name: "適用" })[0]).not.toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "プロファイル" }));
+    expect(screen.getByRole("button", { name: "適用" })).toBeEnabled();
   });
 });

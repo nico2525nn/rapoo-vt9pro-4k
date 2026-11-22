@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { SettingRow } from "@/components/SettingRow";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -39,14 +40,15 @@ export function DpiPollingTab({
   const [stages, setStages] = useState<DPIStage[]>(dpi ? allStagesFrom(dpi) : []);
   const [stageCount, setStageCount] = useState<number>(dpi?.stageCount ?? 1);
   const [currentStage, setCurrentStage] = useState<number>(dpi?.currentStage ?? 1);
-  const [independentXY, setIndependentXY] = useState<boolean>(dpi?.independentXY ?? false);
+  // The device reports independent axes only once an enabled stage has different X and Y values.
+  const [editingBothAxes, setEditingBothAxes] = useState(false);
+  const independentXY = Boolean(dpi?.independentXY) || editingBothAxes;
 
   useEffect(() => {
     if (!dpi) return;
     setStages(allStagesFrom(dpi));
     setStageCount(dpi.stageCount);
     setCurrentStage(dpi.currentStage);
-    setIndependentXY(dpi.independentXY);
   }, [dpi]);
 
   if (!dpi || !sensor) return null;
@@ -77,7 +79,6 @@ export function DpiPollingTab({
       setStages(allStagesFrom(dpi));
       setStageCount(dpi.stageCount);
       setCurrentStage(dpi.currentStage);
-      setIndependentXY(dpi.independentXY);
     }
   };
 
@@ -96,10 +97,12 @@ export function DpiPollingTab({
   };
 
   const changeIndependentXY = (checked: boolean) => {
-    const nextStages = checked ? stages : stages.map((stage) => ({ ...stage, y: stage.x }));
-    setIndependentXY(checked);
-    setStages(nextStages);
-    void persist(nextStages, stageCount, currentStage, checked);
+    setEditingBothAxes(checked);
+    if (!checked && stages.some((stage) => stage.x !== stage.y)) {
+      const nextStages = stages.map((stage) => ({ ...stage, y: stage.x }));
+      setStages(nextStages);
+      void persist(nextStages, stageCount, currentStage, false);
+    }
   };
 
   const commitStage = (stage: DPIStage, axis: "x" | "y") => {
@@ -120,14 +123,38 @@ export function DpiPollingTab({
   return (
     <div className="flex flex-col gap-4">
       <Card>
+        <CardContent>
+          <SettingRow
+            label="ポーリングレート"
+            description={model.maxRateHz < 4000 ? `この接続では最大 ${model.maxRateHz.toLocaleString("ja-JP")} Hz` : undefined}
+          >
+            <Select
+              value={String(sensor.pollingRateHz)}
+              onValueChange={(value) => void onChangePollingRate(Number(value))}
+              disabled={!writable}
+            >
+              <SelectTrigger className="w-full" aria-label="ポーリングレート">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {pollingRates.map((hz) => (
+                  <SelectItem key={hz} value={String(hz)} disabled={hz > model.maxRateHz}>
+                    {hz.toLocaleString("ja-JP")} Hz
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </SettingRow>
+        </CardContent>
+      </Card>
+      <Card>
         <CardHeader>
           <CardTitle>ステージ</CardTitle>
-          <CardDescription>変更は自動で保存されます。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 @min-[28rem]:grid-cols-3">
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">ステージ数</label>
+              <span className="text-sm font-medium">ステージ数</span>
               <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable}>
                 <SelectTrigger className="w-full" aria-label="ステージ数">
                   <SelectValue />
@@ -143,7 +170,7 @@ export function DpiPollingTab({
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">使用ステージ</label>
+              <span className="text-sm font-medium">使用ステージ</span>
               <Select value={String(currentStage)} onValueChange={changeCurrentStage} disabled={!writable}>
                 <SelectTrigger className="w-full" aria-label="使用ステージ">
                   <SelectValue />
@@ -159,8 +186,8 @@ export function DpiPollingTab({
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-medium">X/Y 独立</label>
-              <div className="flex h-10 items-center">
+              <span className="text-sm font-medium">X/Y 独立</span>
+              <div className="flex h-8 items-center">
                 <Switch
                   checked={independentXY}
                   onCheckedChange={changeIndependentXY}
@@ -203,7 +230,7 @@ export function DpiPollingTab({
                       onKeyDown={(event) => {
                         if (event.key === "Enter") event.currentTarget.blur();
                       }}
-                      className="w-32"
+                      className="w-full max-w-36 tabular-nums"
                     />
                   </TableCell>
                   {independentXY && (
@@ -227,7 +254,7 @@ export function DpiPollingTab({
                         onKeyDown={(event) => {
                           if (event.key === "Enter") event.currentTarget.blur();
                         }}
-                        className="w-32"
+                        className="w-full max-w-36 tabular-nums"
                       />
                     </TableCell>
                   )}
@@ -238,35 +265,6 @@ export function DpiPollingTab({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>ポーリングレート</CardTitle>
-          <CardDescription>応答間隔。高いほど低遅延。</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          <Select
-            value={String(sensor.pollingRateHz)}
-            onValueChange={(value) => void onChangePollingRate(Number(value))}
-            disabled={!writable}
-          >
-            <SelectTrigger className="w-full" aria-label="ポーリングレート">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {pollingRates.map((hz) => (
-                <SelectItem key={hz} value={String(hz)} disabled={hz > model.maxRateHz}>
-                  {hz} Hz
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {model.maxRateHz < 4000 && (
-            <p className="text-xs text-muted-foreground">
-              接続中のため最大 {model.maxRateHz} Hz まで選択できます。
-            </p>
-          )}
-        </CardContent>
-      </Card>
     </div>
   );
 }

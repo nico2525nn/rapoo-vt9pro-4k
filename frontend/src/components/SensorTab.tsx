@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { SettingRow } from "@/components/SettingRow";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,26 +15,6 @@ interface SensorTabProps {
 }
 
 const SLEEP_OPTIONS = [2, 5, 10, 15, 30, 60, 120];
-
-function SettingRow({
-  label,
-  description,
-  children,
-}: {
-  label: string;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex min-h-14 items-center justify-between gap-4 border-b py-3 first:pt-0 last:border-0 last:pb-0">
-      <div className="flex flex-col gap-0.5">
-        <span className="text-sm">{label}</span>
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-      </div>
-      <div className="w-44 shrink-0">{children}</div>
-    </div>
-  );
-}
 
 export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }: SensorTabProps) {
   const sensor = snapshot.sensor;
@@ -95,7 +76,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
           </SettingRow>
 
           <SettingRow label="センサー角度" description="水平軸の補正角度">
-            <div className="flex items-center gap-2">
+            <div className="flex w-full items-center gap-2">
               <Input
                 type="number"
                 min={-30}
@@ -124,65 +105,47 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
           </SettingRow>
 
           <SettingRow label="Motion Sync" description="ポーリング周期に同期">
-            <div className="flex justify-end">
-              <Switch
-                checked={sensor.motionSync}
-                onCheckedChange={(value) => toggle("motionSync", value)}
-                disabled={!writable}
-                aria-label="Motion Sync"
-              />
-            </div>
+            <Switch
+              checked={sensor.motionSync}
+              onCheckedChange={(value) => toggle("motionSync", value)}
+              disabled={!writable}
+              aria-label="Motion Sync"
+            />
           </SettingRow>
 
           <SettingRow label="リップル補正" description="高DPI時の揺れを抑制">
-            <div className="flex justify-end">
-              <Switch
-                checked={sensor.rippleControl}
-                onCheckedChange={(value) => toggle("rippleControl", value)}
-                disabled={!writable}
-                aria-label="リップル補正"
-              />
-            </div>
+            <Switch
+              checked={sensor.rippleControl}
+              onCheckedChange={(value) => toggle("rippleControl", value)}
+              disabled={!writable}
+              aria-label="リップル補正"
+            />
           </SettingRow>
 
           <SettingRow label="直線補正" description="手ぶれを直線に補正">
-            <div className="flex justify-end">
-              <Switch
-                checked={sensor.linearCorrection}
-                onCheckedChange={(value) => toggle("linearCorrection", value)}
-                disabled={!writable}
-                aria-label="直線補正"
-              />
-            </div>
+            <Switch
+              checked={sensor.linearCorrection}
+              onCheckedChange={(value) => toggle("linearCorrection", value)}
+              disabled={!writable}
+              aria-label="直線補正"
+            />
           </SettingRow>
 
           <SettingRow label="ガラス面モード" description="ガラス面での追従を改善">
-            <div className="flex justify-end">
-              <Switch
-                checked={sensor.glassMode}
-                onCheckedChange={(value) => toggle("glassMode", value)}
-                disabled={!writable}
-                aria-label="ガラス面モード"
-              />
-            </div>
+            <Switch
+              checked={sensor.glassMode}
+              onCheckedChange={(value) => toggle("glassMode", value)}
+              disabled={!writable}
+              aria-label="ガラス面モード"
+            />
           </SettingRow>
 
-          <SettingRow label="LED 省電力" description="LEDの点灯時間を短縮">
-            <div className="flex justify-end">
-              <Switch
-                checked={sensor.ledLowPowerMode > 0}
-                onCheckedChange={(value) => void onUpdateSensor({ ledLowPowerMode: value ? 1 : 0 })}
-                disabled={!writable}
-                aria-label="LED 省電力"
-              />
-            </div>
-          </SettingRow>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>スイッチ</CardTitle>
+          <CardTitle>スイッチと電源</CardTitle>
         </CardHeader>
         <CardContent>
           <SettingRow label="押下デバウンス" description="押した時のチャタリング防止">
@@ -250,6 +213,15 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
                 ))}
               </SelectContent>
             </Select>
+          </SettingRow>
+
+          <SettingRow label="LED 省電力" description="LEDの点灯時間を短縮">
+            <Switch
+              checked={sensor.ledLowPowerMode > 0}
+              onCheckedChange={(value) => void onUpdateSensor({ ledLowPowerMode: value ? 1 : 0 })}
+              disabled={!writable}
+              aria-label="LED 省電力"
+            />
           </SettingRow>
         </CardContent>
       </Card>

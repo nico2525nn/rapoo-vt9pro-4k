@@ -5,88 +5,85 @@
     xmlns:vm="using:RapooControl.ViewModels">
 
     <ScrollViewer>
-        <StackPanel
-            MaxWidth="960"
-            Padding="24"
-            HorizontalAlignment="Left"
-            Spacing="16">
+        <StackPanel Style="{StaticResource SettingsPageLayout}">
             <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="DPI" />
-            <TextBlock
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="ステージ数、X/Y DPI、ポーリングレートを設定します。値は 50 DPI 単位に丸められます。" />
-
-            <InfoBar
-                IsClosable="False"
-                IsOpen="True"
-                Message="適用先は MockRapooService です。実機の HID レポートは送信しません。"
-                Severity="Informational"
-                Title="モックデータ" />
 
             <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="16">
+                <Grid Style="{StaticResource SettingsRowStyle}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ポーリングレート" />
+                    <ComboBox
+                        Grid.Column="1"
+                        Width="160"
+                        VerticalAlignment="Center"
+                        AutomationProperties.Name="ポーリングレート"
+                        ItemsSource="{x:Bind ViewModel.Dpi.PollingRateOptions}"
+                        SelectedIndex="{x:Bind ViewModel.Dpi.PollingRateIndex, Mode=TwoWay}" />
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="12">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="ステージ" />
 
-                    <Grid ColumnSpacing="24" RowSpacing="12">
+                    <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="160" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-
-                        <TextBlock
-                            Grid.Column="0"
-                            VerticalAlignment="Center"
-                            Text="ステージ数" />
+                        <ComboBox
+                            HorizontalAlignment="Stretch"
+                            Header="ステージ数"
+                            ItemsSource="{x:Bind ViewModel.Dpi.StageCountOptions}"
+                            SelectedIndex="{x:Bind ViewModel.Dpi.StageCountIndex, Mode=TwoWay}" />
                         <ComboBox
                             Grid.Column="1"
                             HorizontalAlignment="Stretch"
-                            ItemsSource="{x:Bind ViewModel.Dpi.StageCountOptions}"
-                            SelectedIndex="{x:Bind ViewModel.Dpi.StageCountIndex, Mode=TwoWay}" />
-
-                        <TextBlock
-                            Grid.Column="2"
-                            VerticalAlignment="Center"
-                            Text="使用ステージ" />
-                        <ComboBox
-                            Grid.Column="3"
-                            HorizontalAlignment="Stretch"
+                            Header="使用ステージ"
                             ItemsSource="{x:Bind ViewModel.Dpi.CurrentStageOptions, Mode=OneWay}"
                             SelectedIndex="{x:Bind ViewModel.Dpi.CurrentStageIndex, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="88" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource MetricLabelStyle}" Text="ステージ" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource MetricLabelStyle}" Text="X (DPI)" />
+                        <TextBlock Grid.Column="2" Style="{StaticResource MetricLabelStyle}" Text="Y (DPI)" />
                     </Grid>
 
                     <ItemsControl ItemsSource="{x:Bind ViewModel.Dpi.Stages, Mode=OneWay}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:DpiStageViewModel">
                                 <Grid
-                                    Margin="0,0,0,8"
-                                    ColumnSpacing="16"
+                                    Style="{StaticResource SettingsRowStyle}"
                                     Visibility="{x:Bind IsVisible, Mode=OneWay}">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="100" />
+                                        <ColumnDefinition Width="88" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-
-                                    <TextBlock
-                                        Grid.Column="0"
-                                        VerticalAlignment="Center"
-                                        FontWeight="SemiBold"
-                                        Text="{x:Bind Label}" />
-
+                                    <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="{x:Bind Label}" />
                                     <NumberBox
                                         Grid.Column="1"
-                                        Header="X DPI"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="{x:Bind XLabel}"
                                         LargeChange="100"
                                         Maximum="26000"
                                         Minimum="50"
                                         SmallChange="50"
                                         SpinButtonPlacementMode="Compact"
                                         Value="{x:Bind X, Mode=TwoWay}" />
-
                                     <NumberBox
                                         Grid.Column="2"
-                                        Header="Y DPI"
+                                        VerticalAlignment="Center"
+                                        AutomationProperties.Name="{x:Bind YLabel}"
                                         LargeChange="100"
                                         Maximum="26000"
                                         Minimum="50"
@@ -98,32 +95,15 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock
-                        Style="{StaticResource MetricLabelStyle}"
-                        Text="X と Y が異なる場合は独立した DPI として扱います（実機側の独立設定に相当）。" />
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="12">
-                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="ポーリングレート" />
-                    <TextBlock
-                        Style="{StaticResource PageSubtitleStyle}"
-                        Text="4K レシーバー接続時は最大 4,000 Hz、USB-C 有線時は 1,000 Hz までです。" />
-                    <ComboBox
-                        Width="200"
-                        HorizontalAlignment="Left"
-                        ItemsSource="{x:Bind ViewModel.Dpi.PollingRateOptions}"
-                        SelectedIndex="{x:Bind ViewModel.Dpi.PollingRateIndex, Mode=TwoWay}" />
+                    <TextBlock Style="{StaticResource PageSubtitleStyle}" Text="DPI は 50 単位で設定できます。X と Y に異なる値を設定できます。" />
                 </StackPanel>
             </Border>
 
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button
                     Click="ApplyButton_Click"
-                    Content="設定を適用 (モック)"
-                    IsEnabled="{x:Bind ViewModel.Dpi.CanApply, Mode=OneWay}"
-                    Style="{StaticResource AccentButtonStyle}" />
+                    Content="設定を適用"
+                    IsEnabled="{x:Bind ViewModel.Dpi.CanApply, Mode=OneWay}" />
                 <ProgressRing
                     Width="20"
                     Height="20"
@@ -131,6 +111,7 @@
             </StackPanel>
 
             <TextBlock
+                AutomationProperties.LiveSetting="Polite"
                 Style="{StaticResource PageSubtitleStyle}"
                 Text="{x:Bind ViewModel.Dpi.ApplyStatus, Mode=OneWay}" />
         </StackPanel>

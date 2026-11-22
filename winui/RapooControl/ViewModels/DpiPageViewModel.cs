@@ -14,7 +14,7 @@ public sealed class DpiPageViewModel : ObservableObject
     private int _currentStage = 2;
     private int _pollingRateHz = 4000;
     private bool _isBusy;
-    private string _applyStatus = "変更は「設定を適用」でモックサービスに反映されます。";
+    private string _applyStatus = string.Empty;
 
     public DpiPageViewModel(IRapooService service)
     {
@@ -128,7 +128,7 @@ public sealed class DpiPageViewModel : ObservableObject
         SetCurrentStage(configuration.CurrentStage);
         SetPollingRate(status.PollingRateHz);
 
-        _applyStatus = $"モックから読み込みました（{configuration.StageCount} ステージ / {status.PollingRateHz:N0} Hz）。";
+        _applyStatus = string.Empty;
         OnPropertyChanged(nameof(ApplyStatus));
     }
 
@@ -149,10 +149,10 @@ public sealed class DpiPageViewModel : ObservableObject
 
             var configuration = new DpiConfiguration(_stageCount, _currentStage, stages);
 
-            var dpiStatus = await _service.ApplyDpiConfigurationAsync(configuration);
-            var status = await _service.SetPollingRateAsync(_pollingRateHz);
+            await _service.ApplyDpiConfigurationAsync(configuration);
+            await _service.SetPollingRateAsync(_pollingRateHz);
 
-            _applyStatus = $"モックに適用しました（使用 Stage {_currentStage}: {dpiStatus.ActiveDpiText} / {status.PollingRateText}）。実機には送信していません。";
+            _applyStatus = "設定を適用しました。";
         }
         catch (Exception ex)
         {

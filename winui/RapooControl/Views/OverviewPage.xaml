@@ -4,118 +4,37 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <ScrollViewer>
-        <StackPanel
-            MaxWidth="960"
-            Padding="24"
-            HorizontalAlignment="Left"
-            Spacing="16">
+        <StackPanel Style="{StaticResource SettingsPageLayout}">
             <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="概要" />
-            <TextBlock
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="デバイスの現在値を一覧します。この画面の数値はすべて MockRapooService によるモックです。" />
-
-            <Grid ColumnSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
-
-                <Border
-                    Grid.Column="0"
-                    Style="{StaticResource CardBorderStyle}">
-                    <StackPanel Spacing="10">
-                        <TextBlock Style="{StaticResource MetricLabelStyle}" Text="バッテリー" />
-                        <TextBlock Style="{StaticResource TitleLargeTextBlockStyle}" Text="{x:Bind ViewModel.BatteryText, Mode=OneWay}" />
-                        <ProgressBar
-                            Height="4"
-                            Maximum="100"
-                            Value="{x:Bind ViewModel.BatteryPercent, Mode=OneWay}" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.ChargingLabel, Mode=OneWay}" />
-                        <TextBlock
-                            Style="{StaticResource MetricLabelStyle}"
-                            Text="ワイヤレス 4K / 78% はモック値" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Grid.Column="1"
-                    Style="{StaticResource CardBorderStyle}">
-                    <StackPanel Spacing="10">
-                        <TextBlock Style="{StaticResource MetricLabelStyle}" Text="アクティブ DPI" />
-                        <TextBlock Style="{StaticResource TitleLargeTextBlockStyle}" Text="{x:Bind ViewModel.ActiveDpiText, Mode=OneWay}" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="{x:Bind ViewModel.DpiSummary, Mode=OneWay}" />
-                        <TextBlock
-                            Style="{StaticResource MetricLabelStyle}"
-                            Text="DPI ページでステージを編集" />
-                    </StackPanel>
-                </Border>
-
-                <Border
-                    Grid.Column="2"
-                    Style="{StaticResource CardBorderStyle}">
-                    <StackPanel Spacing="10">
-                        <TextBlock Style="{StaticResource MetricLabelStyle}" Text="ポーリングレート" />
-                        <TextBlock Style="{StaticResource TitleLargeTextBlockStyle}" Text="{x:Bind ViewModel.PollingRateText, Mode=OneWay}" />
-                        <TextBlock
-                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                            Text="4K レシーバー接続時の最大値" />
-                        <TextBlock
-                            Style="{StaticResource MetricLabelStyle}"
-                            Text="USB-C 有線時は 1,000 Hz まで" />
-                    </StackPanel>
-                </Border>
-            </Grid>
 
             <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Spacing="14">
-                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス情報" />
-
-                    <Grid ColumnSpacing="16" RowSpacing="8">
+                <StackPanel Spacing="4">
+                    <TextBlock Margin="0,0,0,4" Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス" />
+                    <Grid Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="160" />
                             <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-
-                        <TextBlock Grid.Row="0" Style="{StaticResource MetricLabelStyle}" Text="モデル" />
-                        <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.DeviceName, Mode=OneWay}" />
-
-                        <TextBlock Grid.Row="1" Style="{StaticResource MetricLabelStyle}" Text="接続" />
-                        <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.ConnectionLabel, Mode=OneWay}" />
-
-                        <TextBlock Grid.Row="2" Style="{StaticResource MetricLabelStyle}" Text="ファームウェア (モック)" />
-                        <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.FirmwareText, Mode=OneWay}" />
-
-                        <TextBlock Grid.Row="3" Style="{StaticResource MetricLabelStyle}" Text="データソース" />
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{x:Bind ViewModel.ServiceName, Mode=OneWay}" />
-
-                        <TextBlock Grid.Row="4" Style="{StaticResource MetricLabelStyle}" Text="モード" />
-                        <TextBlock Grid.Row="4" Grid.Column="1" Text="{x:Bind ViewModel.MockLabel, Mode=OneWay}" />
-
-                        <TextBlock Grid.Row="5" Style="{StaticResource MetricLabelStyle}" Text="更新" />
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{x:Bind ViewModel.UpdatedText, Mode=OneWay}" />
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="モデル" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.DeviceName, Mode=OneWay}" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.FirmwareText, Mode=OneWay}" />
                     </Grid>
                 </StackPanel>
             </Border>
 
-            <InfoBar
-                IsClosable="False"
-                IsOpen="True"
-                Message="次のイテレーションでは IRapooService の実装だけを Go ブリッジに差し替え、この画面構造はそのまま再利用する想定です。"
-                Severity="Informational"
-                Title="WinUI 3 実現性検証" />
+            <TextBlock
+                Style="{StaticResource PageSubtitleStyle}"
+                Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}" />
+
+            <TextBlock Style="{StaticResource MetricLabelStyle}" Text="このプレビューはサンプルデータを使用しています。" />
         </StackPanel>
     </ScrollViewer>
 </Page>

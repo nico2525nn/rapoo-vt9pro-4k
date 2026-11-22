@@ -8,12 +8,34 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <Style x:Key="SettingsPageLayout" TargetType="StackPanel">
+                <Setter Property="Padding" Value="24,12,24,24" />
+                <Setter Property="Spacing" Value="16" />
+                <Setter Property="MaxWidth" Value="960" />
+            </Style>
+
+            <Style x:Key="SettingsRowStyle" TargetType="Grid">
+                <Setter Property="MinHeight" Value="44" />
+                <Setter Property="ColumnSpacing" Value="16" />
+            </Style>
+
+            <Style x:Key="SettingsRowLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
+                <Setter Property="VerticalAlignment" Value="Center" />
+                <Setter Property="TextWrapping" Value="Wrap" />
+            </Style>
+
+            <Style x:Key="SettingsRowValueStyle" TargetType="TextBlock" BasedOn="{StaticResource SettingsRowLabelStyle}">
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="HorizontalAlignment" Value="Right" />
+                <Setter Property="TextAlignment" Value="Right" />
+            </Style>
+
             <Style x:Key="CardBorderStyle" TargetType="Border">
                 <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="CornerRadius" Value="8" />
-                <Setter Property="Padding" Value="20" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="Padding" Value="16" />
             </Style>
 
             <Style x:Key="PageSubtitleStyle" TargetType="TextBlock" BasedOn="{StaticResource BodyTextBlockStyle}">
@@ -24,8 +46,6 @@
             <Style x:Key="MetricLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource CaptionTextBlockStyle}">
                 <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
             </Style>
-
-            <Style x:Key="MetricValueStyle" TargetType="TextBlock" BasedOn="{StaticResource SubtitleTextBlockStyle}" />
         </ResourceDictionary>
     </Application.Resources>
 </Application>

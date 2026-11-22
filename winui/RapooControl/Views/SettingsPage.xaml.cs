@@ -21,7 +21,7 @@ public sealed partial class SettingsPage : Page
         try
         {
             await ViewModel.InitializeAsync();
-            RefreshStatusText.Text = "モックデータを再読み込みしました。";
+            RefreshStatusText.Text = "再読み込みしました。";
         }
         catch (Exception ex)
         {

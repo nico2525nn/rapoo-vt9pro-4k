@@ -14,6 +14,9 @@ public sealed partial class MainWindow : Window
         ViewModel = App.Instance.ViewModel;
         InitializeComponent();
 
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(WindowDragArea);
+
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1180, 800));
 
         NavView.SelectedItem = NavView.MenuItems[0];

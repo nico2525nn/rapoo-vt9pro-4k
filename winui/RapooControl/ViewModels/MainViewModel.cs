@@ -3,7 +3,7 @@ using RapooControl.Services;
 
 namespace RapooControl.ViewModels;
 
-/// <summary>Shell state: header metrics plus the DPI page view model.</summary>
+/// <summary>Shell status and the DPI page view model.</summary>
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IRapooService _service;
@@ -29,46 +29,29 @@ public sealed class MainViewModel : ObservableObject
             IsMock: service.IsMock);
 
         Dpi = new DpiPageViewModel(service);
-        Dpi.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName is nameof(DpiPageViewModel.StageCount) or nameof(DpiPageViewModel.CurrentStage))
-            {
-                OnPropertyChanged(nameof(DpiSummary));
-            }
-        };
     }
 
     public DpiPageViewModel Dpi { get; }
 
-    public string DpiSummary => $"使用 Stage {Dpi.CurrentStage} / {Dpi.StageCount} ステージ";
-
-    public bool IsMock => _service.IsMock;
-
-    public string MockLabel => IsMock ? "MOCK" : "LIVE";
-
-    public string ServiceName => _service.Name;
-
     public string DeviceName => _status.DeviceName;
-
-    public string ConnectionLabel => _status.ConnectionLabel;
-
-    public string BatteryText => _status.BatteryText;
-
-    public double BatteryPercent => Math.Clamp(_status.BatteryPercent, 0, 100);
-
-    public string ChargingLabel => _status.ChargingLabel;
-
-    public string ActiveDpiText => _status.ActiveDpiText;
-
-    public string PollingRateText => _status.PollingRateText;
 
     public string FirmwareText => _status.Firmware;
 
-    public string UpdatedText => $"最終更新 {_status.UpdatedAt.ToLocalTime():HH:mm:ss}";
+    public string StatusLine
+    {
+        get
+        {
+            if (_status.Connection == ConnectionKind.Disconnected)
+            {
+                return "未接続";
+            }
 
-    public string ConnectionDetail => $"{ConnectionLabel} · {PollingRateText}";
-
-    public string StatusLine => $"{ConnectionLabel} · {ActiveDpiText} · {PollingRateText} · {BatteryText}";
+            var connection = !_status.MouseOnline
+                ? "スリープ"
+                : _status.Connection == ConnectionKind.Wired ? "USB-C" : "4K";
+            return $"{connection} · {_status.ActiveDpiText} · {_status.PollingRateText} · {_status.BatteryText}";
+        }
+    }
 
     public bool HasError => _hasError;
 
@@ -101,15 +84,7 @@ public sealed class MainViewModel : ObservableObject
         _status = status;
 
         OnPropertyChanged(nameof(DeviceName));
-        OnPropertyChanged(nameof(ConnectionLabel));
-        OnPropertyChanged(nameof(ConnectionDetail));
-        OnPropertyChanged(nameof(StatusLine));
-        OnPropertyChanged(nameof(BatteryText));
-        OnPropertyChanged(nameof(BatteryPercent));
-        OnPropertyChanged(nameof(ChargingLabel));
-        OnPropertyChanged(nameof(ActiveDpiText));
-        OnPropertyChanged(nameof(PollingRateText));
         OnPropertyChanged(nameof(FirmwareText));
-        OnPropertyChanged(nameof(UpdatedText));
+        OnPropertyChanged(nameof(StatusLine));
     }
 }

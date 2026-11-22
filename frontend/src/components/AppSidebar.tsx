@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
-import { Cpu, Crosshair, FolderCog, MousePointer } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Cpu, Crosshair, FolderOpen, Mouse, Settings } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { windowApi } from "@/lib/wails";
 import type { DeviceSnapshot, ServiceState } from "@/types/rapoo";
 
@@ -9,16 +9,21 @@ const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
 interface AppSidebarProps {
   state: ServiceState;
   snapshot: DeviceSnapshot | null;
-  activeTab: string;
-  onNavigate: (tab: string) => void;
+  activeTab: Page;
+  onNavigate: (tab: Page) => void;
 }
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
   { value: "dpi", label: "DPI", icon: Crosshair },
   { value: "sensor", label: "センサー", icon: Cpu },
-  { value: "buttons", label: "ボタン", icon: MousePointer },
-  { value: "profiles", label: "プロファイル", icon: FolderCog },
+  { value: "buttons", label: "ボタン", icon: Mouse },
+  { value: "profiles", label: "プロファイル", icon: FolderOpen },
+  { value: "settings", label: "設定", icon: Settings },
 ] as const;
+
+export type Page = (typeof NAV_ITEMS)[number]["value"];
+
+const number = new Intl.NumberFormat("ja-JP");
 
 function connectionLabel(state: ServiceState): string {
   if (!state.connected) return "未接続";
@@ -28,62 +33,58 @@ function connectionLabel(state: ServiceState): string {
 }
 
 function activeDpiLabel(snapshot: DeviceSnapshot | null): string | null {
-  if (!snapshot?.dpi) return null;
-  const index = Math.min(Math.max(snapshot.dpi.currentStage - 1, 0), snapshot.dpi.stages.length - 1);
-  const stage = snapshot.dpi.stages[index];
+  const dpi = snapshot?.dpi;
+  if (!dpi) return null;
+  const stage = dpi.stages.find((stage) => stage.index === dpi.currentStage);
   if (!stage) return null;
-  return snapshot.dpi.independentXY ? `${stage.x}/${stage.y} DPI` : `${stage.x} DPI`;
+  return dpi.independentXY ? `${number.format(stage.x)}/${number.format(stage.y)} DPI` : `${number.format(stage.x)} DPI`;
 }
 
 export function AppSidebar({ state, snapshot, activeTab, onNavigate }: AppSidebarProps) {
-  const percentage = snapshot?.battery.percentage ?? state.percentage;
-  const hasBattery = Boolean(snapshot) || state.hasBattery;
-  const rate = snapshot?.sensor?.pollingRateHz ?? state.pollingRateHz;
+  const percentage = state.hasBattery ? state.percentage : snapshot?.battery.percentage;
+  const rate = state.pollingRateHz ?? snapshot?.sensor?.pollingRateHz;
+  const dpi = activeDpiLabel(snapshot) ?? (state.activeDpi ? `${number.format(state.activeDpi)} DPI` : null);
   const status = [
     connectionLabel(state),
     state.mode === "passive_only" ? "0-TX" : null,
-    activeDpiLabel(snapshot),
-    rate ? `${rate} Hz` : null,
-    `電池 ${hasBattery ? `${percentage}%` : "--%"}`,
+    state.connected ? dpi : null,
+    state.connected && rate ? `${number.format(rate)} Hz` : null,
+    state.connected && percentage !== undefined ? `${percentage}%` : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex w-60 shrink-0 flex-col bg-sidebar px-4 text-sidebar-foreground">
       <div
-        className="border-b border-sidebar-border px-4 py-3"
+        className="flex h-10 shrink-0 items-center px-2"
         style={dragStyle}
         onDoubleClick={() => void windowApi.toggleMaximise()}
       >
-        <p className="truncate text-sm font-semibold">Rapoo VT9 Pro 4K</p>
+        <p className="truncate text-sm font-semibold">Rapoo Control</p>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1 p-2">
+      <nav aria-label="メインメニュー" className="flex flex-1 flex-col gap-1 pt-3">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const active = activeTab === item.value;
           return (
-            <button
+            <Button
               key={item.value}
               type="button"
+              variant="ghost"
               aria-current={active ? "page" : undefined}
               onClick={() => onNavigate(item.value)}
-              className={cn(
-                "relative flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
-                active
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
-              )}
+              className="h-10 w-full justify-start gap-3 px-3 font-normal text-sidebar-foreground hover:bg-sidebar-accent/70 aria-[current=page]:bg-sidebar-accent dark:hover:bg-sidebar-accent/70 dark:aria-[current=page]:hover:bg-sidebar-accent motion-reduce:transition-none"
             >
-              <Icon className="size-4 shrink-0" />
+              <Icon aria-hidden="true" />
               {item.label}
-            </button>
+            </Button>
           );
         })}
       </nav>
 
-      <p className="truncate border-t border-sidebar-border px-4 py-2.5 text-xs text-muted-foreground">
+      <p role="status" title={status} className="truncate px-2 py-4 text-xs text-muted-foreground tabular-nums">
         {status}
       </p>
     </aside>
