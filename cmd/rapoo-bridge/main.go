@@ -161,6 +161,15 @@ func (b *bridge) handle(req request) (any, error) {
 			return nil, err
 		}
 		return b.svc.SetDemoMode(p.Enabled)
+	case "setLanguage":
+		var p struct {
+			Language string `json:"language"`
+		}
+		if err := decodeParams(req, &p); err != nil {
+			return nil, err
+		}
+		b.svc.SetLanguage(p.Language)
+		return b.svc.GetState(), nil
 	case "pollingMode":
 		var p struct {
 			Mode string `json:"mode"`

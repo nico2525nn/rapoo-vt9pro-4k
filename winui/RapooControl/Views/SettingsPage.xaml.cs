@@ -65,7 +65,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => ViewModel.PropertyChanged -= DeviceStatusChanged;
 
-    private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_languageReady || LanguageCombo.SelectedItem is not ComboBoxItem { Tag: string language })
         {
@@ -78,6 +78,17 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             return;
         }
         localization.SetLanguage(language);
+        if (ViewModel.DeviceService is { } service)
+        {
+            try
+            {
+                await service.SetLanguageAsync(language);
+            }
+            catch
+            {
+                // The UI language still applies; the sidecar will pick it up next launch.
+            }
+        }
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
         UpdateControls();

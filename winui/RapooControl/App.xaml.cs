@@ -64,7 +64,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine(ex);
-            ViewModel.SetError($"サービスの初期化に失敗しました: {ex.GetType().Name}: {ex.Message}");
+            ViewModel.SetError(LocalizationService.Instance.Format("サービスの初期化に失敗しました: {0}: {1}", ex.GetType().Name, ex.Message));
         }
     }
 }

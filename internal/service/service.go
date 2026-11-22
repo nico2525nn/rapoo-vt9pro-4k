@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nico/rapoo-vt9pro-4k/internal/profile"
@@ -121,6 +122,7 @@ type MouseService struct {
 	lastWakeAt  time.Time
 	nextSubID   int
 	subscribers map[int]Listener
+	language    atomic.Value // string: "en" or "ja"
 
 	refreshCh chan struct{}
 	reopenCh  chan struct{}
@@ -136,7 +138,7 @@ func NewMouseService(provider hid.Provider, cfg Config) *MouseService {
 	cfg.applyDefaults()
 	store, _ := profile.NewStore(cfg.PresetDir)
 
-	return &MouseService{
+	svc := &MouseService{
 		realProvider: provider,
 		demoDevice:   rapoo.NewVirtualDevice(),
 		presetStore:  store,
@@ -149,6 +151,8 @@ func NewMouseService(provider hid.Provider, cfg Config) *MouseService {
 		refreshCh:   make(chan struct{}, 1),
 		reopenCh:    make(chan struct{}, 1),
 	}
+	svc.language.Store(normalizeLanguage(cfg.Language))
+	return svc
 }
 
 func (s *MouseService) activeProvider() hid.Provider {
@@ -205,6 +209,11 @@ func (s *MouseService) Subscribe(fn Listener) func() {
 }
 
 // GetCatalog returns static UI metadata (debounce steps, button layout, USB HID keys, udev instructions).
+// SetLanguage updates backend error messages at runtime.
+func (s *MouseService) SetLanguage(language string) {
+	s.language.Store(normalizeLanguage(language))
+}
+
 func (s *MouseService) GetCatalog() UICatalog {
 	return UICatalog{
 		Platform:            runtime.GOOS,
@@ -867,7 +876,8 @@ func (s *MouseService) friendlyError(err error) string {
 	if err == nil {
 		return ""
 	}
-	japanese := normalizeLanguage(s.cfg.Language) == "ja"
+	language, _ := s.language.Load().(string)
+	japanese := normalizeLanguage(language) == "ja"
 	switch {
 	case errors.Is(err, rapoo.ErrDeviceNotFound):
 		if japanese {

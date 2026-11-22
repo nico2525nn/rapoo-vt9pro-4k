@@ -280,6 +280,12 @@ const ERROR_EN: Record<string, string> = {
     "Sensor angle is out of range.",
   "LED 省電力モードの値が不正です":
     "Invalid LED power-saving value.",
+  "マウスの設定情報がまだ読み込まれていません":
+    "Mouse settings are not loaded yet.",
+  "プリセットの保存領域が利用できません":
+    "The preset store is unavailable.",
+  "プロファイル名が含まれていません":
+    "The profile name is missing.",
 };
 
 export function translateError(message: string): string {
@@ -295,8 +301,12 @@ export function translateError(message: string): string {
   if (message.startsWith("ボタン割り当てが不正です: ")) {
     return "Invalid button assignment: " + message.slice("ボタン割り当てが不正です: ".length);
   }
+  if (message.startsWith("JSON形式が正しくありません")) {
+    return "Invalid JSON: the file could not be parsed.";
+  }
   if (/[\u3040-\u30ff\u4e00-\u9faf]/.test(message)) {
-    return "The device reported an error. Check the connection and try again.";
+    console.error("[rapoo] untranslated backend error:", message);
+    return "The device reported an error. Check the connection and try again. Details were written to the developer console.";
   }
   return message;
 }

@@ -9,7 +9,7 @@ import { SensorTab } from "@/components/SensorTab";
 import { WindowControls } from "@/components/WindowControls";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { normalizeLanguage, setLanguage as setI18nLanguage, t, type Language } from "@/lib/i18n";
+import { normalizeLanguage, setLanguage as setI18nLanguage, t, translateError, type Language } from "@/lib/i18n";
 import { rapooApi, windowApi } from "@/lib/wails";
 import type {
   AppPreferences,
@@ -75,7 +75,7 @@ export default function App() {
 
   useEffect(() => {
     if (state.connected && state.lastError) {
-      toast.error(state.lastError, { id: "device-error" });
+      toast.error(translateError(state.lastError), { id: "device-error" });
     }
   }, [state.connected, state.lastError]);
 
@@ -449,7 +449,7 @@ function DeviceUnavailableCard({
     ? t("Move the mouse to load settings.")
     : state.permissionDenied
       ? t("No permission to access hidraw. Check the udev setup in Settings.")
-      : state.lastError || t("Connect the 4K receiver or USB-C cable.");
+      : state.lastError ? translateError(state.lastError) : t("Connect the 4K receiver or USB-C cable.");
 
   return (
     <Card>

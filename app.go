@@ -148,8 +148,8 @@ func (a *App) startup(ctx context.Context) {
 				MutexName:         `Local\RapooControlWailsTrayMutex`,
 				WindowClass:       "RapooControlWailsTrayWndClass",
 				RegistryValueName: wailsRegistryAutoStartKey,
-				Language:          a.prefs.Language,
-				OpenMenuLabel:     a.text("Open Rapoo Control (&O)", "Rapoo Control を開く(&O)"),
+				LanguageFn:        a.currentLanguage,
+				OpenMenuLabel:     "",
 				OnOpenWindow: func() {
 					a.ShowWindow()
 				},
@@ -207,11 +207,15 @@ func (a *App) QuitApp() {
 	}
 }
 
-func (a *App) text(english, japanese string) string {
+func (a *App) currentLanguage() string {
 	a.prefsMu.RLock()
 	language := a.prefs.Language
 	a.prefsMu.RUnlock()
-	if normalizeLanguage(language) == "ja" {
+	return normalizeLanguage(language)
+}
+
+func (a *App) text(english, japanese string) string {
+	if a.currentLanguage() == "ja" {
 		return japanese
 	}
 	return english
@@ -236,6 +240,9 @@ func (a *App) SetLanguage(language string) AppPreferences {
 	_ = os.Setenv("RAPOO_LANG", language)
 	a.savePrefsLocked()
 	a.prefsMu.Unlock()
+	if a.svc != nil {
+		a.svc.SetLanguage(language)
+	}
 	return a.GetAppPreferences()
 }
 

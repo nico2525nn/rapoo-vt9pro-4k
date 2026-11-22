@@ -130,6 +130,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeSnapshot> SetDemoModeAsync(bool enabled, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("demo", new { enabled }, cancellationToken);
 
+    public Task<BridgeState> SetLanguageAsync(string language, CancellationToken cancellationToken = default) =>
+        RequestAsync<BridgeState>("setLanguage", new { language }, cancellationToken);
+
     public Task<BridgeState> SetPollingModeAsync(string mode, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeState>("pollingMode", new { mode }, cancellationToken);
 
@@ -214,7 +217,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         catch (Exception ex)
         {
             Log($"decode {method} failed: {ex}\nraw={element.GetRawText()}");
-            throw new InvalidOperationException($"rapoo-bridge: {method} の応答を解釈できません: {ex.Message}", ex);
+            throw new InvalidOperationException(LocalizationService.Instance.Format("rapoo-bridge: {0} の応答を解釈できません: {1}", method, ex.Message), ex);
         }
     }
 
@@ -408,7 +411,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         var message = "rapoo-bridge.exe が終了しました。";
         try
         {
-            message = $"rapoo-bridge.exe が終了しました (code {_process?.ExitCode}).";
+            message = LocalizationService.Instance.Format("rapoo-bridge.exe が終了しました (code {0}).", _process?.ExitCode ?? -1);
         }
         catch
         {

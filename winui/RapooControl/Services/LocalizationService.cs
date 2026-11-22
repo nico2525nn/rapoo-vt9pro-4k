@@ -308,9 +308,12 @@ public sealed class LocalizationService
         {
             return translation;
         }
-        return ContainsJapanese(source)
-            ? "The device reported an error. Check the connection and try again."
-            : source;
+        if (ContainsJapanese(source))
+        {
+            LogError(source);
+            return "The device reported an error. Check the connection and try again. Details were written to the localization error log.";
+        }
+        return source;
     }
 
     public string ActionLabel(BridgeButtonAction? action)
@@ -436,6 +439,29 @@ public sealed class LocalizationService
         {
             state.AutomationName ??= automationName;
             AutomationProperties.SetName(element, T(state.AutomationName));
+        }
+    }
+
+    private static readonly object ErrorLogGate = new();
+
+    private static void LogError(string source)
+    {
+        try
+        {
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "rapoo-vt9pro-4k");
+            Directory.CreateDirectory(directory);
+            lock (ErrorLogGate)
+            {
+                File.AppendAllText(
+                    Path.Combine(directory, "localization-errors.log"),
+                    $"{DateTimeOffset.Now:O} {source}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+            // Diagnostics must not break the UI.
         }
     }
 

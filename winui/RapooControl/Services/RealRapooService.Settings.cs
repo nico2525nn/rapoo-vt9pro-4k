@@ -4,6 +4,8 @@ public sealed partial class RealRapooService
 {
     internal BridgeSnapshot? CachedSnapshot => _lastSnapshot;
 
+    public Task<BridgeState> SetLanguageAsync(string language) => _client.SetLanguageAsync(language);
+
     public Task<BridgeCatalog> GetCatalogAsync() => _client.GetCatalogAsync();
 
     public Task<BridgeSnapshot> RefreshSnapshotAsync() => UpdateSnapshotAsync(_client.GetSnapshotAsync());

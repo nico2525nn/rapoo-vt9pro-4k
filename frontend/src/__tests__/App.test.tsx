@@ -160,5 +160,9 @@ describe("Rapoo Control", () => {
     await user.click(screen.getByRole("button", { name: "設定" }));
     await selectOption(user, "言語", "English");
     expect(screen.getByText("Device")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "DPI" }));
+    expect(await screen.findByText("Stage 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Buttons" }));
+    expect((await screen.findAllByText("Left Click")).length).toBeGreaterThan(0);
   });
 });

@@ -222,9 +222,11 @@ func RunWithOptions(ctx context.Context, svc *service.MouseService, opts Options
 	if opts.RegistryValueName == "" {
 		opts.RegistryValueName = defaultRunRegistryValue
 	}
-	opts.Language = normalizeLanguage(opts.Language)
-	if opts.Language == "" {
-		opts.Language = normalizeLanguage(os.Getenv("RAPOO_LANG"))
+	if opts.LanguageFn == nil {
+		if strings.TrimSpace(opts.Language) == "" {
+			opts.Language = os.Getenv("RAPOO_LANG")
+		}
+		opts.Language = normalizeLanguage(opts.Language)
 	}
 
 	if procSetProcessDpiAwarenessContext.Find() == nil {
@@ -422,7 +424,7 @@ func (a *trayApp) syncTrayIcon(forceAdd bool) error {
 	nid.UFlags = nifMessage | nifIcon | nifTip
 	nid.UCallbackMessage = wmAppTray
 	nid.HIcon = newIcon
-	copyUTF16Tip(nid.SzTip[:], formatTooltip(st, a.opts.Language))
+	copyUTF16Tip(nid.SzTip[:], formatTooltip(st, a.language()))
 
 	action := uintptr(nimModify)
 	if forceAdd || !a.trayAdded {
@@ -456,7 +458,8 @@ func (a *trayApp) showPopupMenu() {
 	}
 	defer procDestroyMenu.Call(hMenu)
 
-	appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0, formatMenuHeader(st, a.opts.Language))
+	lang := a.language()
+	appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0, formatMenuHeader(st, lang))
 	if !st.UpdatedAt.IsZero() {
 		appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0,
 			fmt.Sprintf(a.text("Last updated: %s", "最終更新: %s"), st.UpdatedAt.Local().Format("15:04:05")))
@@ -659,8 +662,15 @@ func normalizeLanguage(value string) string {
 	return "en"
 }
 
+func (a *trayApp) language() string {
+	if a.opts.LanguageFn != nil {
+		return normalizeLanguage(a.opts.LanguageFn())
+	}
+	return normalizeLanguage(a.opts.Language)
+}
+
 func (a *trayApp) text(en, ja string) string {
-	if normalizeLanguage(a.opts.Language) == "ja" {
+	if a.language() == "ja" {
 		return ja
 	}
 	return en
