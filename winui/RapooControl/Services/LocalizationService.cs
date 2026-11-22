@@ -184,6 +184,7 @@ public sealed class LocalizationService
         ["通常モード"] = "Normal mode",
         ["低頻度モード"] = "Low frequency",
         ["0-TX (完全受動)"] = "0-TX (passive)",
+        ["通知領域で実行中です。トレイアイコンをクリックすると再表示します。"] = "Still running in the notification area. Click the tray icon to reopen.",
         ["デモ"] = "Demo",
         ["言語を日本語に変更しました。"] = "Language changed to Japanese.",
         ["設定を適用しました。"] = "Settings applied.",

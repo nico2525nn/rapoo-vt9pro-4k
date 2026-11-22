@@ -17,6 +17,7 @@ public sealed partial class MainWindow : Window
     private bool _runningAction;
     private bool _quitting;
     private bool _trayReady;
+    private bool _trayHintShown;
 
     private MainViewModel ViewModel => App.Instance.ViewModel;
 
@@ -78,10 +79,25 @@ public sealed partial class MainWindow : Window
 
         args.Cancel = true;
         AppWindow.Hide();
+        if (!_trayHintShown)
+        {
+            _trayHintShown = true;
+            try
+            {
+                TrayIcon.ShowNotification(
+                    "Rapoo Control",
+                    LocalizationService.Instance.T("通知領域で実行中です。トレイアイコンをクリックすると再表示します。"),
+                    H.NotifyIcon.Core.NotificationIcon.Info);
+            }
+            catch (Exception ex)
+            {
+                LogTray($"notification failed: {ex.Message}");
+            }
+        }
         LogTray("hidden to tray");
     }
 
-    private void ShowFromTray()
+    public void ShowFromTray()
     {
         AppWindow.Show();
         Activate();

@@ -89,6 +89,7 @@
         <tb:TaskbarIcon
             x:Name="TrayIcon"
             ContextMenuMode="PopupMenu"
+            CustomName="Rapoo Control"
             NoLeftClickDelay="True"
             ToolTipText="Rapoo VT9 Pro 4K">
             <tb:TaskbarIcon.IconSource>

@@ -7,6 +7,12 @@ namespace RapooControl;
 
 public partial class App : Application
 {
+    private const string InstanceMutexName = @"Local\RapooControlWinUI";
+    private const string ShowEventName = @"Local\RapooControlWinUI.Show";
+
+    private readonly Mutex _instanceMutex;
+    private readonly EventWaitHandle _showEvent;
+
     public static App Instance => (App)Current;
 
     public IRapooService RapooService { get; }
@@ -17,6 +23,34 @@ public partial class App : Application
 
     public App()
     {
+        _instanceMutex = new Mutex(true, InstanceMutexName, out var createdNew);
+        if (!createdNew)
+        {
+            try
+            {
+                EventWaitHandle.OpenExisting(ShowEventName).Set();
+            }
+            catch
+            {
+                // The first instance is shutting down.
+            }
+            Environment.Exit(0);
+        }
+
+        _showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowEventName);
+        ThreadPool.RegisterWaitForSingleObject(
+            _showEvent,
+            (_, _) =>
+            {
+                if (MainWindow is RapooControl.MainWindow window)
+                {
+                    window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
+                }
+            },
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
+
         InitializeComponent();
         LocalizationService.Instance.Initialize();
 

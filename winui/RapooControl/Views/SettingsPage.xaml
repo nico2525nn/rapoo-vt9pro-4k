@@ -44,24 +44,6 @@
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
-                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="接続と動作" />
-                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
-                        <StackPanel VerticalAlignment="Center" Spacing="4">
-                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ゲーム優先モード（0-TX）" />
-                            <TextBlock Style="{StaticResource PageSubtitleStyle}"
-                                Text="0-TX 中はマウスへの読み書きを停止します。設定を変更するには通常に戻してください。" />
-                        </StackPanel>
-                        <Button x:Name="ModeButton" Grid.Column="1" VerticalAlignment="Center" Click="PollingMode_Click" Tag="loc-skip" />
-                    </Grid>
-                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
-                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デモモード" />
-                        <Button x:Name="DemoButton" Grid.Column="1" VerticalAlignment="Center" Click="DemoMode_Click" Tag="loc-skip" />
-                    </Grid>
-                </StackPanel>
-            </Border>
-
-            <Border Style="{StaticResource CardBorderStyle}">
-                <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="アプリ" />
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="言語" />
@@ -83,6 +65,25 @@
                     </Grid>
                 </StackPanel>
             </Border>
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="接続と動作" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel VerticalAlignment="Center" Spacing="4">
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ゲーム優先モード（0-TX）" />
+                            <TextBlock Style="{StaticResource PageSubtitleStyle}"
+                                Text="0-TX 中はマウスへの読み書きを停止します。設定を変更するには通常に戻してください。" />
+                        </StackPanel>
+                        <Button x:Name="ModeButton" Grid.Column="1" VerticalAlignment="Center" Click="PollingMode_Click" Tag="loc-skip" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デモモード" />
+                        <Button x:Name="DemoButton" Grid.Column="1" VerticalAlignment="Center" Click="DemoMode_Click" Tag="loc-skip" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
         </StackPanel>
     </ScrollViewer>
 </Page>

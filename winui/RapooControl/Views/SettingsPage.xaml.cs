@@ -33,6 +33,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             }
         };
         LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
+        LanguageCombo.DropDownClosed += LanguageCombo_DropDownClosed;
         _languageReady = true;
         TrayPreferences.Current.Load();
         CloseToTraySwitch.IsOn = TrayPreferences.Current.CloseToTray;
@@ -91,11 +92,31 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         TrayPreferences.Current.SetAutoStart(AutoStartSwitch.IsOn);
     }
 
-    private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        ApplyLanguageSelection();
+
+    private void LanguageCombo_DropDownClosed(object? sender, object e) =>
+        ApplyLanguageSelection();
+
+    private async void ApplyLanguageSelection()
     {
         if (!_languageReady || LanguageCombo.SelectedItem is not ComboBoxItem { Tag: string language })
         {
             return;
+        }
+        try
+        {
+            var logDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "rapoo-vt9pro-4k");
+            Directory.CreateDirectory(logDir);
+            File.AppendAllText(
+                Path.Combine(logDir, "winui-language.log"),
+                $"{DateTimeOffset.Now:O} selected={language}{Environment.NewLine}");
+        }
+        catch
+        {
+            // Diagnostics only.
         }
 
         var localization = LocalizationService.Instance;
