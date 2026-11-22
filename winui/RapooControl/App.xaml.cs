@@ -1,5 +1,8 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Windows.Graphics;
+using WinRT.Interop;
 using RapooControl.Services;
 using RapooControl.ViewModels;
 
@@ -7,6 +10,11 @@ namespace RapooControl;
 
 public partial class App : Application
 {
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    private const int SwShowNoActivate = 4;
+
     private const string InstanceMutexName = @"Local\RapooControlWinUI";
     private const string ShowEventName = @"Local\RapooControlWinUI.Show";
 
@@ -70,7 +78,15 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         MainWindow = new MainWindow();
-        MainWindow.Activate();
+        if (Environment.GetEnvironmentVariable("RAPOO_HEADLESS_TEST") == "1" && MainWindow is not null)
+        {
+            MainWindow.AppWindow.Move(new PointInt32(-2000, -2000));
+            ShowWindow(WindowNative.GetWindowHandle(MainWindow), SwShowNoActivate);
+        }
+        else
+        {
+            MainWindow?.Activate();
+        }
         InitializeService();
     }
 

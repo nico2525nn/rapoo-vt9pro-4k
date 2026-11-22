@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows.Input;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -8,11 +9,17 @@ using Microsoft.UI.Xaml.Navigation;
 using RapooControl.ViewModels;
 using RapooControl.Views;
 using RapooControl.Services;
+using WinRT.Interop;
 
 namespace RapooControl;
 
 public sealed partial class MainWindow : Window
 {
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+    private const int SwShowNoActivate = 4;
+
     private IConfigPageActions? _activeActions;
     private bool _runningAction;
     private bool _quitting;
@@ -99,6 +106,12 @@ public sealed partial class MainWindow : Window
 
     public void ShowFromTray()
     {
+        if (Environment.GetEnvironmentVariable("RAPOO_HEADLESS_TEST") == "1")
+        {
+            // Headless verification only counts processes; never steal focus.
+            return;
+        }
+
         AppWindow.Show();
         Activate();
     }
