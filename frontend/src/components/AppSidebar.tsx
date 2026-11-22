@@ -76,9 +76,6 @@ export function AppSidebar({ state, snapshot, activeTab, onNavigate }: AppSideba
                   : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
               )}
             >
-              {active && (
-                <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary" />
-              )}
               <Icon className="size-4 shrink-0" />
               {item.label}
             </button>
