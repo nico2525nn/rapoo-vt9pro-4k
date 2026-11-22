@@ -1,0 +1,81 @@
+<Page
+    x:Class="RapooControl.Views.SensorPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer>
+        <StackPanel
+            MaxWidth="960"
+            Padding="24"
+            HorizontalAlignment="Left"
+            Spacing="16">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="センサー" />
+            <TextBlock
+                Style="{StaticResource PageSubtitleStyle}"
+                Text="PAW3395 のセンサー設定を表示するための画面です。このプロトタイプでは読み取り専用のモック値です。" />
+
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="IRapooService にはまだセンサー API を追加していません。次のイテレーションで Go エンジンから取得します。"
+                Severity="Informational"
+                Title="モック / 読み取り専用" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="14">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="センサー設定 (モック)" />
+
+                    <Grid ColumnSpacing="16" RowSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Style="{StaticResource MetricLabelStyle}" Text="センサー" />
+                        <TextBlock Grid.Row="0" Grid.Column="1" Text="PixArt PAW3395" />
+
+                        <TextBlock Grid.Row="1" Style="{StaticResource MetricLabelStyle}" Text="Lift-off distance" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" Text="1.0 mm" />
+
+                        <TextBlock Grid.Row="2" Style="{StaticResource MetricLabelStyle}" Text="Motion Sync" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="ON" />
+
+                        <TextBlock Grid.Row="3" Style="{StaticResource MetricLabelStyle}" Text="押下デバウンス" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="4 ms" />
+
+                        <TextBlock Grid.Row="4" Style="{StaticResource MetricLabelStyle}" Text="リリースデバウンス" />
+                        <TextBlock Grid.Row="4" Grid.Column="1" Text="4 ms" />
+
+                        <TextBlock Grid.Row="5" Style="{StaticResource MetricLabelStyle}" Text="スリープ" />
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="60 秒" />
+
+                        <TextBlock Grid.Row="6" Style="{StaticResource MetricLabelStyle}" Text="センサー角度" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="0°" />
+
+                        <TextBlock Grid.Row="7" Style="{StaticResource MetricLabelStyle}" Text="ガラスモード" />
+                        <TextBlock Grid.Row="7" Grid.Column="1" Text="OFF" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="実装メモ" />
+                    <TextBlock
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="既存の Go 実装には SensorConfig とデバウンス手順が揃っています。WinUI 側は表示と編集 UI を先に固定し、IRapooService の拡張時に Go 側の JSON フィールドへ 1:1 で対応させます。" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

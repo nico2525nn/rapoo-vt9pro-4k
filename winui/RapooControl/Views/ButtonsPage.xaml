@@ -1,0 +1,65 @@
+<Page
+    x:Class="RapooControl.Views.ButtonsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:RapooControl.Views">
+
+    <ScrollViewer>
+        <StackPanel
+            MaxWidth="960"
+            Padding="24"
+            HorizontalAlignment="Left"
+            Spacing="16">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="ボタン" />
+            <TextBlock
+                Style="{StaticResource PageSubtitleStyle}"
+                Text="10 ボタンの割り当てを表示する画面です。編集と実機への書き込みはこのプロトタイプには含めていません。" />
+
+            <InfoBar
+                IsClosable="False"
+                IsOpen="True"
+                Message="以下は固定のモック割り当てです。実機のボタン設定は変更しません。"
+                Severity="Informational"
+                Title="モックデータ" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="割り当て (モック)" />
+
+                    <ItemsControl ItemsSource="{x:Bind Assignments}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="views:ButtonAssignment">
+                                <Grid
+                                    Padding="0,10"
+                                    ColumnSpacing="16">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="180" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock
+                                        Grid.Column="0"
+                                        FontWeight="SemiBold"
+                                        Text="{x:Bind Button}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind Action}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="実装メモ" />
+                    <TextBlock
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="既存の Go 実装は 10 ボタン分の HID マップを持っています。WinUI では同じ一覧を ItemsControl で描画し、選択時にアクション編集パネルを開く構成に発展させられます。" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
