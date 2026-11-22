@@ -294,7 +294,7 @@ export default function App() {
           aria-hidden="true"
         />
         <main key={activeTab} className="min-h-0 flex-1 overflow-y-auto">
-          <div className="@container max-w-5xl px-8 pt-3 pb-8">
+          <div className="@container px-6 pt-3 pb-8 lg:px-8 xl:px-10">
             <h1 className="mb-6 text-[1.75rem] leading-tight font-semibold">
               {NAV_ITEMS.find((item) => item.value === activeTab)?.label}
             </h1>
