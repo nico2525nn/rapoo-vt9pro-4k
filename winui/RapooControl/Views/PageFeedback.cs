@@ -4,6 +4,10 @@ namespace RapooControl.Views;
 
 public sealed class PageFeedback : ObservableObject
 {
+    public const string Applied = "適用しました。";
+    public const string Reloaded = "再読み込みしました。";
+    public const string NoChanges = "変更はありません。";
+
     private string _message = string.Empty;
 
     public bool IsBusy { get; private set; }

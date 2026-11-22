@@ -3,45 +3,49 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:services="using:RapooControl.Services"
+    NavigationCacheMode="Required"
     Loaded="Page_Loaded"
     Unloaded="Page_Unloaded">
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="プロファイル" />
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="プロファイル" />
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="SaveButton" Click="Save_Click" Content="現在の設定を保存" />
-                <Button x:Name="ApplyButton" Click="Apply_Click" Content="適用" />
-                <Button x:Name="DeleteButton" Click="Delete_Click" Content="削除" />
-            </StackPanel>
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Button x:Name="SaveButton" Click="Save_Click" Content="現在の設定を保存" />
+                        <Button x:Name="DeleteButton" Click="Delete_Click" Content="削除" />
+                    </StackPanel>
 
-            <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
-            <TextBlock
-                AutomationProperties.LiveSetting="Polite"
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind Feedback.Message, Mode=OneWay}"
-                Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock
+                        AutomationProperties.LiveSetting="Polite"
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
 
-            <TextBlock x:Name="EmptyNotice" Style="{StaticResource PageSubtitleStyle}"
-                Text="保存したプロファイルはありません。" Visibility="Collapsed" />
-            <ListView x:Name="ProfilesList" AutomationProperties.Name="保存したプロファイル"
-                ItemsSource="{x:Bind Presets}" SelectionMode="Single" SelectionChanged="PresetSelectionChanged">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="services:BridgePreset">
-                        <StackPanel Padding="0,8" Spacing="4">
-                            <TextBlock Text="{x:Bind Name}" MaxLines="1" TextTrimming="CharacterEllipsis" />
-                            <TextBlock Style="{StaticResource MetricLabelStyle}" Text="{x:Bind Description}"
-                                MaxLines="1" TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+                    <TextBlock x:Name="EmptyNotice" Style="{StaticResource PageSubtitleStyle}"
+                        Text="保存したプロファイルはありません。" Visibility="Collapsed" />
+                    <ListView x:Name="ProfilesList" AutomationProperties.Name="保存したプロファイル"
+                        ItemsSource="{x:Bind Presets}" SelectionMode="Single" SelectionChanged="PresetSelectionChanged">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="services:BridgePreset">
+                                <StackPanel Padding="0,8" Spacing="4">
+                                    <TextBlock Text="{x:Bind Name}" MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Style="{StaticResource MetricLabelStyle}" Text="{x:Bind Description}"
+                                        MaxLines="1" TextTrimming="CharacterEllipsis" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

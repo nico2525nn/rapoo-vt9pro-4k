@@ -2,30 +2,25 @@
     x:Class="RapooControl.Views.SensorPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    NavigationCacheMode="Required"
     Loaded="Page_Loaded"
     Unloaded="Page_Unloaded">
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="センサー" />
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="センサー" />
 
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button x:Name="ApplyButton" Click="Apply_Click" Content="設定を適用" />
-                <Button x:Name="RefreshButton" Click="Refresh_Click" Content="再読み込み" />
-            </StackPanel>
-
-            <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
-            <TextBlock
-                AutomationProperties.LiveSetting="Polite"
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind Feedback.Message, Mode=OneWay}"
-                Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
-
-            <ContentControl x:Name="Editor" HorizontalContentAlignment="Stretch" Visibility="Collapsed">
-                <StackPanel Spacing="16">
-                    <Border Style="{StaticResource CardBorderStyle}">
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="トラッキング" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock
+                        AutomationProperties.LiveSetting="Polite"
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+                    <ContentControl x:Name="Editor" HorizontalContentAlignment="Stretch" Visibility="Collapsed">
                         <StackPanel Style="{StaticResource SettingsSectionStyle}">
-                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="トラッキング" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -81,50 +76,53 @@
                                     VerticalAlignment="Center" AutomationProperties.Name="ガラス面モード" />
                             </Grid>
                         </StackPanel>
-                    </Border>
-                    <Border Style="{StaticResource CardBorderStyle}">
-                        <StackPanel Style="{StaticResource SettingsSectionStyle}">
-                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="スイッチと電源" />
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="160" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="押下デバウンス" />
-                                <ComboBox x:Name="PressDebounce" Grid.Column="1" HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center" AutomationProperties.Name="押下デバウンス" DisplayMemberPath="Label" />
-                            </Grid>
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="160" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="解放デバウンス" />
-                                <ComboBox x:Name="ReleaseDebounce" Grid.Column="1" HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center" AutomationProperties.Name="解放デバウンス" DisplayMemberPath="Label" />
-                            </Grid>
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="160" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="スリープ時間（分）" />
-                                <NumberBox x:Name="SleepMinutes" Grid.Column="1" HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center" AutomationProperties.Name="スリープ時間（分）" Minimum="2" Maximum="120" SmallChange="1" SpinButtonPlacementMode="Compact" />
-                            </Grid>
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="160" />
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="LED 省電力" />
-                                <ToggleSwitch x:Name="LedLowPower" Grid.Column="1" HorizontalAlignment="Stretch"
-                                    VerticalAlignment="Center" AutomationProperties.Name="LED 省電力" />
-                            </Grid>
-                        </StackPanel>
-                    </Border>
+                    </ContentControl>
                 </StackPanel>
-            </ContentControl>
+            </Border>
+
+            <Border x:Name="PowerCard" Style="{StaticResource CardBorderStyle}" Visibility="Collapsed">
+                <ContentControl x:Name="PowerEditor" HorizontalContentAlignment="Stretch">
+                    <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                        <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="スイッチと電源" />
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="押下デバウンス" />
+                            <ComboBox x:Name="PressDebounce" Grid.Column="1" HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center" AutomationProperties.Name="押下デバウンス" DisplayMemberPath="Label" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="解放デバウンス" />
+                            <ComboBox x:Name="ReleaseDebounce" Grid.Column="1" HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center" AutomationProperties.Name="解放デバウンス" DisplayMemberPath="Label" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="スリープ時間（分）" />
+                            <NumberBox x:Name="SleepMinutes" Grid.Column="1" HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center" AutomationProperties.Name="スリープ時間（分）" Minimum="2" Maximum="120" SmallChange="1" SpinButtonPlacementMode="Compact" />
+                        </Grid>
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="LED 省電力" />
+                            <ToggleSwitch x:Name="LedLowPower" Grid.Column="1" HorizontalAlignment="Stretch"
+                                VerticalAlignment="Center" AutomationProperties.Name="LED 省電力" />
+                        </Grid>
+                    </StackPanel>
+                </ContentControl>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

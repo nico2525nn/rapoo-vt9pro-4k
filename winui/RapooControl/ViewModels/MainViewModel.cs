@@ -43,25 +43,7 @@ public sealed class MainViewModel : ObservableObject
 
     private bool IsConnected => _status.Connected || _status.Connection != ConnectionKind.Disconnected;
 
-    public string StatusLine
-    {
-        get
-        {
-            if (!IsConnected)
-            {
-                return "未接続";
-            }
-
-            if (!_status.MouseOnline)
-            {
-                return "スリープ";
-            }
-
-            var connection = _status.DemoMode ? "デモ" : _status.IsMock ? "モック" :
-                _status.Connection == ConnectionKind.Wired ? "USB-C" : "4K";
-            return $"{connection} · {_status.ActiveDpiText} · {_status.PollingRateText} · {_status.BatteryText}";
-        }
-    }
+    internal int DeviceRevision { get; private set; }
 
     public bool IsDemoMode => _status.DemoMode;
 
@@ -93,12 +75,12 @@ public sealed class MainViewModel : ObservableObject
 
     public Task InitializeAsync()
     {
-        if (_initialization is { IsCompletedSuccessfully: true })
+        if (_initialization is null || _initialization.IsFaulted || _initialization.IsCanceled)
         {
-            return _initialization;
+            _initialization = InitializeCoreAsync();
         }
 
-        return _initialization = InitializeCoreAsync();
+        return _initialization;
     }
 
     private async Task InitializeCoreAsync()
@@ -107,19 +89,6 @@ public sealed class MainViewModel : ObservableObject
 
         var status = await _service.GetStatusAsync();
         ApplyStatus(status);
-
-        if (CanConfigureDevice)
-        {
-            await Dpi.LoadAsync();
-        }
-    }
-
-    public void UpdateDpi(BridgeSnapshot snapshot)
-    {
-        if (snapshot.Dpi is { } dpi)
-        {
-            Dpi.LoadConfiguration(RealRapooService.MapDpiConfiguration(dpi), snapshot.Sensor?.PollingRateHz ?? _status.PollingRateHz);
-        }
     }
 
     public void SetError(string message)
@@ -143,15 +112,19 @@ public sealed class MainViewModel : ObservableObject
 
     private void ApplyStatus(DeviceStatus status)
     {
-        if (_status.DemoMode != status.DemoMode || _status.Connection != status.Connection)
-        {
-            Dpi.InvalidateConfiguration();
-        }
+        var deviceChanged = _status.DemoMode != status.DemoMode || _status.Connection != status.Connection ||
+            _status.DeviceName != status.DeviceName;
         _status = status;
+        if (deviceChanged)
+        {
+            DeviceRevision++;
+            Dpi.InvalidateConfiguration();
+            OnPropertyChanged(nameof(DeviceRevision));
+        }
+        Dpi.DeviceWritable = CanConfigureDevice;
 
         OnPropertyChanged(nameof(DeviceName));
         OnPropertyChanged(nameof(FirmwareText));
-        OnPropertyChanged(nameof(StatusLine));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));
         OnPropertyChanged(nameof(DpiNotice));
@@ -159,6 +132,5 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(IsDemoMode));
         OnPropertyChanged(nameof(IsPassive));
         OnPropertyChanged(nameof(CanConfigureDevice));
-        Dpi.DeviceWritable = CanConfigureDevice;
     }
 }

@@ -6,27 +6,52 @@ using RapooControl.ViewModels;
 
 namespace RapooControl.Views;
 
-public sealed partial class SensorPage : Page
+public sealed partial class SensorPage : Page, IConfigPageActions
 {
     public sealed record Option(int Value, string Label);
 
     private BridgeSensor? _sensor;
+    private int _deviceRevision;
     private bool _debounceUsesMilliseconds;
     private List<BridgeDebounceStep>? _debounceSteps;
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
 
+    private bool HasConfiguration => _sensor is not null && _deviceRevision == ViewModel.DeviceRevision;
+    private bool IsDirty => HasConfiguration && GetPatch(_sensor!).Count > 0;
+    public bool CanReload => !Feedback.IsBusy && ViewModel.DeviceService is not null && ViewModel.CanConfigureDevice;
+    public bool CanApply => CanReload && IsDirty;
+    public event EventHandler? ActionsChanged;
+
     public SensorPage()
     {
         InitializeComponent();
-        Feedback.PropertyChanged += (_, _) => UpdateControls();
+        Feedback.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PageFeedback.IsBusy))
+            {
+                UpdateControls();
+            }
+        };
+        foreach (var comboBox in new[] { LiftOff, PressDebounce, ReleaseDebounce })
+        {
+            comboBox.SelectionChanged += (_, _) => DraftChanged();
+        }
+        foreach (var numberBox in new[] { Angle, SleepMinutes })
+        {
+            numberBox.ValueChanged += (_, _) => DraftChanged();
+        }
+        foreach (var toggle in new[] { MotionSync, Ripple, Correction, GlassMode, LedLowPower })
+        {
+            toggle.Toggled += (_, _) => DraftChanged();
+        }
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
-        if (ViewModel.DeviceService is not { } service)
+        if (IsDirty || ViewModel.DeviceService is not { } service)
         {
             return;
         }
@@ -34,14 +59,14 @@ public sealed partial class SensorPage : Page
         await Feedback.RunAsync(async () =>
         {
             await ViewModel.InitializeAsync();
-            if (ViewModel.CanConfigureDevice)
-            {
-                await LoadAsync(service);
-            }
-            else if (service.CachedSnapshot is { Sensor: not null } snapshot)
+            if (service.CachedSnapshot is { Sensor: not null } snapshot)
             {
                 await LoadDebounceStepsAsync(service);
                 LoadSnapshot(snapshot);
+            }
+            else if (ViewModel.CanConfigureDevice)
+            {
+                await LoadAsync(service);
             }
         });
     }
@@ -56,13 +81,9 @@ public sealed partial class SensorPage : Page
         }
     }
 
-    private async void Refresh_Click(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel.DeviceService is { } service && !ViewModel.IsPassive)
-        {
-            await Feedback.RunAsync(() => LoadAsync(service), "再読み込みしました。");
-        }
-    }
+    public Task ReloadAsync() => CanReload && ViewModel.DeviceService is { } service
+        ? Feedback.RunAsync(() => LoadAsync(service), PageFeedback.Reloaded)
+        : Task.CompletedTask;
 
     private async Task LoadAsync(RealRapooService service)
     {
@@ -95,6 +116,7 @@ public sealed partial class SensorPage : Page
         GlassMode.IsOn = sensor.GlassMode;
         LedLowPower.IsOn = sensor.LedLowPowerMode != 0;
         _sensor = sensor;
+        _deviceRevision = ViewModel.DeviceRevision;
         UpdateControls();
     }
 
@@ -104,13 +126,25 @@ public sealed partial class SensorPage : Page
         control.SelectedItem = options.FirstOrDefault(option => option.Value == value);
     }
 
-    private async void Apply_Click(object sender, RoutedEventArgs e)
+    public async Task ApplyAsync()
     {
-        if (ViewModel.DeviceService is not { } service || !ViewModel.CanConfigureDevice || _sensor is not { } sensor)
+        if (!CanReload || !HasConfiguration || ViewModel.DeviceService is not { } service)
         {
             return;
         }
 
+        var patch = GetPatch(_sensor!);
+        if (patch.Count == 0)
+        {
+            Feedback.Message = PageFeedback.NoChanges;
+            return;
+        }
+
+        await Feedback.RunAsync(async () => LoadSnapshot(await service.ApplySensorAsync(patch)), PageFeedback.Applied);
+    }
+
+    private Dictionary<string, object> GetPatch(BridgeSensor sensor)
+    {
         var patch = new Dictionary<string, object>();
         AddSelection("liftOffLevel", LiftOff, sensor.LiftOffLevel);
         AddSelection("pressDebounceStep", PressDebounce, _debounceUsesMilliseconds ? sensor.PressDebounceMs : sensor.PressDebounceStep);
@@ -126,13 +160,7 @@ public sealed partial class SensorPage : Page
             patch["ledLowPowerMode"] = LedLowPower.IsOn ? 1 : 0;
         }
 
-        if (patch.Count == 0)
-        {
-            Feedback.Message = "変更はありません。";
-            return;
-        }
-
-        await Feedback.RunAsync(async () => LoadSnapshot(await service.ApplySensorAsync(patch)), "設定を適用しました。");
+        return patch;
 
         void Change<T>(string key, T next, T current) where T : struct
         {
@@ -151,15 +179,22 @@ public sealed partial class SensorPage : Page
         }
     }
 
+    private void DraftChanged()
+    {
+        if (!Feedback.IsBusy)
+        {
+            Feedback.Message = string.Empty;
+            ActionsChanged?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void UpdateControls()
     {
-        var supported = ViewModel.DeviceService is not null;
-        var editable = supported && !Feedback.IsBusy && ViewModel.CanConfigureDevice && _sensor is not null;
-        Editor.Visibility = _sensor is null ? Visibility.Collapsed : Visibility.Visible;
-        Editor.IsEnabled = editable;
-        ApplyButton.IsEnabled = editable;
-        RefreshButton.IsEnabled = supported && !Feedback.IsBusy && !ViewModel.IsPassive;
+        Editor.Visibility = HasConfiguration ? Visibility.Visible : Visibility.Collapsed;
+        PowerCard.Visibility = Editor.Visibility;
+        Editor.IsEnabled = PowerEditor.IsEnabled = HasConfiguration && CanReload;
         DeviceNotice.Text = ViewModel.SettingsNotice;
         DeviceNotice.Visibility = DeviceNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ActionsChanged?.Invoke(this, EventArgs.Empty);
     }
 }

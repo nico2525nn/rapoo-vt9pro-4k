@@ -2,23 +2,23 @@
     x:Class="RapooControl.Views.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    NavigationCacheMode="Required"
     Loaded="Page_Loaded"
     Unloaded="Page_Unloaded">
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="設定" />
-
-            <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
-            <TextBlock
-                AutomationProperties.LiveSetting="Polite"
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind Feedback.Message, Mode=OneWay}"
-                Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="設定" />
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock
+                        AutomationProperties.LiveSetting="Polite"
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウス ファームウェア" />
                         <TextBlock x:Name="MouseFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
@@ -26,11 +26,6 @@
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="レシーバー ファームウェア" />
                         <TextBlock x:Name="DongleFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
-                    </Grid>
-                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
-                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デバイス情報" />
-                        <Button x:Name="RefreshButton" Grid.Column="1" VerticalAlignment="Center"
-                            Click="Refresh_Click" Content="再読み込み" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア更新" />
