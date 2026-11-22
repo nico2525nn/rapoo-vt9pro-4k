@@ -63,6 +63,20 @@ public sealed partial class MainWindow : Window
             TrayIcon.ForceCreate();
             _trayReady = TrayIcon.IsCreated;
             LogTray($"created={_trayReady}");
+            if (_trayReady)
+            {
+                try
+                {
+                    TrayIcon.ShowNotification(
+                        "Rapoo Control",
+                        LocalizationService.Instance.T("通知領域に残量を表示しています。"),
+                        H.NotifyIcon.Core.NotificationIcon.Info);
+                }
+                catch
+                {
+                    // Notifications are optional.
+                }
+            }
         }
         catch (Exception ex)
         {

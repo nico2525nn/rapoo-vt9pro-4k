@@ -23,7 +23,7 @@ public sealed class TrayPreferences
 
     public static TrayPreferences Current { get; } = new();
 
-    public bool CloseToTray { get; private set; } = true;
+    public bool CloseToTray { get; private set; }
 
     public bool AutoStart { get; private set; }
 
