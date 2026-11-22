@@ -1,3 +1,4 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using RapooControl.Services;
 using RapooControl.ViewModels;
@@ -18,10 +19,17 @@ public partial class App : Application
     {
         InitializeComponent();
 
-        // The prototype deliberately uses a mock service. Replace this single
-        // construction with the Go bridge implementation when it becomes available.
-        RapooService = new MockRapooService();
+        var queue = DispatcherQueue.GetForCurrentThread();
+        if (queue is not null)
+        {
+            SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(queue));
+        }
+
+        var useMock = Environment.GetEnvironmentVariable("RAPOO_USE_MOCK") == "1";
+        RapooService = useMock ? new MockRapooService() : new RealRapooService();
         ViewModel = new MainViewModel(RapooService);
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => StopService();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -29,6 +37,21 @@ public partial class App : Application
         MainWindow = new MainWindow();
         MainWindow.Activate();
         InitializeService();
+    }
+
+    private static void StopService()
+    {
+        if (Current is App app && app.RapooService is IAsyncDisposable disposable)
+        {
+            try
+            {
+                disposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // Shutdown best effort.
+            }
+        }
     }
 
     private async void InitializeService()
@@ -39,7 +62,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            ViewModel.SetError($"サービスの初期化に失敗しました: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine(ex);
+            ViewModel.SetError($"サービスの初期化に失敗しました: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }
