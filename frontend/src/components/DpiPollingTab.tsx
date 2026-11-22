@@ -104,6 +104,12 @@ export function DpiPollingTab({
 
   const commitStage = (stage: DPIStage, axis: "x" | "y") => {
     const normalized = normalizeDpi(stage[axis]);
+    const savedStage =
+      dpi.allStages?.find((item) => item.index === stage.index) ??
+      dpi.stages.find((item) => item.index === stage.index);
+    if (savedStage && savedStage[axis] === normalized) {
+      return;
+    }
     const nextStages = stages.map((item) =>
       item.index === stage.index ? { ...item, [axis]: normalized } : item
     );
@@ -119,11 +125,11 @@ export function DpiPollingTab({
           <CardDescription>変更は自動で保存されます。</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 lg:grid-cols-3">
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">ステージ数</label>
               <Select value={String(stageCount)} onValueChange={changeStageCount} disabled={!writable}>
-                <SelectTrigger aria-label="ステージ数">
+                <SelectTrigger className="w-full" aria-label="ステージ数">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -139,7 +145,7 @@ export function DpiPollingTab({
             <div className="flex flex-col gap-2">
               <label className="text-sm font-medium">使用ステージ</label>
               <Select value={String(currentStage)} onValueChange={changeCurrentStage} disabled={!writable}>
-                <SelectTrigger aria-label="使用ステージ">
+                <SelectTrigger className="w-full" aria-label="使用ステージ">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -243,7 +249,7 @@ export function DpiPollingTab({
             onValueChange={(value) => void onChangePollingRate(Number(value))}
             disabled={!writable}
           >
-            <SelectTrigger aria-label="ポーリングレート">
+            <SelectTrigger className="w-full" aria-label="ポーリングレート">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

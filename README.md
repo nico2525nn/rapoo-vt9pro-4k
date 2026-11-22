@@ -18,6 +18,11 @@ Rapoo VT9 Pro 4K 用の Windows ツールと HID プロトコル実装。
 
 対応機能: DPI、ポーリングレート、LOD、Motion Sync、デバウンス、10ボタン、プリセット、ゲーム中ロック (0-TX)、デモモード。
 
+## UI
+
+- Linux / 現行 Windows Wails UI: React 19 + Tailwind CSS v4 + 現行 shadcn/ui
+- Windows ネイティブ試作: `winui/RapooControl`（WinUI 3、モックサービス、ビルド確認用）
+
 ## ビルド
 
 ```bash

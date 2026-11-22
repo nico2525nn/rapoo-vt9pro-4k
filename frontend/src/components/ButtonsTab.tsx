@@ -245,7 +245,7 @@ export function ButtonsTab({
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>割り当て</CardTitle>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -320,7 +320,7 @@ export function ButtonsTab({
                   }
                 }}
               >
-                <SelectTrigger aria-label="動作">
+                <SelectTrigger className="w-full" aria-label="動作">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -355,7 +355,6 @@ export function ButtonsTab({
                   aria-label="キー"
                   className="cursor-pointer"
                   onClick={startCapture}
-                  onFocus={startCapture}
                 />
                 <p className="text-xs text-muted-foreground">
                   {capturing ? (

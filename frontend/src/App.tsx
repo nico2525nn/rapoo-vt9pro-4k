@@ -232,7 +232,8 @@ export default function App() {
     state.connected &&
     (state.mouseOnline || state.demoMode) &&
     !state.sleeping &&
-    state.mode !== "passive_only";
+    state.mode !== "passive_only" &&
+    !busy;
 
   const hasDeviceData = Boolean(snapshot?.dpi && snapshot?.sensor);
 

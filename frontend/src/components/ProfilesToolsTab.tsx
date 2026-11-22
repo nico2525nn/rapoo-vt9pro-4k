@@ -148,7 +148,7 @@ export function ProfilesToolsTab({
   return (
     <div className="flex flex-col gap-4">
       <Card>
-        <CardHeader className="flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex flex-col gap-1.5">
             <CardTitle>プリセット</CardTitle>
             <CardDescription>現在の設定を保存・復元</CardDescription>
@@ -284,7 +284,7 @@ export function ProfilesToolsTab({
               value={state.mode}
               onValueChange={(value) => void onSetPollingMode(value as PollingMode)}
             >
-              <SelectTrigger aria-label="バックグラウンド取得">
+              <SelectTrigger className="w-full" aria-label="バックグラウンド取得">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

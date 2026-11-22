@@ -81,7 +81,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               onValueChange={(value) => void onUpdateSensor({ liftOffLevel: Number(value) })}
               disabled={!writable}
             >
-              <SelectTrigger aria-label="リフトオフディスタンス">
+              <SelectTrigger className="w-full" aria-label="リフトオフディスタンス">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -196,7 +196,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               }}
               disabled={!writable}
             >
-              <SelectTrigger aria-label="押下デバウンス">
+              <SelectTrigger className="w-full" aria-label="押下デバウンス">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,7 +220,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               }}
               disabled={!writable}
             >
-              <SelectTrigger aria-label="解放デバウンス">
+              <SelectTrigger className="w-full" aria-label="解放デバウンス">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -239,7 +239,7 @@ export function SensorTab({ snapshot, debounceSteps, writable, onUpdateSensor }:
               onValueChange={(value) => void onUpdateSensor({ sleepMinutes: Number(value) })}
               disabled={!writable}
             >
-              <SelectTrigger aria-label="スリープ時間">
+              <SelectTrigger className="w-full" aria-label="スリープ時間">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -1,9 +1,4 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+export { cn } from "cn";
 
 export const MIN_DPI = 50;
 export const MAX_DPI = 26000;
