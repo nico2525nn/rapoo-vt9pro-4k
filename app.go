@@ -21,7 +21,10 @@ import (
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
-const wailsRegistryAutoStartKey = "RapooControl"
+const (
+	wailsRegistryAutoStartKey = "RapooControl"
+	appPrefsVersion           = 2
+)
 
 // AppPreferences holds desktop shell preferences (tray behavior, startup).
 type AppPreferences struct {
@@ -37,6 +40,7 @@ type App struct {
 	ctx        context.Context
 	svc        *service.MouseService
 	trayCancel context.CancelFunc
+	trayReady  atomic.Bool
 	quitting   atomic.Bool
 
 	prefsMu   sync.RWMutex
@@ -56,7 +60,9 @@ func NewApp() *App {
 	a := &App{
 		prefsPath: filepath.Join(cfgDir, "app-prefs.json"),
 		prefs: AppPreferences{
-			CloseToTray: runtime.GOOS == "windows",
+			// Version 1 defaulted to hiding on close. Only opt in after the
+			// notification icon is known to be available.
+			CloseToTray: false,
 			Platform:    runtime.GOOS,
 			Mode:        string(service.ModeNormal),
 			Language:    initialLanguage(),
@@ -89,12 +95,19 @@ func (a *App) loadPrefs() {
 		return
 	}
 	var disk struct {
+		Version     int     `json:"version"`
 		CloseToTray *bool   `json:"closeToTray"`
 		Mode        *string `json:"mode"`
 		Language    *string `json:"language"`
 	}
+	migrated := false
 	if json.Unmarshal(raw, &disk) == nil {
-		if disk.CloseToTray != nil {
+		// Version 1 had no version field and defaulted close-to-tray to true,
+		// which could strand the window when the icon was hidden. Require an
+		// explicit opt-in after the upgrade, matching the WinUI shell.
+		if disk.Version < appPrefsVersion {
+			migrated = true
+		} else if disk.CloseToTray != nil {
 			a.prefs.CloseToTray = *disk.CloseToTray
 		}
 		if disk.Mode != nil {
@@ -106,6 +119,9 @@ func (a *App) loadPrefs() {
 		if disk.Language != nil {
 			a.prefs.Language = normalizeLanguage(*disk.Language)
 		}
+	}
+	if migrated {
+		a.savePrefsLocked()
 	}
 }
 
@@ -127,6 +143,7 @@ func normalizeLanguage(value string) string {
 
 func (a *App) savePrefsLocked() {
 	raw, err := json.MarshalIndent(map[string]any{
+		"version":     appPrefsVersion,
 		"closeToTray": a.prefs.CloseToTray,
 		"mode":        a.prefs.Mode,
 		"language":    a.prefs.Language,
@@ -156,7 +173,11 @@ func (a *App) startup(ctx context.Context) {
 				OnQuit: func() {
 					a.QuitApp()
 				},
+				OnReady: func() {
+					a.trayReady.Store(true)
+				},
 			}); err != nil {
+				a.trayReady.Store(false)
 				log.Printf("rapoo: tray unavailable: %v", err)
 				if a.ctx != nil {
 					wailsRuntime.EventsEmit(a.ctx, "rapoo:error",
@@ -175,7 +196,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 	closeToTray := a.prefs.CloseToTray
 	a.prefsMu.RUnlock()
 
-	if runtime.GOOS == "windows" && closeToTray {
+	if runtime.GOOS == "windows" && closeToTray && a.trayReady.Load() {
 		wailsRuntime.WindowHide(ctx)
 		wailsRuntime.EventsEmit(ctx, "rapoo:minimized-to-tray", true)
 		return true
@@ -184,6 +205,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 }
 
 func (a *App) shutdown(_ context.Context) {
+	a.trayReady.Store(false)
 	if a.trayCancel != nil {
 		a.trayCancel()
 	}
@@ -282,7 +304,7 @@ func (a *App) CloseWindow() {
 	closeToTray := a.prefs.CloseToTray
 	a.prefsMu.RUnlock()
 
-	if runtime.GOOS == "windows" && closeToTray {
+	if runtime.GOOS == "windows" && closeToTray && a.trayReady.Load() {
 		wailsRuntime.WindowHide(a.ctx)
 		wailsRuntime.EventsEmit(a.ctx, "rapoo:minimized-to-tray", true)
 		return

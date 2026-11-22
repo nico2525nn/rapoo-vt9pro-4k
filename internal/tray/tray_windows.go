@@ -15,6 +15,8 @@ import (
 	"unicode/utf16"
 	"unsafe"
 
+	"golang.org/x/sys/windows/registry"
+
 	"github.com/nico/rapoo-vt9pro-4k/internal/icon"
 	"github.com/nico/rapoo-vt9pro-4k/internal/service"
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
@@ -196,6 +198,7 @@ type trayApp struct {
 	devNotify         uintptr
 	currentIcon       syscall.Handle
 	trayAdded         bool
+	promoted          bool
 	msgTaskbarCreated uint32
 	userQuit          bool
 
@@ -299,6 +302,16 @@ func RunWithOptions(ctx context.Context, svc *service.MouseService, opts Options
 		app.cleanup()
 		return err
 	}
+	if !app.promoted {
+		app.promoted = true
+		go func() {
+			time.Sleep(2 * time.Second)
+			promoteNotificationIcon()
+		}()
+	}
+	if opts.OnReady != nil {
+		opts.OnReady()
+	}
 
 	unsub := svc.Subscribe(func(st service.State) {
 		app.mu.Lock()
@@ -339,6 +352,7 @@ func trayWndProc(hwnd syscall.Handle, msg uint32, wParam, lParam uintptr) uintpt
 	app := activeApp
 	if app != nil && app.msgTaskbarCreated != 0 && msg == app.msgTaskbarCreated {
 		app.trayAdded = false
+		app.promoted = false
 		_ = app.syncTrayIcon(true)
 		return 0
 	}
@@ -683,6 +697,41 @@ func copyUTF16Tip(dst []uint16, s string) {
 	}
 	copy(dst, enc)
 	dst[len(enc)] = 0
+}
+
+// promoteNotificationIcon marks this executable as always visible in the
+// Windows 11 notification area. New icons are hidden in the overflow by
+// default, which makes a battery indicator look like it never appeared.
+func promoteNotificationIcon() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	key, err := registry.OpenKey(
+		registry.CURRENT_USER,
+		`Control Panel\NotifyIconSettings`,
+		registry.READ|registry.WRITE,
+	)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	names, err := key.ReadSubKeyNames(-1)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		sub, err := registry.OpenKey(key, name, registry.READ|registry.WRITE)
+		if err != nil {
+			continue
+		}
+		path, _, pathErr := sub.GetStringValue("ExecutablePath")
+		if pathErr == nil && strings.EqualFold(path, exe) {
+			_ = sub.SetDWordValue("IsPromoted", 1)
+		}
+		sub.Close()
+	}
 }
 
 // IsAutoStartEnabled reports whether HKCU\...\Run contains valueName.

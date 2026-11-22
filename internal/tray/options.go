@@ -11,4 +11,5 @@ type Options struct {
 	OpenMenuLabel     string        // Optional menu item (e.g. "Open Rapoo Control (&O)")
 	OnOpenWindow      func()        // Invoked on left-click or OpenMenuLabel when set
 	OnQuit            func()        // Invoked after tray exits via Quit menu item
+	OnReady           func()        // Invoked after the notification icon has been created
 }

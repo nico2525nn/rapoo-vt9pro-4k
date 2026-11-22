@@ -9,6 +9,14 @@
 - WinUI battery row on the Overview page
 - Tray menu for polling modes, demo mode, reload, open, and quit
 
+### Fixed
+
+- Both apps retry transient dongle-busy replies and debounce sleep reports, so the UI no longer flashes "sleeping" while the mouse is online
+- WinUI draws the same transparent, pixel-aligned battery icon as the Wails tray instead of a dark generated square
+- Wails and the standalone tray promote the notification icon in Windows 11
+- Wails and WinUI default close-to-tray to off and migrate old preferences to an explicit opt-in
+- Wails only hides to the tray after the notification icon has been created
+
 ## v1.1.0 — 2026-11-22
 
 ### Added
