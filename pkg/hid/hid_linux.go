@@ -197,8 +197,10 @@ func (d *linuxDevice) SetOutputReport(data []byte, timeout time.Duration) error 
 	if ioctlErr == 0 {
 		return nil
 	}
-	// Fallback to interrupt OUT write only on older kernels without HIDIOCSOUTPUT (< 5.11)
-	if ioctlErr == syscall.EINVAL || ioctlErr == syscall.ENOTTY {
+	// Fallback to interrupt OUT write only when the kernel does not expose
+	// HIDIOCSOUTPUT at all. EINVAL is kept as a hard failure: it usually means
+	// the report is malformed rather than the ioctl being unsupported.
+	if ioctlErr == syscall.ENOTTY {
 		if timeout > 0 {
 			_ = f.SetWriteDeadline(time.Now().Add(timeout))
 			defer f.SetWriteDeadline(time.Time{})
@@ -256,10 +258,10 @@ func (d *linuxDevice) GetInputReport(reportID byte, length int, _ time.Duration)
 	if ioctlErr != 0 {
 		return nil, fmt.Errorf("HIDIOCGINPUT: %w", ioctlErr)
 	}
-	if retLen > 0 && retLen <= len(buf) {
-		return buf[:retLen], nil
+	if retLen <= 0 || retLen > len(buf) {
+		return nil, fmt.Errorf("HIDIOCGINPUT: invalid returned length %d", retLen)
 	}
-	return buf, nil
+	return buf[:retLen], nil
 }
 
 func (d *linuxDevice) ReadInputPacket(timeout time.Duration) ([]byte, error) {

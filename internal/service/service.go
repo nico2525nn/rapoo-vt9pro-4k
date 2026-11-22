@@ -267,13 +267,32 @@ func (s *MouseService) SetPollingMode(mode PollingMode) {
 	changed := s.state.Mode != mode
 	wasPassive := s.state.Mode == ModePassiveOnly
 	isPassive := mode == ModePassiveOnly
+	if !changed {
+		s.mu.Unlock()
+		return
+	}
+
+	var oldClient *rapoo.Client
+	if wasPassive != isPassive {
+		// Keep the old client visible to the loop while it is being closed so
+		// another poll cannot open a replacement before this transition ends.
+		oldClient = s.client
+	}
 	s.state.Mode = mode
 	snap := s.state
 	s.mu.Unlock()
 
-	if !changed {
-		return
+	if oldClient != nil {
+		// Client.Close waits for an in-flight command exchange before releasing
+		// the command handle, so 0-TX becomes effective before we publish it.
+		_ = oldClient.Close()
+		s.mu.Lock()
+		if s.client == oldClient {
+			s.client = nil
+		}
+		s.mu.Unlock()
 	}
+
 	s.publish(snap)
 
 	if wasPassive != isPassive {

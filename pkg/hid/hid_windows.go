@@ -301,6 +301,7 @@ type windowsDevice struct {
 	closeOnce  sync.Once
 	mu         sync.RWMutex
 	closed     bool
+	ioWG       sync.WaitGroup
 }
 
 func (d *windowsDevice) Info() DeviceInfo {
@@ -313,8 +314,10 @@ func (d *windowsDevice) SetOutputReport(data []byte, _ time.Duration) error {
 		d.mu.RUnlock()
 		return ErrClosed
 	}
+	d.ioWG.Add(1)
 	h := d.handle
 	d.mu.RUnlock()
+	defer d.ioWG.Done()
 
 	outLen := len(data)
 	if d.info.OutputReportLen > outLen {
@@ -340,8 +343,10 @@ func (d *windowsDevice) GetInputReport(reportID byte, length int, _ time.Duratio
 		d.mu.RUnlock()
 		return nil, ErrClosed
 	}
+	d.ioWG.Add(1)
 	h := d.handle
 	d.mu.RUnlock()
+	defer d.ioWG.Done()
 
 	bufLen := length
 	if d.info.InputReportLen > bufLen {
@@ -370,10 +375,12 @@ func (d *windowsDevice) ReadInputPacket(timeout time.Duration) ([]byte, error) {
 		d.mu.RUnlock()
 		return nil, ErrClosed
 	}
+	d.ioWG.Add(1)
 	h := d.handle
 	closeEvt := d.closeEvt
 	isOv := d.overlapped
 	d.mu.RUnlock()
+	defer d.ioWG.Done()
 
 	bufLen := d.info.InputReportLen
 	if bufLen < 64 {
@@ -420,13 +427,17 @@ func (d *windowsDevice) ReadInputPacket(timeout time.Duration) ([]byte, error) {
 func (d *windowsDevice) Close() error {
 	var closeErr error
 	d.closeOnce.Do(func() {
-		procSetEvent.Call(uintptr(d.closeEvt))
 		d.mu.Lock()
 		d.closed = true
 		h := d.handle
 		d.mu.Unlock()
 
+		// Wake overlapped readers, cancel any pending I/O, and wait for every
+		// in-flight call to return before releasing the handle and event.
+		procSetEvent.Call(uintptr(d.closeEvt))
 		procCancelIoEx.Call(uintptr(h), 0)
+		d.ioWG.Wait()
+
 		closeErr = syscall.CloseHandle(h)
 		syscall.CloseHandle(d.closeEvt)
 	})
