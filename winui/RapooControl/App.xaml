@@ -9,8 +9,13 @@
             </ResourceDictionary.MergedDictionaries>
 
             <Style x:Key="SettingsPageLayout" TargetType="StackPanel">
-                <Setter Property="Padding" Value="24" />
+                <!-- NavigationView's leading and top borders supply the first DIP of the 24-DIP inset. -->
+                <Setter Property="Padding" Value="23,23,24,24" />
                 <Setter Property="Spacing" Value="16" />
+            </Style>
+
+            <Style x:Key="SettingsPageTitleStyle" TargetType="TextBlock" BasedOn="{StaticResource TitleTextBlockStyle}">
+                <Setter Property="MinHeight" Value="40" />
             </Style>
 
             <Style x:Key="SettingsRowStyle" TargetType="Grid">

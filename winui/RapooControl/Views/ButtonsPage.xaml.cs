@@ -339,7 +339,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
 
     private void UpdateControls()
     {
-        AssignmentsCard.Visibility = HasMappings ? Visibility.Visible : Visibility.Collapsed;
+        AssignmentList.Visibility = HasMappings ? Visibility.Visible : Visibility.Collapsed;
         AssignmentList.IsEnabled = CanEdit;
         ResetButton.IsEnabled = CanEdit;
         DeviceNotice.Text = ViewModel.SettingsNotice;

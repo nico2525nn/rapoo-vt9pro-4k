@@ -8,18 +8,17 @@
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="設定" />
-
-            <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
-            <TextBlock
-                AutomationProperties.LiveSetting="Polite"
-                Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind Feedback.Message, Mode=OneWay}"
-                Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="設定" />
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock
+                        AutomationProperties.LiveSetting="Polite"
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウス ファームウェア" />
                         <TextBlock x:Name="MouseFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />

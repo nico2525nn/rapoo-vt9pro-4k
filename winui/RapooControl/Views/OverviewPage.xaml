@@ -5,7 +5,7 @@
 
     <ScrollViewer>
         <StackPanel Style="{StaticResource SettingsPageLayout}">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="概要" />
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="概要" />
 
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">

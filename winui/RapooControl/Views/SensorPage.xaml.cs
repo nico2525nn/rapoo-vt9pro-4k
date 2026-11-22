@@ -191,7 +191,8 @@ public sealed partial class SensorPage : Page, IConfigPageActions
     private void UpdateControls()
     {
         Editor.Visibility = HasConfiguration ? Visibility.Visible : Visibility.Collapsed;
-        Editor.IsEnabled = HasConfiguration && CanReload;
+        PowerCard.Visibility = Editor.Visibility;
+        Editor.IsEnabled = PowerEditor.IsEnabled = HasConfiguration && CanReload;
         DeviceNotice.Text = ViewModel.SettingsNotice;
         DeviceNotice.Visibility = DeviceNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         ActionsChanged?.Invoke(this, EventArgs.Empty);
