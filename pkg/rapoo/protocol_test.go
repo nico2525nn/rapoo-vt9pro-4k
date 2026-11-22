@@ -272,3 +272,24 @@ func TestValidateButtonMappingsRejectsMalformedTables(t *testing.T) {
 		t.Fatal("expected unsupported action to be rejected")
 	}
 }
+
+func TestMatchEndpointsKeepsPhysicalDevicesSeparate(t *testing.T) {
+	infos := []hid.DeviceInfo{
+		{Path: "a_cmd", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x000E, PhysicalID: "usb-a"},
+		{Path: "a_report", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x0002, InputReportLen: 10, PhysicalID: "usb-a"},
+		{Path: "b_cmd", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x000E, PhysicalID: "usb-b"},
+		{Path: "b_report", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x0002, InputReportLen: 10, PhysicalID: "usb-b"},
+	}
+	pairs := MatchEndpoints(infos)
+	if len(pairs) != 2 {
+		t.Fatalf("len(pairs) = %d, want 2", len(pairs))
+	}
+	for _, pair := range pairs {
+		if pair.Command == nil || pair.Report == nil {
+			t.Fatalf("pair missing command/report: %+v", pair)
+		}
+		if pair.Command.PhysicalID != pair.Report.PhysicalID {
+			t.Fatalf("mixed physical devices: %q vs %q", pair.Command.PhysicalID, pair.Report.PhysicalID)
+		}
+	}
+}

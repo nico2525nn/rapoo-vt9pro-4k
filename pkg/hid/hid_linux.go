@@ -37,7 +37,7 @@ func (p *linuxProvider) Enumerate(filter Filter) ([]DeviceInfo, error) {
 			continue
 		}
 		sysBase := filepath.Join("/sys/class/hidraw", name, "device")
-		vid, pid, product, ok := parseLinuxUevent(filepath.Join(sysBase, "uevent"))
+		vid, pid, product, physicalID, ok := parseLinuxUevent(filepath.Join(sysBase, "uevent"))
 		if !ok || !filter.MatchesVIDPID(vid, pid) {
 			continue
 		}
@@ -63,15 +63,16 @@ func (p *linuxProvider) Enumerate(filter Filter) ([]DeviceInfo, error) {
 			OutputReportLen:  summary.OutputReportLen,
 			FeatureReportLen: summary.FeatureReportLen,
 			Product:          product,
+			PhysicalID:       physicalID,
 		})
 	}
 	return out, nil
 }
 
-func parseLinuxUevent(path string) (vid, pid uint16, product string, ok bool) {
+func parseLinuxUevent(path string) (vid, pid uint16, product, physicalID string, ok bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return 0, 0, "", false
+		return 0, 0, "", "", false
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
@@ -89,9 +90,13 @@ func parseLinuxUevent(path string) (vid, pid uint16, product string, ok bool) {
 			}
 		case strings.HasPrefix(line, "HID_NAME="):
 			product = strings.TrimPrefix(line, "HID_NAME=")
+		case strings.HasPrefix(line, "HID_PHYS="):
+			physicalID = strings.TrimPrefix(line, "HID_PHYS=")
+		case strings.HasPrefix(line, "HID_UNIQ=") && physicalID == "":
+			physicalID = strings.TrimPrefix(line, "HID_UNIQ=")
 		}
 	}
-	return vid, pid, product, ok
+	return vid, pid, product, physicalID, ok
 }
 
 func readLinuxUSBInterfaceNumber(hidSysPath string) int {

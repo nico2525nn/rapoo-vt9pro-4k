@@ -29,6 +29,7 @@ type DeviceInfo struct {
 	OutputReportLen  int    `json:"outputReportLen"`
 	FeatureReportLen int    `json:"featureReportLen"`
 	Product          string `json:"product,omitempty"`
+	PhysicalID       string `json:"physicalId,omitempty"` // stable device identity when the OS exposes one
 }
 
 // Filter restricts which HID collections are probed during Enumerate.

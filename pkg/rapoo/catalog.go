@@ -1,6 +1,7 @@
 package rapoo
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -192,7 +193,7 @@ func DefaultHIDFilter() hid.Filter {
 // Command (Usage 0x000E) and Async Report (Usage 0x0002) collections, ordered
 // by priority (Wired first, then 4K Wireless Dongle).
 func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
-	byPID := make(map[uint16]*EndpointPair)
+	byDevice := make(map[string]*EndpointPair)
 
 	for i := range infos {
 		info := infos[i]
@@ -210,10 +211,14 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 			continue
 		}
 
-		pair, exists := byPID[info.ProductID]
+		key := fmt.Sprintf("%04x:%04x", info.VendorID, info.ProductID)
+		if info.PhysicalID != "" {
+			key += "|" + info.PhysicalID
+		}
+		pair, exists := byDevice[key]
 		if !exists {
 			pair = &EndpointPair{Model: model}
-			byPID[info.ProductID] = pair
+			byDevice[key] = pair
 		}
 
 		switch info.Usage {
@@ -229,7 +234,7 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 	}
 
 	var out []EndpointPair
-	for _, pair := range byPID {
+	for _, pair := range byDevice {
 		if pair.Command == nil && pair.Report == nil {
 			continue
 		}
