@@ -41,6 +41,20 @@ public sealed class MainViewModel : ObservableObject
 
     public string FirmwareText => IsConnected ? _status.Firmware : "—";
 
+    public int BatteryPercent => _status.BatteryPercent;
+
+    public bool IsCharging => _status.Charging;
+
+    public string Mode => _status.Mode;
+
+    public string BatteryText => _status.BatteryPercent < 0
+        ? LocalizationService.Instance.T("未取得")
+        : _status.Charging
+            ? $"{_status.BatteryPercent}% · {LocalizationService.Instance.T("充電中")}"
+            : $"{_status.BatteryPercent}%";
+
+    public string TrayTooltip => $"{DeviceName} — {BatteryText}";
+
     private bool IsConnected => _status.Connected || _status.Connection != ConnectionKind.Disconnected;
 
     internal int DeviceRevision { get; private set; }
@@ -93,9 +107,27 @@ public sealed class MainViewModel : ObservableObject
         ApplyStatus(status);
     }
 
+    public async Task RefreshAsync()
+    {
+        try
+        {
+            ApplyStatus(await _service.GetStatusAsync());
+            if (DeviceService is not null && CanConfigureDevice)
+            {
+                await Dpi.LoadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            SetError(ex.Message);
+        }
+    }
+
     public void RefreshLocalization()
     {
         OnPropertyChanged(nameof(DeviceName));
+        OnPropertyChanged(nameof(BatteryText));
+        OnPropertyChanged(nameof(TrayTooltip));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));
         OnPropertyChanged(nameof(SettingsNotice));
@@ -138,6 +170,11 @@ public sealed class MainViewModel : ObservableObject
 
         OnPropertyChanged(nameof(DeviceName));
         OnPropertyChanged(nameof(FirmwareText));
+        OnPropertyChanged(nameof(BatteryPercent));
+        OnPropertyChanged(nameof(IsCharging));
+        OnPropertyChanged(nameof(Mode));
+        OnPropertyChanged(nameof(BatteryText));
+        OnPropertyChanged(nameof(TrayTooltip));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));
         OnPropertyChanged(nameof(DpiNotice));

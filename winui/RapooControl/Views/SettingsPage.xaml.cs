@@ -11,6 +11,7 @@ namespace RapooControl.Views;
 public sealed partial class SettingsPage : Page, IConfigPageActions
 {
     private bool _languageReady;
+    private bool _trayPrefsReady;
     private BridgeSnapshot? _lastSnapshot;
 
     private MainViewModel ViewModel => App.Instance.ViewModel;
@@ -33,12 +34,19 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         };
         LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
         _languageReady = true;
+        TrayPreferences.Current.Load();
+        CloseToTraySwitch.IsOn = TrayPreferences.Current.CloseToTray;
+        AutoStartSwitch.IsOn = TrayPreferences.Current.AutoStart;
+        _trayPrefsReady = true;
     }
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         LocalizationService.Instance.Apply(this);
         LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
+        TrayPreferences.Current.Load();
+        CloseToTraySwitch.IsOn = TrayPreferences.Current.CloseToTray;
+        AutoStartSwitch.IsOn = TrayPreferences.Current.AutoStart;
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if (ViewModel.DeviceService is not { } service)
@@ -64,6 +72,24 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => ViewModel.PropertyChanged -= DeviceStatusChanged;
+
+    private void CloseToTray_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_trayPrefsReady)
+        {
+            return;
+        }
+        TrayPreferences.Current.SetCloseToTray(CloseToTraySwitch.IsOn);
+    }
+
+    private void AutoStart_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_trayPrefsReady)
+        {
+            return;
+        }
+        TrayPreferences.Current.SetAutoStart(AutoStartSwitch.IsOn);
+    }
 
     private async void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {

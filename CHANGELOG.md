@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- WinUI notification-area icon with the live battery percentage, tooltip, and menu
+- WinUI close-to-tray and Start with Windows settings
+- WinUI battery row on the Overview page
+- Tray menu for polling modes, demo mode, reload, open, and quit
+
 ## v1.1.0 — 2026-11-22
 
 ### Added

@@ -71,6 +71,16 @@
                             <ComboBoxItem Content="日本語" Tag="ja" />
                         </ComboBox>
                     </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="閉じたらトレイに格納" />
+                        <ToggleSwitch x:Name="CloseToTraySwitch" Grid.Column="1" VerticalAlignment="Center"
+                            Toggled="CloseToTray_Toggled" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="Windows スタートアップ" />
+                        <ToggleSwitch x:Name="AutoStartSwitch" Grid.Column="1" VerticalAlignment="Center"
+                            Toggled="AutoStart_Toggled" />
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>

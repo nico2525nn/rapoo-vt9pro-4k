@@ -28,6 +28,8 @@ Run `rapoo-control-winui-v1.1.0-windows-amd64.exe`. It is a single file; the Go 
 - All pages read and write the device: DPI, sensor, 10 buttons, profiles, settings.
 - Firmware update is read-only in this app. It launches the official Rapoo software and never flashes firmware itself.
 - Use the icon-only Reload and Apply buttons at the bottom-right of the sidebar to apply staged changes.
+- The notification area shows the live battery percentage. Right-click for modes, demo, startup, and quit.
+- Closing the window keeps the app in the notification area by default. The Settings page controls close-to-tray and Windows startup.
 - Only one process can own the HID handle. Do not run the WinUI app and the Wails app/tray at the same time.
 
 ## Language

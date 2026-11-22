@@ -26,6 +26,14 @@
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア" />
                         <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.FirmwareText, Mode=OneWay}" Tag="loc-skip" />
                     </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="バッテリー" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.BatteryText, Mode=OneWay}" Tag="loc-skip" />
+                    </Grid>
                 </StackPanel>
             </Border>
 
