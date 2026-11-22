@@ -8,7 +8,7 @@ Rapoo VT9 Pro 4K 用の Windows ツールと HID プロトコル実装。
 
 - `rapoo-control-v1.0.0-windows-amd64.exe` — Wails 設定アプリ（Windows）
 - `rapoo-control-v1.0.0-linux-amd64` — Wails 設定アプリ（Linux）
-- `rapoo-control-winui-v1.0.0-windows-amd64.zip` — WinUI 3 ネイティブアプリ一式（Windows）
+- `rapoo-control-winui-v1.0.0-windows-amd64.exe` — WinUI 3 ネイティブアプリ（Windows、1ファイル）
 - `vt9tray-v1.0.0-windows-amd64.exe` — タスクトレイ電池表示
 - `vt9ctl-v1.0.0-windows-amd64.exe` / `vt9ctl-v1.0.0-linux-amd64` — CLI
 - `rapoo-bridge-v1.0.0-windows-amd64.exe` — WinUI 用 HID sidecar（単体）
@@ -23,7 +23,7 @@ Rapoo VT9 Pro 4K 用の Windows ツールと HID プロトコル実装。
 
 ### WinUI 3 版
 
-`rapoo-control-winui-v1.0.0-windows-amd64.zip` を展開し、`RapooControl.exe` を起動してください。同じフォルダの `rapoo-bridge.exe` が HID を担当します。
+`rapoo-control-winui-v1.0.0-windows-amd64.exe` を起動するだけです。HID sidecar は exe に埋め込まれており、初回起動時に `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` へ展開されます。追加ファイルは不要です。
 
 - 全ページが実機の設定を読み書きします（DPI、センサー、10ボタン、プロファイル、設定）。
 - ファームウェア更新は表示のみで、公式 Rapoo ソフトの起動だけを行います。本アプリは書き込みません。
@@ -59,10 +59,14 @@ wails build -platform linux/amd64 -tags webkit2_41
 cd frontend && npm ci && npm test && npm run build
 
 # WinUI 3（Windows + .NET 9 SDK）
+# 通常の開発ビルド
 dotnet build winui/RapooControl/RapooControl.csproj -c Release -p:Platform=x64
+
+# 配布用 1ファイル（sidecar を埋め込み）
+dotnet publish winui/RapooControl/RapooControl.csproj -c Release -p:Platform=x64 -p:PublishSingleFile=true -p:RapooBridgePath=C:\path\to\rapoo-bridge.exe -o dist/winui
 ```
 
-`RapooControl.csproj` は `build/bin/rapoo-bridge.exe` が存在する場合、ビルド出力へコピーします。
+`RapooControl.csproj` は `build/bin/rapoo-bridge.exe` が存在する場合、開発ビルド出力へコピーします。配布用 1ファイルでは `RapooBridgePath` の sidecar を exe に埋め込みます。
 
 ## トラブル時
 

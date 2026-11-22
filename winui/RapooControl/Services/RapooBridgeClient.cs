@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -446,7 +447,64 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             directory = directory.Parent;
         }
 
-        return null;
+        return ExtractEmbeddedSidecar();
+    }
+
+    /// <summary>
+    /// Single-file distribution embeds the sidecar. Extract it to a stable
+    /// per-hash path so an upgrade never reuses a running, older binary.
+    /// </summary>
+    private static string? ExtractEmbeddedSidecar()
+    {
+        try
+        {
+            var assembly = typeof(RapooBridgeClient).Assembly;
+            using var stream = assembly.GetManifestResourceStream("RapooControl.rapoo-bridge.exe");
+            if (stream is null)
+            {
+                return null;
+            }
+
+            var hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()[..12];
+            var directory = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "rapoo-vt9pro-4k",
+                "bin");
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory, $"rapoo-bridge-{hash}.exe");
+            if (!File.Exists(path))
+            {
+                stream.Position = 0;
+                var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                using (var file = File.Create(temporary))
+                {
+                    stream.CopyTo(file);
+                }
+                File.Move(temporary, path, overwrite: true);
+            }
+
+            foreach (var old in Directory.EnumerateFiles(directory, "rapoo-bridge-*.exe"))
+            {
+                if (!string.Equals(old, path, StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        File.Delete(old);
+                    }
+                    catch
+                    {
+                        // The old sidecar may still be running.
+                    }
+                }
+            }
+
+            return path;
+        }
+        catch (Exception ex)
+        {
+            Log($"embedded sidecar extraction failed: {ex}");
+            return null;
+        }
     }
 
     private static readonly object LogGate = new();

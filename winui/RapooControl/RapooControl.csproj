@@ -24,11 +24,23 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true'">
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="..\..\build\bin\rapoo-bridge.exe"
           Condition="Exists('..\..\build\bin\rapoo-bridge.exe')"
           CopyToOutputDirectory="PreserveNewest"
           Link="rapoo-bridge.exe" />
+    <EmbeddedResource Include="$(RapooBridgePath)"
+                      Condition="'$(RapooBridgePath)' != '' and Exists('$(RapooBridgePath)')"
+                      LogicalName="RapooControl.rapoo-bridge.exe" />
   </ItemGroup>
 
   <ItemGroup>
