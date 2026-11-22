@@ -7,13 +7,20 @@ Windows tools and a HID protocol implementation for the Rapoo VT9 Pro 4K.
 [Releases](https://github.com/nico2525nn/rapoo-vt9pro-4k/releases)
 
 - `rapoo-control-winui-v1.1.0-windows-amd64.exe` — native WinUI 3 app (Windows, single file)
-- `rapoo-control-v1.1.0-windows-amd64.exe` — Wails app (Windows)
-- `rapoo-control-v1.1.0-linux-amd64` — Wails app (Linux)
-- `vt9tray-v1.1.0-windows-amd64.exe` — battery tray app
-- `vt9ctl-v1.1.0-windows-amd64.exe` / `vt9ctl-v1.1.0-linux-amd64` — CLI
+- `rapoo-vt9pro-4k-v1.1.0-bundle.zip` — Wails app (Windows/Linux), `vt9tray`, `vt9ctl`, README, changelog
 - `checksums.txt` — SHA256 checksums
 
 ## Usage
+
+Extract the bundle for the command-line and tray tools:
+
+```text
+windows/rapoo-control.exe   Wails app
+windows/vt9tray.exe         battery tray
+windows/vt9ctl.exe          CLI
+linux/rapoo-control         Wails app
+linux/vt9ctl                CLI
+```
 
 - `vt9tray.exe`: run it. Right-click for polling mode and exit.
 - `rapoo-control.exe`: configure DPI, sensor, buttons, profiles, and app settings from the sidebar.
