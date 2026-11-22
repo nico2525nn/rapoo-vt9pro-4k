@@ -16,7 +16,6 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { rapooApi, windowApi } from "@/lib/wails";
 import type {
   AppPreferences,
@@ -45,10 +44,17 @@ const INITIAL_STATE: ServiceState = {
   updatedAt: "",
 };
 
+const PAGE_TITLES: Record<string, string> = {
+  dpi: "DPI",
+  sensor: "センサー",
+  buttons: "ボタン",
+  profiles: "プロファイル",
+};
+
 const dragStyle = { "--wails-draggable": "drag" } as CSSProperties;
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState<boolean>(() => {
+  const [darkMode] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     const saved = window.localStorage?.getItem("rapoo-theme");
     return saved ? saved === "dark" : true;
@@ -279,18 +285,13 @@ export default function App() {
   );
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="relative flex h-screen overflow-hidden bg-background">
-        <AppSidebar
-          state={state}
-          snapshot={snapshot}
-          busy={busy}
-          darkMode={darkMode}
-          activeTab={activeTab}
-          onNavigate={setActiveTab}
-          onToggleTheme={() => setDarkMode((value) => !value)}
-          onRefresh={() => void handleManualRefresh()}
-        />
+    <div className="relative flex h-screen overflow-hidden bg-background">
+      <AppSidebar
+        state={state}
+        snapshot={snapshot}
+        activeTab={activeTab}
+        onNavigate={setActiveTab}
+      />
 
         <main className="no-scrollbar relative min-w-0 flex-1 overflow-y-auto">
           <div
@@ -299,6 +300,10 @@ export default function App() {
             onDoubleClick={() => void windowApi.toggleMaximise()}
           />
           <div className="mx-auto w-full max-w-4xl p-6 pt-12">
+            <h1 className="mb-6 text-2xl font-semibold tracking-tight">
+              {PAGE_TITLES[activeTab] ?? "DPI"}
+            </h1>
+
             {state.lastError && (
               <div
                 role="alert"
@@ -404,9 +409,8 @@ export default function App() {
         </main>
 
         <WindowControls />
-        <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
-      </div>
-    </TooltipProvider>
+      <Toaster theme={darkMode ? "dark" : "light"} position="bottom-right" />
+    </div>
   );
 }
 

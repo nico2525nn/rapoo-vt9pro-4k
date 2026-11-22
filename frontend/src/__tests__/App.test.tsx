@@ -27,7 +27,7 @@ describe("Rapoo Control", () => {
     expect(await screen.findByText("マウスが接続されていません")).toBeInTheDocument();
     await enterDemo(user);
 
-    expect(screen.getByText(/デモモード · .*電池 82%/)).toBeInTheDocument();
+    expect(screen.getByText(/デモ · .*電池 82%/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "DPI" })).toBeInTheDocument();
     expect(screen.getByText("Stage 1")).toBeInTheDocument();
   });
@@ -42,10 +42,10 @@ describe("Rapoo Control", () => {
     await user.type(xInput, "1600");
     await user.tab();
     const sidebar = screen.getByRole("complementary");
-    expect(await within(sidebar).findByText("1600 DPI")).toBeInTheDocument();
+    expect(await within(sidebar).findByText(/1600 DPI/)).toBeInTheDocument();
 
     await selectOption(user, "ポーリングレート", "4000 Hz");
-    expect(within(sidebar).getByText("4000 Hz")).toBeInTheDocument();
+    expect(within(sidebar).getByText(/4000 Hz/)).toBeInTheDocument();
   });
 
   it("updates sensor settings", async () => {

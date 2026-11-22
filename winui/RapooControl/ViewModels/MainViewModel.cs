@@ -68,6 +68,8 @@ public sealed class MainViewModel : ObservableObject
 
     public string ConnectionDetail => $"{ConnectionLabel} · {PollingRateText}";
 
+    public string StatusLine => $"{ConnectionLabel} · {ActiveDpiText} · {PollingRateText} · {BatteryText}";
+
     public bool HasError => _hasError;
 
     public string ErrorMessage => _errorMessage;
@@ -101,6 +103,7 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(DeviceName));
         OnPropertyChanged(nameof(ConnectionLabel));
         OnPropertyChanged(nameof(ConnectionDetail));
+        OnPropertyChanged(nameof(StatusLine));
         OnPropertyChanged(nameof(BatteryText));
         OnPropertyChanged(nameof(BatteryPercent));
         OnPropertyChanged(nameof(ChargingLabel));
