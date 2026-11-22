@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 — 2026-11-22
 
 ### Added
 
@@ -16,6 +16,11 @@
 - Wails and the standalone tray promote the notification icon in Windows 11
 - Wails and WinUI default close-to-tray to off and migrate old preferences to an explicit opt-in
 - Wails only hides to the tray after the notification icon has been created
+
+### Changed
+
+- The notification icon is rendered at the system small-icon size as a transparent 7-segment battery with a level bar
+- Version bumped to 1.2.0
 
 ## v1.1.0 — 2026-11-22
 
