@@ -159,6 +159,7 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 	lin := sc.LinearCorrection
 	ang := int(sc.SensorAngleDeg)
 	glass := sc.GlassMode
+	led := sc.LEDLowPowerMode
 
 	preset := Preset{
 		ID:          id,
@@ -179,6 +180,7 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 			LinearCorrection:    &lin,
 			SensorAngleDeg:      &ang,
 			GlassMode:           &glass,
+			LEDLowPowerMode:     &led,
 		},
 		Buttons: snap.Buttons,
 	}
@@ -292,6 +294,9 @@ func ValidatePreset(p Preset) error {
 	}
 	if p.Sensor.SensorAngleDeg != nil && (*p.Sensor.SensorAngleDeg < -30 || *p.Sensor.SensorAngleDeg > 30) {
 		return errors.New("センサー角度が範囲外です")
+	}
+	if p.Sensor.LEDLowPowerMode != nil && *p.Sensor.LEDLowPowerMode > 1 {
+		return errors.New("LED 省電力モードの値が不正です")
 	}
 	if len(p.Buttons) > 0 {
 		if err := rapoo.ValidateButtonMappings(p.Buttons); err != nil {

@@ -91,7 +91,15 @@ public sealed class MainViewModel : ObservableObject
 
     public string ErrorMessage => _errorMessage;
 
-    public Task InitializeAsync() => _initialization ??= InitializeCoreAsync();
+    public Task InitializeAsync()
+    {
+        if (_initialization is { IsCompletedSuccessfully: true })
+        {
+            return _initialization;
+        }
+
+        return _initialization = InitializeCoreAsync();
+    }
 
     private async Task InitializeCoreAsync()
     {

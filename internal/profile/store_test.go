@@ -43,6 +43,7 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 			PressDebounceStep:   2,
 			ReleaseDebounceStep: 2,
 			SleepMinutes:        15,
+			LEDLowPowerMode:     1,
 		},
 		Buttons: rapoo.DefaultButtonMappings(),
 	}
@@ -53,6 +54,9 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 	}
 	if saved.BuiltIn || saved.PollingHz != 2000 {
 		t.Fatalf("unexpected saved preset: %+v", saved)
+	}
+	if saved.Sensor.LEDLowPowerMode == nil || *saved.Sensor.LEDLowPowerMode != 1 {
+		t.Fatalf("LED low power not saved: %+v", saved.Sensor)
 	}
 
 	exported, err := store.ExportJSON(saved.ID)
