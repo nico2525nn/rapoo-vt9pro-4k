@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,7 +119,7 @@ func (a *App) startup(ctx context.Context) {
 		trayCtx, cancel := context.WithCancel(ctx)
 		a.trayCancel = cancel
 		go func() {
-			_ = tray.RunWithOptions(trayCtx, a.svc, tray.Options{
+			if err := tray.RunWithOptions(trayCtx, a.svc, tray.Options{
 				MutexName:         `Local\RapooControlWailsTrayMutex`,
 				WindowClass:       "RapooControlWailsTrayWndClass",
 				RegistryValueName: wailsRegistryAutoStartKey,
@@ -129,7 +130,12 @@ func (a *App) startup(ctx context.Context) {
 				OnQuit: func() {
 					a.QuitApp()
 				},
-			})
+			}); err != nil {
+				log.Printf("rapoo: tray unavailable: %v", err)
+				if a.ctx != nil {
+					wailsRuntime.EventsEmit(a.ctx, "rapoo:error", "タスクトレイを初期化できませんでした")
+				}
+			}
 		}()
 	}
 }
