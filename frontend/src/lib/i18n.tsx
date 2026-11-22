@@ -199,6 +199,8 @@ const JA: Record<string, string> = {
   "Action": "動作",
   "Reduces LED on-time": "LEDの点灯時間を短縮",
   "Stage": "ステージ",
+  "The device reported an error. Check the connection and try again.": "デバイスでエラーが発生しました。接続を確認してもう一度お試しください。",
+  "e.g. FPS 800 DPI": "例: FPS 800 DPI",
   "{minutes} min": "{minutes} 分",
 };
 
@@ -242,4 +244,59 @@ export function setLanguage(language: Language): void {
 /** Shorthand used by components. Missing keys fall back to English. */
 export function t(key: string, vars?: TranslationVars): string {
   return translate(key, vars, activeLanguage);
+}
+
+/** Backend errors are Japanese; keep English mode free of raw Japanese. */
+const ERROR_EN: Record<string, string> = {
+  "ゲーム優先 (完全受動) モード中はマウスへの読み書き通信を停止しています。設定を開くにはモードを「通常」に切り替えてください。":
+    "Full passive (0-TX) mode stops all reads and writes. Switch to Normal mode to change settings.",
+  "Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。接続を確認するか、デモモードでお試しください。":
+    "Rapoo VT9 Pro 4K was not found. Check the receiver/USB cable or try Demo mode.",
+  "ワイヤレスマウスがスリープ中または電源OFFです。マウスを軽く動かして復帰させてください。":
+    "The wireless mouse is asleep or off. Move it to wake it.",
+  "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。":
+    "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first.",
+  "Linux の /dev/hidraw デバイスへのアクセス権限がありません。設定タブの udev ルールを適用してください。":
+    "No permission to access /dev/hidraw. Apply the udev rule in Settings.",
+  "HID デバイスへのアクセス権限がありません。":
+    "No permission to access the HID device.",
+  "指定されたプロファイルが見つかりません":
+    "The selected profile was not found.",
+  "プロファイル名を入力してください":
+    "Enter a profile name.",
+  "DPIステージ数が不正です":
+    "Invalid DPI stage count.",
+  "現在のDPIステージが不正です":
+    "Invalid current DPI stage.",
+  "DPIステージの値が不足しています":
+    "DPI stage values are missing.",
+  "DPI全ステージの値が不足しています":
+    "All DPI stage values are missing.",
+  "リフトオフディスタンスが範囲外です":
+    "Lift-off distance is out of range.",
+  "スリープ時間が範囲外です":
+    "Sleep time is out of range.",
+  "センサー角度が範囲外です":
+    "Sensor angle is out of range.",
+  "LED 省電力モードの値が不正です":
+    "Invalid LED power-saving value.",
+};
+
+export function translateError(message: string): string {
+  if (getLanguage() === "ja") {
+    return message;
+  }
+  if (ERROR_EN[message]) {
+    return ERROR_EN[message];
+  }
+  if (message.startsWith("デバイス通信エラー: ")) {
+    return "Device communication error: " + message.slice("デバイス通信エラー: ".length);
+  }
+  if (message.startsWith("ボタン割り当てが不正です: ")) {
+    return "Invalid button assignment: " + message.slice("ボタン割り当てが不正です: ".length);
+  }
+  if (/[\u3040-\u30ff\u4e00-\u9faf]/.test(message)) {
+    return "The device reported an error. Check the connection and try again.";
+  }
+  return message;
 }

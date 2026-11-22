@@ -32,6 +32,7 @@ public sealed partial class DpiPage : Page, IConfigPageActions
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         LocalizationService.Instance.Apply(this);
+        ViewModel.Dpi.RefreshLocalization();
         ViewModel.PropertyChanged += StateChanged;
         ViewModel.Dpi.PropertyChanged += StateChanged;
         if (ViewModel.Dpi.IsDirty)

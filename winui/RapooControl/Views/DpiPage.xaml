@@ -15,13 +15,13 @@
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock
                         Style="{StaticResource PageSubtitleStyle}"
-                        Text="{x:Bind ViewModel.DpiNotice, Mode=OneWay}"
+                        Text="{x:Bind ViewModel.DpiNotice, Mode=OneWay}" Tag="loc-skip"
                         Visibility="{x:Bind ViewModel.HasDpiNotice, Mode=OneWay}" />
 
                     <TextBlock
                         AutomationProperties.LiveSetting="Polite"
                         Style="{StaticResource PageSubtitleStyle}"
-                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}" Tag="loc-skip"
                         Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
                     <Grid Style="{StaticResource SettingsRowStyle}"
                         Visibility="{x:Bind ViewModel.Dpi.HasConfiguration, Mode=OneWay}">
@@ -83,17 +83,18 @@
                             <DataTemplate x:DataType="vm:DpiStageViewModel">
                                 <Grid
                                     Style="{StaticResource SettingsRowStyle}"
+                                    Tag="loc-skip"
                                     Visibility="{x:Bind IsVisible, Mode=OneWay}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="88" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="{x:Bind Label}" />
+                                    <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="{x:Bind Label, Mode=OneWay}" />
                                     <NumberBox
                                         Grid.Column="1"
                                         VerticalAlignment="Center"
-                                        AutomationProperties.Name="{x:Bind XLabel}"
+                                        AutomationProperties.Name="{x:Bind XLabel, Mode=OneWay}"
                                         LargeChange="100"
                                         Maximum="26000"
                                         Minimum="50"
@@ -103,7 +104,7 @@
                                     <NumberBox
                                         Grid.Column="2"
                                         VerticalAlignment="Center"
-                                        AutomationProperties.Name="{x:Bind YLabel}"
+                                        AutomationProperties.Name="{x:Bind YLabel, Mode=OneWay}"
                                         LargeChange="100"
                                         Maximum="26000"
                                         Minimum="50"

@@ -7,7 +7,7 @@ using RapooControl.ViewModels;
 
 namespace RapooControl.Views;
 
-public sealed class ButtonAssignment(BridgeButtonSlot slot, BridgeButtonAction action)
+public sealed class ButtonAssignment(BridgeButtonSlot slot, BridgeButtonAction action) : INotifyPropertyChanged
 {
     public BridgeButtonSlot Slot { get; } = slot;
     public int Id => Slot.Id;
@@ -17,6 +17,17 @@ public sealed class ButtonAssignment(BridgeButtonSlot slot, BridgeButtonAction a
     public BridgeButtonAction Action { get; } = action;
     public string ActionLabel => LocalizationService.Instance.ActionLabel(Action);
     public string EditLabel => LocalizationService.Instance.Format("{0}を変更", Name);
+    public string ChangeLabel => LocalizationService.Instance.T("変更");
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void RefreshLocalization()
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Name)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ActionLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(EditLabel)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ChangeLabel)));
+    }
 }
 
 public sealed partial class ButtonsPage : Page, IConfigPageActions
@@ -84,6 +95,11 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
+        LocalizationService.Instance.Apply(this);
+        foreach (var assignment in Assignments)
+        {
+            assignment.RefreshLocalization();
+        }
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if ((HasMappings && _draft.Count > 0) || ViewModel.DeviceService is not { } service)

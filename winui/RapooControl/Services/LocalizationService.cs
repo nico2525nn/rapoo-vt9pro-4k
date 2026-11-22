@@ -87,6 +87,7 @@ public sealed class LocalizationService
         ["DPI、センサー、ボタンなど、マウス本体の設定が工場出荷時の状態に戻ります。"] =
             "This restores the mouse's DPI, sensor, buttons, and other settings to factory defaults.",
         ["マウスを初期化しますか？"] = "Reset the mouse?",
+        ["割り当て"] = "Assignments",
         ["初期化"] = "Reset",
         ["キャンセル"] = "Cancel",
         ["保存"] = "Save",
@@ -236,21 +237,24 @@ public sealed class LocalizationService
 
     public void Initialize()
     {
-        var environment = Environment.GetEnvironmentVariable("RAPOO_LANG");
-        var language = Normalize(environment);
-        if (string.IsNullOrWhiteSpace(environment) && File.Exists(_prefsPath))
+        // A saved choice wins; RAPOO_LANG is the initial default for a fresh profile.
+        var language = TryNormalize(Environment.GetEnvironmentVariable("RAPOO_LANG"), out var environmentLanguage)
+            ? environmentLanguage
+            : "en";
+        if (File.Exists(_prefsPath))
         {
             try
             {
                 using var document = JsonDocument.Parse(File.ReadAllText(_prefsPath));
-                if (document.RootElement.TryGetProperty("language", out var value))
+                if (document.RootElement.TryGetProperty("language", out var value) &&
+                    TryNormalize(value.GetString(), out var savedLanguage))
                 {
-                    language = Normalize(value.GetString());
+                    language = savedLanguage;
                 }
             }
             catch
             {
-                // Keep the default language.
+                // Keep the environment/default language.
             }
         }
 
@@ -332,6 +336,10 @@ public sealed class LocalizationService
     public void Apply(DependencyObject? root)
     {
         if (root is null)
+        {
+            return;
+        }
+        if (root is FrameworkElement { Tag: "loc-skip" })
         {
             return;
         }
@@ -434,10 +442,24 @@ public sealed class LocalizationService
     private static bool ContainsJapanese(string value) =>
         value.Any(ch => ch is >= '\u3040' and <= '\u30ff' or >= '\u4e00' and <= '\u9faf');
 
-    private static string Normalize(string? value)
+    private static string Normalize(string? value) =>
+        TryNormalize(value, out var language) ? language : "en";
+
+    private static bool TryNormalize(string? value, out string language)
     {
         var normalized = (value ?? string.Empty).Trim().ToLowerInvariant();
-        return normalized.StartsWith("ja") || normalized == "jp" ? "ja" : "en";
+        if (normalized == "ja" || normalized == "jp" || normalized.StartsWith("ja-"))
+        {
+            language = "ja";
+            return true;
+        }
+        if (normalized == "en" || normalized.StartsWith("en-"))
+        {
+            language = "en";
+            return true;
+        }
+        language = "en";
+        return false;
     }
 
     private sealed class ElementState

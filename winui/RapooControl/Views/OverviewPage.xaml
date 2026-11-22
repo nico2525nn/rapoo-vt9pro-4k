@@ -16,7 +16,7 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="モデル" />
-                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.DeviceName, Mode=OneWay}" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.DeviceName, Mode=OneWay}" Tag="loc-skip" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}">
                         <Grid.ColumnDefinitions>
@@ -24,19 +24,19 @@
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア" />
-                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.FirmwareText, Mode=OneWay}" />
+                        <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="{x:Bind ViewModel.FirmwareText, Mode=OneWay}" Tag="loc-skip" />
                     </Grid>
                 </StackPanel>
             </Border>
 
             <TextBlock
                 Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}"
+                Text="{x:Bind ViewModel.ErrorMessage, Mode=OneWay}" Tag="loc-skip"
                 Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}" />
 
             <TextBlock
                 Style="{StaticResource PageSubtitleStyle}"
-                Text="{x:Bind ViewModel.ConnectionMessage, Mode=OneWay}"
+                Text="{x:Bind ViewModel.ConnectionMessage, Mode=OneWay}" Tag="loc-skip"
                 Visibility="{x:Bind ViewModel.HasConnectionMessage, Mode=OneWay}" />
         </StackPanel>
     </ScrollViewer>

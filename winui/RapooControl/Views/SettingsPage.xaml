@@ -13,19 +13,19 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="デバイス" />
-                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" Tag="loc-skip" />
                     <TextBlock
                         AutomationProperties.LiveSetting="Polite"
                         Style="{StaticResource PageSubtitleStyle}"
-                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}" Tag="loc-skip"
                         Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウス ファームウェア" />
-                        <TextBlock x:Name="MouseFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
+                        <TextBlock x:Name="MouseFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" Tag="loc-skip" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="レシーバー ファームウェア" />
-                        <TextBlock x:Name="DongleFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" />
+                        <TextBlock x:Name="DongleFirmware" Grid.Column="1" Style="{StaticResource SettingsRowValueStyle}" Text="—" Tag="loc-skip" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア更新" />
@@ -51,11 +51,11 @@
                             <TextBlock Style="{StaticResource PageSubtitleStyle}"
                                 Text="0-TX 中はマウスへの読み書きを停止します。設定を変更するには通常に戻してください。" />
                         </StackPanel>
-                        <Button x:Name="ModeButton" Grid.Column="1" VerticalAlignment="Center" Click="PollingMode_Click" />
+                        <Button x:Name="ModeButton" Grid.Column="1" VerticalAlignment="Center" Click="PollingMode_Click" Tag="loc-skip" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="デモモード" />
-                        <Button x:Name="DemoButton" Grid.Column="1" VerticalAlignment="Center" Click="DemoMode_Click" />
+                        <Button x:Name="DemoButton" Grid.Column="1" VerticalAlignment="Center" Click="DemoMode_Click" Tag="loc-skip" />
                     </Grid>
                 </StackPanel>
             </Border>

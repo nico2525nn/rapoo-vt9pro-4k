@@ -102,6 +102,7 @@ func newBridge(out io.Writer) (*bridge, error) {
 
 	svc := service.NewMouseService(nil, service.Config{
 		InitialMode: prefs.Mode,
+		Language:    os.Getenv("RAPOO_LANG"),
 		PresetDir:   cfgDir,
 	})
 

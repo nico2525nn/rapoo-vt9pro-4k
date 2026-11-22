@@ -132,6 +132,15 @@ describe("Rapoo Control", () => {
     expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
   });
 
+  it("starts in the persisted Japanese preference", async () => {
+    fallbackSim.setLanguage("ja");
+    render(<App />);
+
+    expect(await screen.findByText("マウスが接続されていません")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "設定" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "センサー" })).toBeInTheDocument();
+  });
+
   it("switches to Japanese and back from Settings", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -143,6 +152,12 @@ describe("Rapoo Control", () => {
     expect(screen.getByRole("button", { name: "ボタン" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "プロファイル" })).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "DPI" }));
+    expect(await screen.findByText("ステージ 1")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "ボタン" }));
+    expect((await screen.findAllByText("左クリック")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "設定" }));
     await selectOption(user, "言語", "English");
     expect(screen.getByText("Device")).toBeInTheDocument();
   });

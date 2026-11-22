@@ -11,6 +11,7 @@ namespace RapooControl.Views;
 public sealed partial class SettingsPage : Page, IConfigPageActions
 {
     private bool _languageReady;
+    private BridgeSnapshot? _lastSnapshot;
 
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
@@ -79,6 +80,11 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         localization.SetLanguage(language);
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
+        UpdateControls();
+        if (_lastSnapshot is { } snapshot)
+        {
+            LoadFirmware(snapshot);
+        }
         Feedback.Message = language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English.";
     }
 
@@ -92,6 +98,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
 
     private void LoadFirmware(BridgeSnapshot snapshot)
     {
+        _lastSnapshot = snapshot;
         MouseFirmware.Text = FirmwareText(snapshot.Firmware?.MouseString);
         DongleFirmware.Text = FirmwareText(snapshot.Firmware?.DongleString);
     }

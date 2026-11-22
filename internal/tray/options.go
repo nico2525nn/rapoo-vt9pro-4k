@@ -6,7 +6,8 @@ type Options struct {
 	MutexName         string // Defaults to Local\RapooVT9Pro4KTrayMutex
 	WindowClass       string // Defaults to RapooVT9Pro4KTrayWndClass
 	RegistryValueName string // Defaults to RapooVT9Tray
-	OpenMenuLabel     string // Optional menu item (e.g. "Rapoo Control を開く(&O)")
+	Language          string // "en" (default) or "ja"
+	OpenMenuLabel     string // Optional menu item (e.g. "Open Rapoo Control (&O)")
 	OnOpenWindow      func() // Invoked on left-click or OpenMenuLabel when set
 	OnQuit            func() // Invoked after tray exits via Quit menu item
 }

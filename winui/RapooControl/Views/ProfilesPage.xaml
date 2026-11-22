@@ -18,11 +18,11 @@
                         <Button x:Name="DeleteButton" Click="Delete_Click" Content="削除" />
                     </StackPanel>
 
-                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" Tag="loc-skip" />
                     <TextBlock
                         AutomationProperties.LiveSetting="Polite"
                         Style="{StaticResource PageSubtitleStyle}"
-                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}" Tag="loc-skip"
                         Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
 
                     <TextBlock x:Name="EmptyNotice" Style="{StaticResource PageSubtitleStyle}"
@@ -36,7 +36,7 @@
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="services:BridgePreset">
-                                <StackPanel Padding="0,8" Spacing="4">
+                                <StackPanel Padding="0,8" Spacing="4" Tag="loc-skip">
                                     <TextBlock Text="{x:Bind Name}" MaxLines="1" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Style="{StaticResource MetricLabelStyle}" Text="{x:Bind Description}"
                                         MaxLines="1" TextTrimming="CharacterEllipsis" />

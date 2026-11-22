@@ -77,6 +77,7 @@ type UICatalog struct {
 // Config configures a MouseService instance.
 type Config struct {
 	InitialMode       PollingMode
+	Language          string
 	NormalInterval    time.Duration
 	LowFreqInterval   time.Duration
 	ReconnectInterval time.Duration
@@ -85,6 +86,9 @@ type Config struct {
 }
 
 func (c *Config) applyDefaults() {
+	if c.Language == "" {
+		c.Language = normalizeLanguage(os.Getenv("RAPOO_LANG"))
+	}
 	if c.InitialMode == "" {
 		c.InitialMode = ModeNormal
 	}
@@ -255,7 +259,7 @@ func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 		connected := s.client != nil
 		s.mu.RUnlock()
 		if !connected {
-			return rapoo.DeviceSnapshot{}, errors.New(friendlyError(rapoo.ErrDeviceNotFound))
+			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
 		}
 	}
 	return s.ReadSnapshot()
@@ -312,7 +316,7 @@ func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 	s.mu.RUnlock()
 
 	if c == nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(rapoo.ErrDeviceNotFound))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
 	}
 	if mode == ModePassiveOnly {
 		if cached != nil {
@@ -344,7 +348,7 @@ func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 				return cp, nil
 			}
 		}
-		return snap, errors.New(friendlyError(err))
+		return snap, errors.New(s.friendlyError(err))
 	}
 
 	s.updateFromSnapshot(snap)
@@ -365,7 +369,7 @@ func (s *MouseService) writableClient() (*rapoo.Client, error) {
 		return nil, errors.New("ゲーム中ロック (完全受動モード) が有効なため設定を変更できません。上部のロックを解除してください。")
 	}
 	if c == nil {
-		return nil, errors.New(friendlyError(rapoo.ErrDeviceNotFound))
+		return nil, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
 	}
 	return c, nil
 }
@@ -377,7 +381,7 @@ func (s *MouseService) SetPollingRate(hz int) (rapoo.DeviceSnapshot, error) {
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.SetPollingRate(hz); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -389,7 +393,7 @@ func (s *MouseService) SetCurrentDPIGear(stage int) (rapoo.DeviceSnapshot, error
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.SetCurrentDPIGear(stage); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -401,7 +405,7 @@ func (s *MouseService) SetDPIConfig(cfg rapoo.DPIConfig) (rapoo.DeviceSnapshot, 
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.SetDPIConfig(cfg); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -413,7 +417,7 @@ func (s *MouseService) UpdateSensorConfig(patch rapoo.SensorPatch) (rapoo.Device
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.UpdateSensorConfig(patch); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -425,7 +429,7 @@ func (s *MouseService) SetButtonMapping(buttonID int, action rapoo.ButtonAction)
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.SetButtonMapping(rapoo.ButtonID(buttonID), action); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -437,7 +441,7 @@ func (s *MouseService) ResetButtonsToDefault() (rapoo.DeviceSnapshot, error) {
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.SetAllButtonMappings(rapoo.DefaultButtonMappings()); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	return s.ReadSnapshot()
 }
@@ -449,7 +453,7 @@ func (s *MouseService) FactoryReset() (rapoo.DeviceSnapshot, error) {
 		return rapoo.DeviceSnapshot{}, err
 	}
 	if err := c.FactoryReset(); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	// Give mouse MCU a moment to reinitialize flash defaults when connected to real hardware.
 	s.mu.RLock()
@@ -510,20 +514,20 @@ func (s *MouseService) ApplyPreset(id string) (rapoo.DeviceSnapshot, error) {
 			rate = maxRate
 		}
 		if err := c.SetPollingRate(rate); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 		}
 	}
 	if preset.DPI.StageCount >= 1 {
 		if err := c.SetDPIConfig(preset.DPI); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 		}
 	}
 	if err := c.UpdateSensorConfig(preset.Sensor); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 	}
 	if len(preset.Buttons) > 0 {
 		if err := c.SetAllButtonMappings(preset.Buttons); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(friendlyError(err))
+			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
 		}
 	}
 	return s.ReadSnapshot()
@@ -851,24 +855,51 @@ func isPermissionError(err error) bool {
 	return strings.Contains(msg, "permission denied") || strings.Contains(msg, "access is denied")
 }
 
-func friendlyError(err error) string {
+func normalizeLanguage(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "ja" || value == "jp" || strings.HasPrefix(value, "ja-") {
+		return "ja"
+	}
+	return "en"
+}
+
+func (s *MouseService) friendlyError(err error) string {
 	if err == nil {
 		return ""
 	}
+	japanese := normalizeLanguage(s.cfg.Language) == "ja"
 	switch {
 	case errors.Is(err, rapoo.ErrDeviceNotFound):
-		return "Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。接続を確認するか、デモモードでお試しください。"
+		if japanese {
+			return "Rapoo VT9 Pro 4K (4Kレシーバー または USBケーブル) が見つかりません。接続を確認するか、デモモードでお試しください。"
+		}
+		return "Rapoo VT9 Pro 4K was not found. Check the receiver/USB cable or try Demo mode."
 	case errors.Is(err, rapoo.ErrMouseAsleep):
-		return "ワイヤレスマウスがスリープ中または電源OFFです。マウスを軽く動かして復帰させてください。"
+		if japanese {
+			return "ワイヤレスマウスがスリープ中または電源OFFです。マウスを軽く動かして復帰させてください。"
+		}
+		return "The wireless mouse is asleep or off. Move it to wake it."
 	case errors.Is(err, rapoo.ErrMissingLeftClick):
-		return "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
+		if japanese {
+			return "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
+		}
+		return "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first."
 	case isPermissionError(err):
 		if runtime.GOOS == "linux" {
-			return "Linux の /dev/hidraw デバイスへのアクセス権限がありません。設定タブの udev ルールを適用してください。"
+			if japanese {
+				return "Linux の /dev/hidraw デバイスへのアクセス権限がありません。設定タブの udev ルールを適用してください。"
+			}
+			return "No permission to access /dev/hidraw. Apply the udev rule in Settings."
 		}
-		return "HID デバイスへのアクセス権限がありません。"
+		if japanese {
+			return "HID デバイスへのアクセス権限がありません。"
+		}
+		return "No permission to access the HID device."
 	default:
-		return fmt.Sprintf("デバイス通信エラー: %v", err)
+		if japanese {
+			return fmt.Sprintf("デバイス通信エラー: %v", err)
+		}
+		return fmt.Sprintf("Device communication error: %v", err)
 	}
 }
 
@@ -886,7 +917,7 @@ func (s *MouseService) markDisconnected(err error) {
 	s.state.PermissionDenied = permDenied
 	s.cachedSnap = nil
 	if err != nil && !errors.Is(err, rapoo.ErrDeviceNotFound) {
-		s.state.LastError = friendlyError(err)
+		s.state.LastError = s.friendlyError(err)
 	} else {
 		s.state.LastError = ""
 	}

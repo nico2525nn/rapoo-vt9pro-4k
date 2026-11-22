@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { Cpu, Crosshair, FolderOpen, Mouse, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { t } from "@/lib/i18n";
+import { getLanguage, t } from "@/lib/i18n";
 import { windowApi } from "@/lib/wails";
 import type { DeviceSnapshot, ServiceState } from "@/types/rapoo";
 
@@ -24,7 +24,7 @@ export const NAV_ITEMS = [
 
 export type Page = (typeof NAV_ITEMS)[number]["value"];
 
-const number = new Intl.NumberFormat("ja-JP");
+const number = new Intl.NumberFormat(getLanguage() === "ja" ? "ja-JP" : "en-US");
 
 function connectionLabel(state: ServiceState): string {
   if (!state.connected) return t("Disconnected");

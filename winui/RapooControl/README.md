@@ -8,7 +8,7 @@ talks newline-delimited JSON over stdin/stdout.
 
 - Unpackaged, self-contained x64 desktop app.
 - .NET 9 (`net9.0-windows10.0.19041.0`), Windows App SDK 1.8.
-- NavigationView shell with 概要 / DPI / センサー / ボタン / プロファイル / 設定.
+- NavigationView shell with Overview / DPI / Sensor / Buttons / Profiles / Settings.
 - All settings pages read and write the real device through the bridge.
 - Firmware versions are display-only. The update button launches the official
   Rapoo software; this app never flashes firmware.

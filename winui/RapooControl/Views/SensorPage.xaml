@@ -13,11 +13,11 @@
             <Border Style="{StaticResource CardBorderStyle}">
                 <StackPanel Style="{StaticResource SettingsSectionStyle}">
                     <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="トラッキング" />
-                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" />
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" Tag="loc-skip" />
                     <TextBlock
                         AutomationProperties.LiveSetting="Polite"
                         Style="{StaticResource PageSubtitleStyle}"
-                        Text="{x:Bind Feedback.Message, Mode=OneWay}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}" Tag="loc-skip"
                         Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
                     <ContentControl x:Name="Editor" HorizontalContentAlignment="Stretch" Visibility="Collapsed">
                         <StackPanel Style="{StaticResource SettingsSectionStyle}">

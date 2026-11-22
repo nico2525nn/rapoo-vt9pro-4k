@@ -343,7 +343,7 @@ func DecodeButtonAction(slot ButtonSlotSpec, raw [4]byte) ButtonAction {
 		kName := LookupHIDKeyName(raw[3])
 		return ButtonAction{
 			Type:      ActionKeyboard,
-			LabelJA:   "キー: " + FormatKeyCombo(mods, kName),
+			LabelJA:   FormatKeyCombo(mods, kName),
 			Category:  "keyboard",
 			Modifiers: mods,
 			KeyCode:   raw[3],

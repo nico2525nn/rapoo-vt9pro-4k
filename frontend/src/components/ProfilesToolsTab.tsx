@@ -146,7 +146,7 @@ export function ProfilesToolsTab({
                 id="preset-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. FPS 800 DPI"
+                placeholder={t("e.g. FPS 800 DPI")}
                 autoFocus
               />
             </div>

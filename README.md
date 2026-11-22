@@ -34,14 +34,14 @@ Run `rapoo-control-winui-v1.1.0-windows-amd64.exe`. It is a single file; the Go 
 
 English is the default. Change the language in Settings → Language: **English** or **日本語**.
 
-To set it globally before launch:
+To set the initial language before the first launch:
 
 ```bat
 setx RAPOO_LANG en
 setx RAPOO_LANG ja
 ```
 
-The setting is stored in the app preferences. `RAPOO_LANG` is also passed to the WinUI sidecar.
+`RAPOO_LANG` is the default for a fresh profile. A language selected in Settings is saved and takes precedence on later launches. The value is also passed to the WinUI sidecar.
 
 ## UI
 

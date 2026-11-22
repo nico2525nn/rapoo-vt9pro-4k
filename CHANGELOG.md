@@ -6,7 +6,7 @@
 
 - English is the default UI language; Japanese is available in Settings → Language
 - `RAPOO_LANG=en|ja` environment variable support for both UIs and the WinUI sidecar
-- Language preference persistence
+- Language preference persistence; a saved Settings choice takes precedence over the environment default
 
 ### Changed
 

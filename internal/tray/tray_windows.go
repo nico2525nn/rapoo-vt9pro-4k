@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -221,6 +222,10 @@ func RunWithOptions(ctx context.Context, svc *service.MouseService, opts Options
 	if opts.RegistryValueName == "" {
 		opts.RegistryValueName = defaultRunRegistryValue
 	}
+	opts.Language = normalizeLanguage(opts.Language)
+	if opts.Language == "" {
+		opts.Language = normalizeLanguage(os.Getenv("RAPOO_LANG"))
+	}
 
 	if procSetProcessDpiAwarenessContext.Find() == nil {
 		procSetProcessDpiAwarenessContext.Call(^uintptr(3))
@@ -417,7 +422,7 @@ func (a *trayApp) syncTrayIcon(forceAdd bool) error {
 	nid.UFlags = nifMessage | nifIcon | nifTip
 	nid.UCallbackMessage = wmAppTray
 	nid.HIcon = newIcon
-	copyUTF16Tip(nid.SzTip[:], formatTooltip(st))
+	copyUTF16Tip(nid.SzTip[:], formatTooltip(st, a.opts.Language))
 
 	action := uintptr(nimModify)
 	if forceAdd || !a.trayAdded {
@@ -451,17 +456,17 @@ func (a *trayApp) showPopupMenu() {
 	}
 	defer procDestroyMenu.Call(hMenu)
 
-	appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0, formatMenuHeader(st))
+	appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0, formatMenuHeader(st, a.opts.Language))
 	if !st.UpdatedAt.IsZero() {
 		appendMenuItem(hMenu, mfString|mfGrayed|mfDisabled, 0,
-			fmt.Sprintf("最終更新: %s", st.UpdatedAt.Local().Format("15:04:05")))
+			fmt.Sprintf(a.text("Last updated: %s", "最終更新: %s"), st.UpdatedAt.Local().Format("15:04:05")))
 	}
 	appendMenuItem(hMenu, mfSeparator, 0, "")
 
 	if a.opts.OnOpenWindow != nil {
 		lbl := a.opts.OpenMenuLabel
 		if lbl == "" {
-			lbl = "Rapoo Control を開く(&O)"
+			lbl = a.text("Open Rapoo Control (&O)", "Rapoo Control を開く(&O)")
 		}
 		appendMenuItem(hMenu, mfString, cmdOpenWindow, lbl)
 		appendMenuItem(hMenu, mfSeparator, 0, "")
@@ -471,24 +476,24 @@ func (a *trayApp) showPopupMenu() {
 	if st.Mode == service.ModePassiveOnly {
 		refreshFlags |= mfGrayed | mfDisabled
 	}
-	appendMenuItem(hMenu, refreshFlags, cmdRefresh, "今すぐバッテリー取得(&R)")
+	appendMenuItem(hMenu, refreshFlags, cmdRefresh, a.text("Refresh battery now (&R)", "今すぐバッテリー取得(&R)"))
 	appendMenuItem(hMenu, mfSeparator, 0, "")
 
 	appendMenuItem(hMenu, modeFlag(st.Mode == service.ModeNormal), cmdModeNormal,
-		"通常モード: 60秒更新 + 自動通知")
+		a.text("Normal mode: 60s refresh + notifications", "通常モード: 60秒更新 + 自動通知"))
 	appendMenuItem(hMenu, modeFlag(st.Mode == service.ModeLowFrequency), cmdModeLowFreq,
-		"低頻度モード: 5分更新 + 自動通知")
+		a.text("Low-frequency mode: 5m refresh + notifications", "低頻度モード: 5分更新 + 自動通知"))
 	appendMenuItem(hMenu, modeFlag(st.Mode == service.ModePassiveOnly), cmdModePassive,
-		"ゲーム優先・完全受動: 送信ゼロ (通知のみ)")
+		a.text("Gaming passive (0-TX): no writes (notifications only)", "ゲーム優先・完全受動: 送信ゼロ (通知のみ)"))
 	appendMenuItem(hMenu, mfSeparator, 0, "")
 
 	autoFlags := uintptr(mfString)
 	if IsAutoStartEnabled(a.opts.RegistryValueName) {
 		autoFlags |= mfChecked
 	}
-	appendMenuItem(hMenu, autoFlags, cmdAutoStart, "Windows起動時に自動起動(&S)")
+	appendMenuItem(hMenu, autoFlags, cmdAutoStart, a.text("Start with Windows (&S)", "Windows起動時に自動起動(&S)"))
 	appendMenuItem(hMenu, mfSeparator, 0, "")
-	appendMenuItem(hMenu, mfString, cmdQuit, "終了(&Q)")
+	appendMenuItem(hMenu, mfString, cmdQuit, a.text("Quit (&Q)", "終了(&Q)"))
 
 	var pt winPoint
 	procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
@@ -561,53 +566,104 @@ func modeFlag(checked bool) uintptr {
 	return mfString
 }
 
-func formatConnLabel(conn rapoo.ConnectionMode) string {
+func formatConnLabel(conn rapoo.ConnectionMode, lang string) string {
 	switch conn {
 	case rapoo.ConnectionWired:
-		return "USB有線"
+		if lang == "ja" {
+			return "USB有線"
+		}
+		return "USB wired"
 	case rapoo.ConnectionWireless4K:
-		return "4K無線"
+		if lang == "ja" {
+			return "4K無線"
+		}
+		return "4K wireless"
 	default:
 		return ""
 	}
 }
 
-func formatMenuHeader(st service.State) string {
+func formatMenuHeader(st service.State, lang string) string {
 	if !st.Connected {
-		return "Rapoo VT9 Pro 4K — 未接続"
+		if lang == "ja" {
+			return "Rapoo VT9 Pro 4K — 未接続"
+		}
+		return "Rapoo VT9 Pro 4K — Not connected"
 	}
-	conn := formatConnLabel(st.Connection)
+	conn := formatConnLabel(st.Connection, lang)
 	if !st.HasBattery {
 		if st.Sleeping {
-			return fmt.Sprintf("%s (%s) — スリープ中", st.DeviceName, conn)
+			if lang == "ja" {
+				return fmt.Sprintf("%s (%s) — スリープ中", st.DeviceName, conn)
+			}
+			return fmt.Sprintf("%s (%s) — Sleeping", st.DeviceName, conn)
 		}
-		return fmt.Sprintf("%s (%s) — 取得待ち", st.DeviceName, conn)
+		if lang == "ja" {
+			return fmt.Sprintf("%s (%s) — 取得待ち", st.DeviceName, conn)
+		}
+		return fmt.Sprintf("%s (%s) — Waiting for data", st.DeviceName, conn)
 	}
 	switch {
 	case st.Charging:
-		return fmt.Sprintf("%s (%s) — %d%% 充電中", st.DeviceName, conn, st.Percentage)
+		if lang == "ja" {
+			return fmt.Sprintf("%s (%s) — %d%% 充電中", st.DeviceName, conn, st.Percentage)
+		}
+		return fmt.Sprintf("%s (%s) — %d%% charging", st.DeviceName, conn, st.Percentage)
 	case st.Sleeping:
-		return fmt.Sprintf("%s (%s) — %d%% (スリープ中)", st.DeviceName, conn, st.Percentage)
+		if lang == "ja" {
+			return fmt.Sprintf("%s (%s) — %d%% (スリープ中)", st.DeviceName, conn, st.Percentage)
+		}
+		return fmt.Sprintf("%s (%s) — %d%% (sleeping)", st.DeviceName, conn, st.Percentage)
 	default:
 		return fmt.Sprintf("%s (%s) — %d%%", st.DeviceName, conn, st.Percentage)
 	}
 }
 
-func formatTooltip(st service.State) string {
-	header := formatMenuHeader(st)
+func formatTooltip(st service.State, lang string) string {
+	header := formatMenuHeader(st, lang)
 	var modeStr string
 	switch st.Mode {
 	case service.ModePassiveOnly:
-		modeStr = "モード: 完全受動 (送信ゼロ)"
+		if lang == "ja" {
+			modeStr = "モード: 完全受動 (送信ゼロ)"
+		} else {
+			modeStr = "Mode: passive (0-TX)"
+		}
 	case service.ModeLowFrequency:
-		modeStr = "モード: 低頻度 (5分)"
+		if lang == "ja" {
+			modeStr = "モード: 低頻度 (5分)"
+		} else {
+			modeStr = "Mode: low frequency (5m)"
+		}
 	default:
-		modeStr = "モード: 通常 (60秒)"
+		if lang == "ja" {
+			modeStr = "モード: 通常 (60秒)"
+		} else {
+			modeStr = "Mode: normal (60s)"
+		}
 	}
 	if !st.UpdatedAt.IsZero() {
-		return fmt.Sprintf("%s\n%s | 更新: %s", header, modeStr, st.UpdatedAt.Local().Format(time.TimeOnly))
+		if lang == "ja" {
+			return fmt.Sprintf("%s\n%s | 更新: %s", header, modeStr, st.UpdatedAt.Local().Format(time.TimeOnly))
+		}
+		return fmt.Sprintf("%s\n%s | Updated: %s", header, modeStr, st.UpdatedAt.Local().Format(time.TimeOnly))
 	}
 	return fmt.Sprintf("%s\n%s", header, modeStr)
+}
+
+func normalizeLanguage(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "ja" || value == "jp" || strings.HasPrefix(value, "ja-") {
+		return "ja"
+	}
+	return "en"
+}
+
+func (a *trayApp) text(en, ja string) string {
+	if normalizeLanguage(a.opts.Language) == "ja" {
+		return ja
+	}
+	return en
 }
 
 func copyUTF16Tip(dst []uint16, s string) {

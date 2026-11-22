@@ -1,5 +1,5 @@
 import { estimateBatteryHours, normalizeDpi } from "@/lib/utils";
-import { t } from "@/lib/i18n";
+import { t, translateError } from "@/lib/i18n";
 import type {
   AppPreferences,
   ButtonAction,
@@ -305,6 +305,7 @@ class FallbackSimulator {
     this.mode = "normal";
     this.snap = makeDefaultSnapshot();
     this.presets = [];
+    this.prefs = { closeToTray: true, autoStart: false, platform: "windows", language: "en" };
     this.listeners.clear();
   }
 
@@ -642,9 +643,9 @@ class FallbackSimulator {
 export const fallbackSim = new FallbackSimulator();
 
 function unwrapError(err: unknown): Error {
-  if (err instanceof Error) return err;
-  if (typeof err === "string") return new Error(err);
-  return new Error(String(err));
+  if (err instanceof Error) return new Error(translateError(err.message));
+  if (typeof err === "string") return new Error(translateError(err));
+  return new Error(translateError(String(err)));
 }
 
 export const rapooApi = {

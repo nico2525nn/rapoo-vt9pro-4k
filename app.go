@@ -72,6 +72,7 @@ func NewApp() *App {
 	}
 	a.svc = service.NewMouseService(nil, service.Config{
 		InitialMode: initialMode,
+		Language:    a.prefs.Language,
 		PresetDir:   cfgDir,
 		OnEventEmit: func(eventName string, payload any) {
 			if a.ctx != nil {
@@ -117,7 +118,7 @@ func initialLanguage() string {
 func normalizeLanguage(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch {
-	case strings.HasPrefix(value, "ja"), value == "jp":
+	case value == "ja", value == "jp", strings.HasPrefix(value, "ja-"):
 		return "ja"
 	default:
 		return "en"
@@ -147,7 +148,8 @@ func (a *App) startup(ctx context.Context) {
 				MutexName:         `Local\RapooControlWailsTrayMutex`,
 				WindowClass:       "RapooControlWailsTrayWndClass",
 				RegistryValueName: wailsRegistryAutoStartKey,
-				OpenMenuLabel:     "Rapoo Control を開く(&O)",
+				Language:          a.prefs.Language,
+				OpenMenuLabel:     a.text("Open Rapoo Control (&O)", "Rapoo Control を開く(&O)"),
 				OnOpenWindow: func() {
 					a.ShowWindow()
 				},
@@ -157,7 +159,8 @@ func (a *App) startup(ctx context.Context) {
 			}); err != nil {
 				log.Printf("rapoo: tray unavailable: %v", err)
 				if a.ctx != nil {
-					wailsRuntime.EventsEmit(a.ctx, "rapoo:error", "タスクトレイを初期化できませんでした")
+					wailsRuntime.EventsEmit(a.ctx, "rapoo:error",
+						a.text("Could not initialize the system tray", "タスクトレイを初期化できませんでした"))
 				}
 			}
 		}()
@@ -202,6 +205,16 @@ func (a *App) QuitApp() {
 	if a.ctx != nil {
 		wailsRuntime.Quit(a.ctx)
 	}
+}
+
+func (a *App) text(english, japanese string) string {
+	a.prefsMu.RLock()
+	language := a.prefs.Language
+	a.prefsMu.RUnlock()
+	if normalizeLanguage(language) == "ja" {
+		return japanese
+	}
+	return english
 }
 
 // GetAppPreferences returns desktop shell preferences.
@@ -275,7 +288,9 @@ func (a *App) CloseWindow() {
 // actual firmware write. This app only reads firmware versions and never flashes.
 func (a *App) OpenFirmwareUpdater() (string, error) {
 	if runtime.GOOS != "windows" {
-		return "", errors.New("ファームウェア更新はWindows版の公式ソフトでのみ利用できます")
+		return "", errors.New(a.text(
+			"Firmware updates are only available in the official Windows software.",
+			"ファームウェア更新はWindows版の公式ソフトでのみ利用できます"))
 	}
 
 	roots := []string{
@@ -309,10 +324,10 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 	}
 
 	if a.ctx == nil {
-		return "", errors.New("公式ソフトが見つかりません")
+		return "", errors.New(a.text("The official software was not found", "公式ソフトが見つかりません"))
 	}
 	selected, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
-		Title: "Rapoo公式ソフトを選択",
+		Title: a.text("Select the official Rapoo software", "Rapoo公式ソフトを選択"),
 		Filters: []wailsRuntime.FileFilter{
 			{DisplayName: "RapooGameDev.exe / FirmwareExe.exe", Pattern: "*.exe"},
 		},
@@ -324,14 +339,16 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 		return "", nil
 	}
 	if !isOfficialUpdaterName(selected) {
-		return "", errors.New("Rapoo公式ソフト（RapooGameDev.exe または FirmwareExe.exe）を選択してください")
+		return "", errors.New(a.text(
+			"Select RapooGameDev.exe or FirmwareExe.exe.",
+			"Rapoo公式ソフト（RapooGameDev.exe または FirmwareExe.exe）を選択してください"))
 	}
 	if !filepath.IsAbs(selected) {
-		return "", errors.New("公式ソフトの絶対パスを選択してください")
+		return "", errors.New(a.text("Select an absolute path to the official software.", "公式ソフトの絶対パスを選択してください"))
 	}
 	info, err := os.Stat(selected)
 	if err != nil || info.IsDir() {
-		return "", errors.New("公式ソフトが見つかりません")
+		return "", errors.New(a.text("The official software was not found", "公式ソフトが見つかりません"))
 	}
 	return a.launchOfficialUpdater(selected)
 }
@@ -387,7 +404,7 @@ func (a *App) SavePresetFile(id, suggestedName string) (string, error) {
 		clean += ".json"
 	}
 	dest, err := wailsRuntime.SaveFileDialog(a.ctx, wailsRuntime.SaveDialogOptions{
-		Title:           "プロファイル JSON を保存",
+		Title:           a.text("Save profile JSON", "プロファイル JSON を保存"),
 		DefaultFilename: clean,
 		Filters: []wailsRuntime.FileFilter{
 			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
