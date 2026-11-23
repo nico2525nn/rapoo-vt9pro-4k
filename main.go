@@ -2,10 +2,12 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -22,6 +24,26 @@ var assets embed.FS
 //go:embed build/appicon.png
 var appIconPNG []byte
 
+func parseProductIDs(value string) ([]uint16, error) {
+	parts := strings.Split(value, ",")
+	ids := make([]uint16, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.Atoi(part)
+		if err != nil || id < 0 || id > 0xFFFF {
+			return nil, errors.New("invalid product id")
+		}
+		ids = append(ids, uint16(id))
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("no product id")
+	}
+	return ids, nil
+}
+
 func containsHiddenArg(args []string) bool {
 	for _, argument := range args {
 		if argument == "--hidden" || argument == "--tray" {
@@ -34,12 +56,12 @@ func containsHiddenArg(args []string) bool {
 func main() {
 	if len(os.Args) >= 5 && os.Args[1] == "--updater-guard" {
 		vendor, vendorErr := strconv.Atoi(os.Args[3])
-		product, productErr := strconv.Atoi(os.Args[4])
+		productIDs, productErr := parseProductIDs(os.Args[4])
 		if vendorErr != nil || productErr != nil {
 			println("updater guard: invalid device id")
 			os.Exit(1)
 		}
-		if err := updaterguard.Run(os.Args[2], uint16(vendor), uint16(product), func() {
+		if err := updaterguard.Run(os.Args[2], uint16(vendor), productIDs, func() {
 			fmt.Println("ready")
 			_ = os.Stdout.Sync()
 		}); err != nil {

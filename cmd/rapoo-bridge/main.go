@@ -66,12 +66,12 @@ func main() {
 
 	if len(os.Args) >= 5 && os.Args[1] == "--updater-guard" {
 		vendor, vendorErr := strconv.Atoi(os.Args[3])
-		product, productErr := strconv.Atoi(os.Args[4])
+		productIDs, productErr := parseProductIDs(os.Args[4])
 		if vendorErr != nil || productErr != nil {
 			log.Printf("updater guard: invalid device id")
 			os.Exit(1)
 		}
-		if err := updaterguard.Run(os.Args[2], uint16(vendor), uint16(product), func() {
+		if err := updaterguard.Run(os.Args[2], uint16(vendor), productIDs, func() {
 			fmt.Println("ready")
 			_ = os.Stdout.Sync()
 		}); err != nil {
@@ -98,6 +98,26 @@ func main() {
 		log.Printf("bridge stopped: %v", err)
 	}
 	b.svc.Shutdown()
+}
+
+func parseProductIDs(value string) ([]uint16, error) {
+	parts := strings.Split(value, ",")
+	ids := make([]uint16, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		id, err := strconv.Atoi(part)
+		if err != nil || id < 0 || id > 0xFFFF {
+			return nil, errors.New("invalid product id")
+		}
+		ids = append(ids, uint16(id))
+	}
+	if len(ids) == 0 {
+		return nil, errors.New("no product id")
+	}
+	return ids, nil
 }
 
 func newBridge(out io.Writer) (*bridge, error) {
@@ -397,23 +417,31 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		self, selfErr := os.Executable()
 		if selfErr != nil {
 			b.svc.EndUpdater()
-			b.svc.SetPollingMode(previous)
+			b.svc.RestorePollingMode(previous)
 			return "", selfErr
 		}
 		state := b.svc.GetState()
+		productIDs := []uint16{state.ProductID}
+		if state.ProductID == 0 {
+			productIDs = rapoo.SupportedProductIDs()
+		}
+		productArgs := make([]string, len(productIDs))
+		for i, id := range productIDs {
+			productArgs[i] = strconv.Itoa(int(id))
+		}
 		cmd := exec.Command(self, "--updater-guard", path,
-			strconv.Itoa(0x24AE), strconv.Itoa(int(state.ProductID)))
+			strconv.Itoa(0x24AE), strings.Join(productArgs, ","))
 		cmd.Dir = filepath.Dir(self)
 		updaterguard.ConfigureCommand(cmd)
 		stdout, pipeErr := cmd.StdoutPipe()
 		if pipeErr != nil {
 			b.svc.EndUpdater()
-			b.svc.SetPollingMode(previous)
+			b.svc.RestorePollingMode(previous)
 			return "", pipeErr
 		}
 		if err := cmd.Start(); err != nil {
 			b.svc.EndUpdater()
-			b.svc.SetPollingMode(previous)
+			b.svc.RestorePollingMode(previous)
 			return "", err
 		}
 		ready := make(chan error, 1)
@@ -430,20 +458,23 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 			if err != nil {
 				_ = cmd.Wait()
 				b.svc.EndUpdater()
-				b.svc.SetPollingMode(previous)
+				b.svc.RestorePollingMode(previous)
 				return "", err
 			}
 		case <-time.After(15 * time.Second):
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-			b.svc.EndUpdater()
-			b.svc.SetPollingMode(previous)
-			return "", errors.New("the official updater did not start")
+			// Do not kill the guard here: the updater may have started just
+			// before the deadline. Let it finish and release the locks.
+			go func() {
+				_ = cmd.Wait()
+				b.svc.EndUpdater()
+				b.svc.RestorePollingMode(previous)
+			}()
+			return "", errors.New("timed out waiting for the official updater")
 		}
 		go func() {
 			_ = cmd.Wait()
 			b.svc.EndUpdater()
-			b.svc.SetPollingMode(previous)
+			b.svc.RestorePollingMode(previous)
 		}()
 		return path, nil
 	}

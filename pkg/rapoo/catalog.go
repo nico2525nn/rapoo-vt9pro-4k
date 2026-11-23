@@ -92,6 +92,20 @@ type ModelSpec struct {
 	Priority      int            `json:"-"` // Higher wins when both wired & dongle are connected
 }
 
+// SupportedProductIDs returns the unique PIDs of supported models.
+func SupportedProductIDs() []uint16 {
+	seen := make(map[uint16]bool)
+	ids := make([]uint16, 0, len(SupportedModels))
+	for _, model := range SupportedModels {
+		if model.ProductID == 0 || seen[model.ProductID] {
+			continue
+		}
+		seen[model.ProductID] = true
+		ids = append(ids, model.ProductID)
+	}
+	return ids
+}
+
 // SupportedModels lists all Rapoo VT9 Pro 4K family PIDs.
 var SupportedModels = []ModelSpec{
 	{
@@ -150,15 +164,6 @@ var SupportedModels = []ModelSpec{
 		MaxRateHz:     4000,
 		Priority:      9,
 	},
-}
-
-// SupportedProductIDs returns the slice of supported USB Product IDs for hid.Filter.
-func SupportedProductIDs() []uint16 {
-	pids := make([]uint16, len(SupportedModels))
-	for i, m := range SupportedModels {
-		pids[i] = m.ProductID
-	}
-	return pids
 }
 
 // LookupModel returns the ModelSpec for a given VID/PID pair.

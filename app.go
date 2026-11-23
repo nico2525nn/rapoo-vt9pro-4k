@@ -577,23 +577,31 @@ func (a *App) launchOfficialUpdater(path string) (string, error) {
 	self, selfErr := os.Executable()
 	if selfErr != nil {
 		a.svc.EndUpdater()
-		a.svc.SetPollingMode(previousMode)
+		a.svc.RestorePollingMode(previousMode)
 		return "", selfErr
 	}
 	state := a.svc.GetState()
+	productIDs := []uint16{state.ProductID}
+	if state.ProductID == 0 {
+		productIDs = rapoo.SupportedProductIDs()
+	}
+	productArgs := make([]string, len(productIDs))
+	for i, id := range productIDs {
+		productArgs[i] = strconv.Itoa(int(id))
+	}
 	cmd := exec.Command(self, "--updater-guard", path,
-		strconv.Itoa(0x24AE), strconv.Itoa(int(state.ProductID)))
+		strconv.Itoa(0x24AE), strings.Join(productArgs, ","))
 	cmd.Dir = filepath.Dir(self)
 	updaterguard.ConfigureCommand(cmd)
 	stdout, pipeErr := cmd.StdoutPipe()
 	if pipeErr != nil {
 		a.svc.EndUpdater()
-		a.svc.SetPollingMode(previousMode)
+		a.svc.RestorePollingMode(previousMode)
 		return "", pipeErr
 	}
 	if err := cmd.Start(); err != nil {
 		a.svc.EndUpdater()
-		a.svc.SetPollingMode(previousMode)
+		a.svc.RestorePollingMode(previousMode)
 		return "", err
 	}
 	ready := make(chan error, 1)
@@ -610,20 +618,23 @@ func (a *App) launchOfficialUpdater(path string) (string, error) {
 		if err != nil {
 			_ = cmd.Wait()
 			a.svc.EndUpdater()
-			a.svc.SetPollingMode(previousMode)
+			a.svc.RestorePollingMode(previousMode)
 			return "", err
 		}
 	case <-time.After(15 * time.Second):
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		a.svc.EndUpdater()
-		a.svc.SetPollingMode(previousMode)
-		return "", errors.New("the official updater did not start")
+		// Do not kill the guard here: the updater may have started just
+		// before the deadline. Let it finish and release the locks.
+		go func() {
+			_ = cmd.Wait()
+			a.svc.EndUpdater()
+			a.svc.RestorePollingMode(previousMode)
+		}()
+		return "", errors.New("timed out waiting for the official updater")
 	}
 	go func() {
 		_ = cmd.Wait()
 		a.svc.EndUpdater()
-		a.svc.SetPollingMode(previousMode)
+		a.svc.RestorePollingMode(previousMode)
 	}()
 	return path, nil
 }

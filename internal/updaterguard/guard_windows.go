@@ -34,7 +34,7 @@ func Held() bool {
 
 // Run is the guard process entry point: it holds the cross-process mutex for
 // the complete lifetime of the official updater child.
-func Run(updaterPath string, vendorID, productID uint16, onStarted func()) error {
+func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted func()) error {
 	if !filepath.IsAbs(updaterPath) {
 		return errors.New("the updater path must be absolute")
 	}
@@ -63,18 +63,27 @@ func Run(updaterPath string, vendorID, productID uint16, onStarted func()) error
 		_ = windows.CloseHandle(handle)
 	}()
 
-	var hidMutex windows.Handle
-	if productID != 0 {
+	hidMutexes := make([]windows.Handle, 0, len(productIDs))
+	defer func() {
+		for _, hidMutex := range hidMutexes {
+			_ = windows.ReleaseMutex(hidMutex)
+			_ = windows.CloseHandle(hidMutex)
+		}
+	}()
+	deadline := time.Now().Add(10 * time.Second)
+	for _, productID := range productIDs {
+		if productID == 0 {
+			continue
+		}
 		name := hid.CommandMutexName(vendorID, productID)
 		namePtr, nameErr := windows.UTF16PtrFromString(name)
 		if nameErr != nil {
 			return nameErr
 		}
-		deadline := time.Now().Add(10 * time.Second)
 		for {
 			candidate, err := windows.CreateMutex(nil, true, namePtr)
 			if err == nil {
-				hidMutex = candidate
+				hidMutexes = append(hidMutexes, candidate)
 				break
 			}
 			if candidate != 0 {
@@ -88,10 +97,6 @@ func Run(updaterPath string, vendorID, productID uint16, onStarted func()) error
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		defer func() {
-			_ = windows.ReleaseMutex(hidMutex)
-			_ = windows.CloseHandle(hidMutex)
-		}()
 	}
 
 	cmd := exec.Command(updaterPath)

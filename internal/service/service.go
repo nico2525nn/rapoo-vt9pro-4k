@@ -363,6 +363,24 @@ func (s *MouseService) UpdaterActive() bool {
 	return s.updaterActive
 }
 
+// RestorePollingMode restores a mode without waiting for the updater guard.
+// The background loop still refuses to open HID until the guard is gone.
+func (s *MouseService) RestorePollingMode(mode PollingMode) {
+	s.connectMu.Lock()
+	s.mu.Lock()
+	if s.state.Mode == mode {
+		s.mu.Unlock()
+		s.connectMu.Unlock()
+		return
+	}
+	s.state.Mode = mode
+	snap := s.state
+	s.mu.Unlock()
+	s.connectMu.Unlock()
+	s.publish(snap)
+	s.RefreshNow()
+}
+
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
 func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 	s.mu.RLock()
