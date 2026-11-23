@@ -42,7 +42,8 @@ public sealed record DeviceStatus(
     int MaxRateHz = 4000,
     bool PermissionDenied = false,
     string? LastError = null,
-    long Generation = 0);
+    long Generation = 0,
+    long SessionId = 0);
 
 /// <summary>One onboard DPI stage (1-based, matching the Rapoo protocol).</summary>
 public sealed record DpiStage(int Index, int X, int Y);

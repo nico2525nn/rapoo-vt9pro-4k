@@ -520,7 +520,7 @@ public sealed partial class RealRapooService : IRapooService
             UpdatedAt = DateTimeOffset.Now,
         };
 
-    private static DeviceStatus MapStatus(BridgeState state, BridgeSnapshot? snapshot)
+    private DeviceStatus MapStatus(BridgeState state, BridgeSnapshot? snapshot)
     {
         var connection = state.Connection switch
         {
@@ -559,6 +559,7 @@ public sealed partial class RealRapooService : IRapooService
             MaxRateHz: state.MaxRateHz,
             PermissionDenied: state.PermissionDenied,
             LastError: state.LastError,
-            Generation: state.Generation);
+            Generation: state.Generation,
+            SessionId: _activeSessionId);
     }
 }

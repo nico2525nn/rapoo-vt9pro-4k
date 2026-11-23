@@ -195,12 +195,16 @@ public sealed class MainViewModel : ObservableObject
 
     private void ApplyStatus(DeviceStatus status)
     {
-        var deviceChanged = _status.Generation > 0 && status.Generation > 0
-            ? _status.Generation != status.Generation ||
+        var deviceChanged = _status.SessionId > 0 && status.SessionId > 0
+            ? _status.SessionId != status.SessionId ||
+              _status.Generation != status.Generation ||
               (_status.Connected && !status.Connected)
-            : _status.DemoMode != status.DemoMode ||
-              _status.Connection != status.Connection ||
-              _status.DeviceName != status.DeviceName;
+            : _status.Generation > 0 && status.Generation > 0
+                ? _status.Generation != status.Generation ||
+                  (_status.Connected && !status.Connected)
+                : _status.DemoMode != status.DemoMode ||
+                  _status.Connection != status.Connection ||
+                  _status.DeviceName != status.DeviceName;
         _status = status;
         if (!string.IsNullOrEmpty(status.LastError) && !status.Connected)
         {
