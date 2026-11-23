@@ -477,13 +477,22 @@ public sealed partial class RealRapooService : IRapooService
         }
     }
 
-    private static bool DeviceChanged(BridgeState previous, BridgeState current) =>
-        previous.Connected != current.Connected ||
-        previous.DemoMode != current.DemoMode ||
-        previous.Connection != current.Connection ||
-        previous.ProductId != current.ProductId ||
-        previous.DeviceName != current.DeviceName ||
-        previous.Generation != current.Generation;
+    private static bool DeviceChanged(BridgeState previous, BridgeState current)
+    {
+        if (previous.Generation > 0 && current.Generation > 0)
+        {
+            // A demo switch can change the display name/product id while
+            // keeping the same generation. Only a new generation is a device
+            // replacement; do not clear firmware/cached snapshots for labels.
+            return previous.Generation != current.Generation;
+        }
+
+        return previous.Connected != current.Connected ||
+            previous.DemoMode != current.DemoMode ||
+            previous.Connection != current.Connection ||
+            previous.ProductId != current.ProductId ||
+            previous.DeviceName != current.DeviceName;
+    }
 
     private static BridgeState CreateState(BridgeSnapshot snapshot) =>
         new()
