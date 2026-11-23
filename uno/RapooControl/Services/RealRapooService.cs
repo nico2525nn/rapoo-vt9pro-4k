@@ -75,11 +75,13 @@ public sealed partial class RealRapooService : IRapooService
             {
                 if (Environment.GetEnvironmentVariable("RAPOO_DEMO") == "1")
                 {
-                    await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
+                    // Use the service path so the demo generation fallback and
+                    // its snapshot are cached even if the state notification
+                    // is delivered later.
+                    _ = await SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
+                    return;
                 }
 
-                // Capture the epoch after the optional demo transition; the
-                // snapshot below belongs to that state.
                 var epoch = CurrentEpoch;
                 var snapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
                 PublishSnapshot(snapshot, epoch, sessionId);
