@@ -64,6 +64,7 @@ type State struct {
 	Platform         string               `json:"platform"`
 	UpdatedAt        time.Time            `json:"updatedAt"`
 	Revision         uint64               `json:"revision"`
+	Generation       uint64               `json:"generation"`
 	LastError        string               `json:"lastError,omitempty"`
 }
 
@@ -389,12 +390,16 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	mode := s.state.Mode
 	cached := s.cachedSnap
 	readRevision := s.state.Revision
+	readGeneration := s.state.Generation
 	s.mu.RUnlock()
 
 	defer func() {
 		// The snapshot describes the state as of the read start. Never stamp it
 		// with a revision that a later device/state transition produced.
 		snap.StateRevision = readRevision
+		if snap.Generation == 0 {
+			snap.Generation = readGeneration
+		}
 	}()
 
 	if c == nil {
@@ -841,6 +846,7 @@ func (s *MouseService) ensureConnectedAndPollLocked() {
 		}
 		s.mu.Lock()
 		s.client = client
+		s.state.Generation++
 		s.state.Connected = true
 		s.state.DemoMode = demo
 		s.state.DeviceName = model.Name

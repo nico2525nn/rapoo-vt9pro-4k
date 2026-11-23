@@ -27,6 +27,7 @@ public sealed class BridgeState
     [JsonPropertyName("platform")] public string? Platform { get; set; }
     [JsonPropertyName("updatedAt")] public DateTimeOffset UpdatedAt { get; set; }
     [JsonPropertyName("revision")] public long Revision { get; set; }
+    [JsonPropertyName("generation")] public long Generation { get; set; }
     [JsonPropertyName("lastError")] public string? LastError { get; set; }
 }
 
@@ -40,6 +41,7 @@ public sealed class BridgeSnapshot
     [JsonPropertyName("buttons")] public List<BridgeButtonMapping>? Buttons { get; set; }
     [JsonPropertyName("demoMode")] public bool DemoMode { get; set; }
     [JsonPropertyName("stateRevision")] public long StateRevision { get; set; }
+    [JsonPropertyName("generation")] public long Generation { get; set; }
 }
 
 public sealed class BridgeModel

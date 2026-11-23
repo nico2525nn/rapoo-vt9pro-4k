@@ -204,6 +204,7 @@ type DeviceSnapshot struct {
 	Buttons        []ButtonMapping `json:"buttons,omitempty"`
 	DemoMode       bool            `json:"demoMode,omitempty"`
 	StateRevision  uint64          `json:"stateRevision"`
+	Generation     uint64          `json:"generation"`
 }
 
 // EventKind identifies asynchronous telemetry events pushed by the mouse/dongle.

@@ -307,6 +307,13 @@ public sealed partial class RealRapooService : IRapooService
     private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         EnsureEpochLocked(epoch);
+        if (snapshot.Generation > 0 &&
+            _lastState is { Generation: > 0 } currentState &&
+            snapshot.Generation != currentState.Generation)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
         if (_lastSnapshot is { StateRevision: > 0 } cached &&
             snapshot.StateRevision > 0 &&
             snapshot.StateRevision < cached.StateRevision)
@@ -330,8 +337,6 @@ public sealed partial class RealRapooService : IRapooService
         {
             if (sessionId != _activeSessionId ||
                 !_client.IsSessionCurrent(sessionId) ||
-                snapshot.StateRevision == 0 ||
-                snapshot.StateRevision < _lastStateRevision ||
                 !MatchesCurrentDeviceLocked(snapshot))
             {
                 throw new InvalidOperationException(
@@ -413,6 +418,10 @@ public sealed partial class RealRapooService : IRapooService
         {
             return false;
         }
+        if (snapshot.Generation > 0 && state.Generation > 0)
+        {
+            return snapshot.Generation == state.Generation;
+        }
 
         var productId = snapshot.Model?.ProductId ?? 0;
         return productId > 0
@@ -425,7 +434,8 @@ public sealed partial class RealRapooService : IRapooService
         previous.DemoMode != current.DemoMode ||
         previous.Connection != current.Connection ||
         previous.ProductId != current.ProductId ||
-        previous.DeviceName != current.DeviceName;
+        previous.DeviceName != current.DeviceName ||
+        previous.Generation != current.Generation;
 
     private static BridgeState CreateState(BridgeSnapshot snapshot) =>
         new()
@@ -433,6 +443,7 @@ public sealed partial class RealRapooService : IRapooService
             Connected = true,
             Connection = snapshot.Model?.Connection,
             DemoMode = snapshot.DemoMode,
+            Generation = snapshot.Generation,
             DeviceName = snapshot.Model?.Name,
             MaxRateHz = snapshot.Model?.MaxRateHz ?? 4000,
             HasBattery = snapshot.Battery is not null,

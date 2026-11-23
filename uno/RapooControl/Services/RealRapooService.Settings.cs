@@ -10,7 +10,10 @@ public sealed partial class RealRapooService
             {
                 return _snapshotEpoch == _deviceEpoch &&
                        _snapshotSessionId == _activeSessionId &&
-                       _client.IsSessionCurrent(_activeSessionId)
+                       _client.IsSessionCurrent(_activeSessionId) &&
+                       (_lastSnapshot is not { Generation: > 0 } snapshot ||
+                        _lastState is not { Generation: > 0 } state ||
+                        snapshot.Generation == state.Generation)
                     ? _lastSnapshot
                     : null;
             }
