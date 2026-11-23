@@ -326,6 +326,11 @@ public sealed partial class RealRapooService : IRapooService
     private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         EnsureEpochLocked(epoch);
+        if (_lastState is { Connected: false })
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。"));
+        }
         if (snapshot.Generation > 0 &&
             _lastState is { Generation: > 0 } currentState &&
             snapshot.Generation != currentState.Generation)
@@ -482,9 +487,10 @@ public sealed partial class RealRapooService : IRapooService
         if (previous.Generation > 0 && current.Generation > 0)
         {
             // A demo switch can change the display name/product id while
-            // keeping the same generation. Only a new generation is a device
-            // replacement; do not clear firmware/cached snapshots for labels.
-            return previous.Generation != current.Generation;
+            // keeping the same generation. Do not clear firmware for labels,
+            // but a disconnect must invalidate the cached HID snapshot.
+            return previous.Generation != current.Generation ||
+                (previous.Connected && !current.Connected);
         }
 
         return previous.Connected != current.Connected ||
@@ -552,6 +558,7 @@ public sealed partial class RealRapooService : IRapooService
             Mode: state.Mode ?? "normal",
             MaxRateHz: state.MaxRateHz,
             PermissionDenied: state.PermissionDenied,
-            LastError: state.LastError);
+            LastError: state.LastError,
+            Generation: state.Generation);
     }
 }
