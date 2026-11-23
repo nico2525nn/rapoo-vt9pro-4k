@@ -383,17 +383,21 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
 func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
-	defer func() {
-		s.mu.RLock()
-		snap.StateRevision = s.state.Revision
-		s.mu.RUnlock()
-	}()
 	s.mu.RLock()
 	c := s.client
 	demo := s.demoMode
 	mode := s.state.Mode
 	cached := s.cachedSnap
+	readRevision := s.state.Revision
 	s.mu.RUnlock()
+
+	defer func() {
+		if snap.StateRevision == 0 {
+			// Delayed cached/error results keep the revision of the state they
+			// actually describe, not a newer state that happened during the read.
+			snap.StateRevision = readRevision
+		}
+	}()
 
 	if c == nil {
 		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
@@ -453,7 +457,16 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 		return snap, errors.New(s.friendlyError(err))
 	}
 
+	s.mu.RLock()
+	sameClient := s.client == c
+	s.mu.RUnlock()
+	if (!sameClient) {
+		return snap, errors.New("接続先が変わりました。設定を再読み込みしてください。")
+	}
 	s.updateFromSnapshot(snap)
+	s.mu.RLock()
+	snap.StateRevision = s.state.Revision
+	s.mu.RUnlock()
 	return snap, nil
 }
 
