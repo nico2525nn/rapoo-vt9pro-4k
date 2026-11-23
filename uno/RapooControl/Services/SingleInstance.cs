@@ -24,6 +24,7 @@ public sealed class SingleInstance : IDisposable
     private CancellationTokenSource? _cts;
     private Func<bool>? _show;
     private bool _pendingShow;
+    private int _shuttingDown;
     private string _ownerToken = string.Empty;
 
     private SingleInstance()
@@ -94,6 +95,33 @@ public sealed class SingleInstance : IDisposable
             _lock?.Dispose();
             _lock = null;
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Stops accepting activation requests before the sidecar is torn down.
+    /// A duplicate then retries the lock and becomes the next owner instead of
+    /// receiving an ACK that this instance cannot honor.
+    /// </summary>
+    public void BeginShutdown()
+    {
+        if (Interlocked.Exchange(ref _shuttingDown, 1) != 0)
+        {
+            return;
+        }
+        try
+        {
+            _cts?.Cancel();
+        }
+        catch
+        {
+        }
+        try
+        {
+            _listener?.Stop();
+        }
+        catch
+        {
         }
     }
 
@@ -251,6 +279,11 @@ public sealed class SingleInstance : IDisposable
                     AutoFlush = true,
                 };
                 var line = await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+                if (Volatile.Read(ref _shuttingDown) != 0)
+                {
+                    await writer.WriteLineAsync("retry").ConfigureAwait(false);
+                    return;
+                }
                 if (string.Equals(line, "ping", StringComparison.Ordinal))
                 {
                     await writer.WriteLineAsync($"ok {Environment.ProcessId}").ConfigureAwait(false);
@@ -313,6 +346,7 @@ public sealed class SingleInstance : IDisposable
 
     public void Dispose()
     {
+        BeginShutdown();
         try
         {
             _cts?.Cancel();

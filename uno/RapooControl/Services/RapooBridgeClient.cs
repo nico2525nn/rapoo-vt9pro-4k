@@ -209,7 +209,12 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         Task stopTask;
         lock (session.Gate)
         {
-            stopTask = session.StopTask ??= StopSessionCoreAsync(session);
+            // Run the teardown outside the session gate. StopSessionCore
+            // takes the client gate; creating it while holding a gate that a
+            // concurrent Dispose also waits on can deadlock.
+            stopTask = session.StopTask ??= Task.Run(
+                () => StopSessionCoreAsync(session),
+                CancellationToken.None);
         }
         await stopTask.ConfigureAwait(false);
     }
@@ -252,6 +257,20 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 Log($"kill failed: {ex.Message}");
             }
             exited = WaitForExit(session.Process, TimeSpan.FromSeconds(3));
+        }
+        if (!exited)
+        {
+            try
+            {
+                // Last resort: a wedged bridge must not retain HID ownership
+                // while the next instance starts.
+                session.Process.Kill(entireProcessTree: true);
+            }
+            catch (Exception ex)
+            {
+                Log($"tree kill failed: {ex.Message}");
+            }
+            exited = WaitForExit(session.Process, TimeSpan.FromSeconds(2));
         }
 
         if (!exited)
@@ -374,18 +393,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private async Task DisposeCoreAsync()
     {
         var session = GetSession();
-        if (session is null)
-        {
-            return;
-        }
-
-        try
+        if (session is not null)
         {
             await StopSessionAsync(session).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            Log($"dispose stop failed: {ex.Message}");
         }
     }
 
@@ -455,14 +465,22 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
-        session.Pending[id] = completion;
-
         var payload = JsonSerializer.Serialize(new BridgeRequest
         {
             Id = id,
             Method = method,
             Params = parameters,
         }, JsonOptions);
+
+        lock (session.Gate)
+        {
+            if (!session.CanAcceptRequests)
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+            }
+            session.Pending[id] = completion;
+        }
 
         try
         {
@@ -549,11 +567,6 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                             : errorElement.GetRawText();
                     }
                     var hasResult = root.TryGetProperty("result", out var resultElement);
-                    if (error is null && !hasResult)
-                    {
-                        Log($"ignoring response {id} without result or error");
-                        continue;
-                    }
                     if (!session.Pending.TryRemove(id, out var completion))
                     {
                         continue;
@@ -563,9 +576,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     {
                         completion.TrySetException(new RapooBridgeException(error));
                     }
-                    else
+                    else if (hasResult)
                     {
                         completion.TrySetResult(resultElement.Clone());
+                    }
+                    else
+                    {
+                        // The Go bridge omits a nil result for void calls such
+                        // as deletePreset; the id is a valid acknowledgement.
+                        completion.TrySetResult(default);
                     }
                 }
                 catch (JsonException ex)
@@ -669,12 +688,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private void CompleteSession(BridgeSession session, Exception error, bool raiseFault)
     {
-        session.Ready.TrySetException(error);
-        foreach (var pending in session.Pending.Values)
+        lock (session.Gate)
         {
-            pending.TrySetException(error);
+            session.Ready.TrySetException(error);
+            foreach (var pending in session.Pending.Values)
+            {
+                pending.TrySetException(error);
+            }
+            session.Pending.Clear();
         }
-        session.Pending.Clear();
 
         if (raiseFault)
         {

@@ -103,6 +103,60 @@ public sealed class RapooBridgeClientTests
         }
     }
 
+
+    [Test]
+    public async Task VoidReplyWithoutResult_CompletesDeletePreset()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");
+        var script = CreateScript(
+            """
+            #!/bin/sh
+            printf '%s\n' '{"event":"ready","data":{"version":"1"}}'
+            while IFS= read -r line; do
+              printf '%s\n' '{"id":1}'
+            done
+            """);
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        await using var client = new RapooBridgeClient();
+        try
+        {
+            await client.StartAsync();
+            await client.DeletePresetAsync("x").WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            File.Delete(script);
+        }
+    }
+
+    [Test]
+    public async Task ConcurrentStopAndDispose_DoNotDeadlock()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");
+        var script = CreateScript(
+            """
+            #!/bin/sh
+            printf '%s\n' '{"event":"ready","data":{"version":"1"}}'
+            while true; do sleep 1; done
+            """);
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        var client = new RapooBridgeClient();
+        try
+        {
+            await client.StartAsync();
+            var stop = client.StopAsync();
+            var dispose = client.DisposeAsync().AsTask();
+            await Task.WhenAll(stop, dispose).WaitAsync(TimeSpan.FromSeconds(9));
+        }
+        finally
+        {
+            await client.DisposeAsync();
+            File.Delete(script);
+        }
+    }
+
     private static string CreateScript(string contents)
     {
         var path = Path.Combine(Path.GetTempPath(), $"rapoo-bridge-test-{Guid.NewGuid():N}.sh");

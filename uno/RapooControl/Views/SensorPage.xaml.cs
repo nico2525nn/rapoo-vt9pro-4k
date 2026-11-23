@@ -61,10 +61,12 @@ public sealed partial class SensorPage : Page, IConfigPageActions
         await Feedback.RunAsync(async () =>
         {
             await ViewModel.InitializeAsync();
+            var revision = ViewModel.DeviceRevision;
             if (service.CachedSnapshot is { Sensor: not null } snapshot)
             {
                 await LoadDebounceStepsAsync(service);
-                LoadSnapshot(snapshot, ViewModel.DeviceRevision);
+                EnsureRevision(revision);
+                LoadSnapshot(snapshot, revision);
             }
             else if (ViewModel.CanConfigureDevice)
             {

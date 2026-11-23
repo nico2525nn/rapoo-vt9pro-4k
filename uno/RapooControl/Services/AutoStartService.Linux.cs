@@ -11,7 +11,14 @@ public static partial class AutoStartService
             return IsEntryEnabled(userEntry);
         }
 
-        return SystemAutoStartPaths().Any(IsEntryEnabled);
+        foreach (var systemEntry in SystemAutoStartPaths())
+        {
+            if (File.Exists(systemEntry))
+            {
+                return IsEntryEnabled(systemEntry);
+            }
+        }
+        return false;
     }
 
     private static partial bool IsStartHiddenCore() => false;
@@ -21,35 +28,34 @@ public static partial class AutoStartService
         try
         {
             var path = LinuxAutoStartPath();
+            var executable = Environment.ProcessPath;
             if (!enabled)
             {
+                if (SystemAutoStartPaths().Any(File.Exists))
+                {
+                    // A hidden user override shadows the system entry; deleting
+                    // the override would silently re-enable the system one.
+                    if (string.IsNullOrWhiteSpace(executable))
+                    {
+                        return false;
+                    }
+                    WriteUserEntry(path, executable, hidden: true);
+                    return !IsEntryEnabled(path);
+                }
+
                 if (File.Exists(path))
                 {
                     File.Delete(path);
                 }
-                // A system-wide entry may still be effective; report the real state.
                 return !IsEnabledCore();
             }
 
-            var executable = Environment.ProcessPath;
             if (string.IsNullOrWhiteSpace(executable))
             {
                 return false;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            var contents =
-                "[Desktop Entry]\n" +
-                "Type=Application\n" +
-                "Name=Rapoo Control\n" +
-                $"Exec={QuoteDesktopExec(executable)} --app=uno\n" +
-                "Terminal=false\n" +
-                "Hidden=false\n" +
-                "X-GNOME-Autostart-enabled=true\n";
-
-            var temporary = path + ".tmp";
-            File.WriteAllText(temporary, contents);
-            File.Move(temporary, path, overwrite: true);
+            WriteUserEntry(path, executable, hidden: false);
             return IsEntryEnabled(path);
         }
         catch
@@ -60,6 +66,23 @@ public static partial class AutoStartService
 
     private static partial void MigrateLegacyCore()
     {
+    }
+
+    private static void WriteUserEntry(string path, string executable, bool hidden)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var contents =
+            "[Desktop Entry]\n" +
+            "Type=Application\n" +
+            "Name=Rapoo Control\n" +
+            $"Exec={QuoteDesktopExec(executable)} --app=uno\n" +
+            "Terminal=false\n" +
+            $"Hidden={(hidden ? "true" : "false")}\n" +
+            $"X-GNOME-Autostart-enabled={(hidden ? "false" : "true")}\n";
+
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, contents);
+        File.Move(temporary, path, overwrite: true);
     }
 
     /// <summary>

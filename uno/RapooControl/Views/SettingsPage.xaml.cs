@@ -76,15 +76,10 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             _ = LoadUdevAsync(service);
         }
-        var revision = ViewModel.DeviceRevision;
         await Feedback.RunAsync(async () =>
         {
             await ViewModel.InitializeAsync();
-            if (revision != ViewModel.DeviceRevision)
-            {
-                ClearFirmware();
-                return;
-            }
+            var revision = ViewModel.DeviceRevision;
             if (service.CachedSnapshot is { } snapshot)
             {
                 LoadFirmware(snapshot, revision);

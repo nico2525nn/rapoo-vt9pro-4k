@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace RapooControl.Services;
 
 /// <summary>
@@ -45,6 +47,43 @@ public static partial class AutoStartService
             .Replace("\n", "\\n", StringComparison.Ordinal)
             .Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\t", "\\t", StringComparison.Ordinal);
+    }
+
+    private static readonly Regex LegacyExecutablePattern = new(
+        @"^(?:rapoo[-_ ]?control|rapoovt9tray|rapoo-vt9pro-4k|vt9tray)[-_a-z0-9.]*\.exe$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static readonly Regex LegacyAppFlag = new(
+        @"(?:^|\s)--app=(?:winui|wails|uno)(?=\s|$)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// True only for executable names in the Rapoo app family. The standalone
+    /// tray writes its path without an --app marker, so the name match is
+    /// sufficient; an app marker is accepted only for the same family.
+    /// </summary>
+    internal static bool IsLegacyRapooCommand(string command)
+    {
+        var match = Regex.Match(command, "^\\s*\"([^\"]+)\"");
+        if (!match.Success)
+        {
+            match = Regex.Match(command, "^\\s*(\\S+)");
+        }
+        if (!match.Success)
+        {
+            return false;
+        }
+
+        var path = match.Groups[1].Value;
+        var separator = Math.Max(path.LastIndexOf('\\'), path.LastIndexOf('/'));
+        var fileName = separator >= 0 ? path[(separator + 1)..] : path;
+        if (!LegacyExecutablePattern.IsMatch(fileName))
+        {
+            return false;
+        }
+
+        return !command.Contains("--app=", StringComparison.OrdinalIgnoreCase) ||
+            LegacyAppFlag.IsMatch(command);
     }
 
     private static partial bool IsEnabledCore();

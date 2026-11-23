@@ -16,6 +16,19 @@ public sealed class PlatformAndMappingTests
             """));
     }
 
+    [TestCase(@"C:\Apps\vt9tray.exe", true)]
+    [TestCase(@"C:\Apps\vt9tray-v1.3.0-windows-amd64.exe", true)]
+    [TestCase(@"C:\Apps\RapooControl.exe", true)]
+    [TestCase(@"C:\Apps\RapooControl.exe --app=winui", true)]
+    [TestCase(@"C:\Apps\rapoo-control-winui-v1.3.0-windows-amd64.exe --app=winui --hidden", true)]
+    [TestCase(@"C:\Apps\rapoo-vt9pro-4k.exe --app=wails", true)]
+    [TestCase(@"C:\Apps\notepad.exe", false)]
+    [TestCase(@"C:\Apps\RapooControl.exe --app=other", false)]
+    public void IsLegacyRapooCommand_MatchesOnlyTheAppFamily(string command, bool expected)
+    {
+        Assert.That(AutoStartService.IsLegacyRapooCommand(command), Is.EqualTo(expected));
+    }
+
     [Test]
     public void QuoteDesktopExec_IsAcceptedByDesktopFileValidate()
     {

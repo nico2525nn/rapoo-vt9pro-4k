@@ -18,6 +18,7 @@ public partial class App : Application
     public Window? MainWindow { get; private set; }
 
     private readonly bool _startHidden;
+    private bool _closing;
 
     public App()
     {
@@ -57,6 +58,11 @@ public partial class App : Application
         var page = new MainPage();
         MainWindow.Content = page;
         MainWindow.Activated += OnFirstWindowActivation;
+        MainWindow.Closed += (_, _) =>
+        {
+            _closing = true;
+            SingleInstance.Current.BeginShutdown();
+        };
 #if WINDOWS
         MainWindow.ExtendsContentIntoTitleBar = true;
         MainWindow.SetTitleBar(page.TitleBarDragRegion);
@@ -64,7 +70,9 @@ public partial class App : Application
         ViewModel.AttachDispatcher(action =>
             MainWindow.DispatcherQueue.TryEnqueue(() => action()));
         SingleInstance.Current.SetShowHandler(
-            () => MainWindow is { } window && window.DispatcherQueue.TryEnqueue(ShowWindow));
+            () => !_closing &&
+                  MainWindow is { } window &&
+                  window.DispatcherQueue.TryEnqueue(ShowWindow));
         DesktopIntegration.Current.Initialize(MainWindow, ViewModel);
         if (_startHidden && DesktopIntegration.Current.IsTrayReady)
         {
@@ -139,29 +147,41 @@ public partial class App : Application
 
     private void Shutdown()
     {
-        // Release the single-instance lock only after the sidecar has stopped,
-        // so a successor never starts a second HID owner.
-        StopService();
+        // Stop accepting launches before the sidecar is torn down, then
+        // release the instance lock only after the sidecar has stopped.
+        SingleInstance.Current.BeginShutdown();
+        var stopped = StopService();
         DesktopIntegration.Current.Shutdown();
-        SingleInstance.Current.Dispose();
+        if (stopped)
+        {
+            SingleInstance.Current.Dispose();
+        }
+        else
+        {
+            // Keep the ownership lock until the process exits; the forced stop
+            // in the bridge client should make this path extremely rare.
+            System.Diagnostics.Debug.WriteLine(
+                "service did not stop; retaining the instance lock until process exit");
+        }
     }
 
-    private static void StopService()
+    private static bool StopService()
     {
         if (Current is not App app)
         {
-            return;
+            return true;
         }
 
         try
         {
             app.RapooService.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            return true;
         }
         catch (Exception ex)
         {
-            // Shutdown is best effort; never delay process exit, but keep a
-            // diagnostic trail if the sidecar could not be stopped.
+            // Never delay process exit; keep a diagnostic trail.
             System.Diagnostics.Debug.WriteLine($"service shutdown failed: {ex}");
+            return false;
         }
     }
 

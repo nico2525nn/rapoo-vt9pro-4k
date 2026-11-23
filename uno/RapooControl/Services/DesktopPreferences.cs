@@ -124,6 +124,7 @@ public sealed class DesktopPreferences
         {
             AutoStart = AutoStartService.IsEnabled();
             StartHidden = AutoStart ? AutoStartService.IsStartHidden() : previousHidden;
+            Changed?.Invoke(this, EventArgs.Empty);
             return false;
         }
 
@@ -143,6 +144,7 @@ public sealed class DesktopPreferences
         // the OS still starts the app.
         AutoStart = AutoStartService.IsEnabled();
         StartHidden = AutoStart ? AutoStartService.IsStartHidden() : previousHidden;
+        Changed?.Invoke(this, EventArgs.Empty);
         return false;
     }
 
@@ -157,6 +159,7 @@ public sealed class DesktopPreferences
         if (AutoStart && !AutoStartService.SetEnabled(true, enabled))
         {
             StartHidden = AutoStartService.IsStartHidden();
+            Changed?.Invoke(this, EventArgs.Empty);
             return false;
         }
 
@@ -168,6 +171,7 @@ public sealed class DesktopPreferences
         }
 
         StartHidden = AutoStart ? AutoStartService.IsStartHidden() : previous;
+        Changed?.Invoke(this, EventArgs.Empty);
         return false;
     }
 

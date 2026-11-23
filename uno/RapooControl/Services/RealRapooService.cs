@@ -18,10 +18,11 @@ public sealed partial class RealRapooService : IRapooService
     private BridgeSnapshot? _lastSnapshot;
     private int _deviceEpoch;
     private int _snapshotEpoch;
+    private int _stateEventSequence;
 
     public RealRapooService()
     {
-        _client.StateChanged += (_, state) => PublishState(state);
+        _client.StateChanged += (_, state) => PublishState(state, fromEvent: true);
         _client.Faulted += (_, message) => PublishFault(message);
     }
 
@@ -35,8 +36,10 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
+        var sequence = CurrentStateEventSequence;
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
-        PublishState(await _client.GetStateAsync(cancellationToken).ConfigureAwait(false));
+        var initial = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        PublishStateIfUnchanged(initial, sequence);
         var epoch = CurrentEpoch;
 
         try
@@ -59,8 +62,9 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
+        var sequence = CurrentStateEventSequence;
         var state = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        return PublishState(state);
+        return PublishStateIfUnchanged(state, sequence);
     }
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
@@ -141,8 +145,9 @@ public sealed partial class RealRapooService : IRapooService
         string mode,
         CancellationToken cancellationToken = default)
     {
+        var sequence = CurrentStateEventSequence;
         var state = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
-        return PublishState(state);
+        return PublishStateIfUnchanged(state, sequence);
     }
 
     public async ValueTask DisposeAsync() =>
@@ -179,23 +184,46 @@ public sealed partial class RealRapooService : IRapooService
         throw last ?? new RapooBridgeException("デバイス設定を読み取れませんでした。");
     }
 
-    private DeviceStatus PublishState(BridgeState state)
+    private DeviceStatus PublishState(BridgeState state, bool fromEvent = false)
     {
         DeviceStatus status;
         lock (_stateGate)
         {
-            if (_lastState is { } previous && DeviceChanged(previous, state))
-            {
-                _deviceEpoch++;
-                _lastSnapshot = null;
-                _snapshotEpoch = 0;
-            }
-            _lastState = state;
-            status = MapStatus(state, _lastSnapshot);
+            status = ApplyStateLocked(state, fromEvent);
         }
 
         StatusChanged?.Invoke(this, status);
         return status;
+    }
+
+    private DeviceStatus PublishStateIfUnchanged(BridgeState state, int sequence)
+    {
+        DeviceStatus status;
+        lock (_stateGate)
+        {
+            status = sequence != _stateEventSequence && _lastState is not null
+                ? MapStatus(_lastState, _lastSnapshot)
+                : ApplyStateLocked(state, fromEvent: false);
+        }
+
+        StatusChanged?.Invoke(this, status);
+        return status;
+    }
+
+    private DeviceStatus ApplyStateLocked(BridgeState state, bool fromEvent)
+    {
+        if (fromEvent)
+        {
+            _stateEventSequence++;
+        }
+        if (_lastState is { } previous && DeviceChanged(previous, state))
+        {
+            _deviceEpoch++;
+            _lastSnapshot = null;
+            _snapshotEpoch = 0;
+        }
+        _lastState = state;
+        return MapStatus(state, _lastSnapshot);
     }
 
     private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot, int epoch)
@@ -220,6 +248,7 @@ public sealed partial class RealRapooService : IRapooService
         DeviceStatus status;
         lock (_stateGate)
         {
+            _stateEventSequence++;
             _deviceEpoch++;
             _lastSnapshot = null;
             _snapshotEpoch = 0;
@@ -243,6 +272,17 @@ public sealed partial class RealRapooService : IRapooService
             lock (_stateGate)
             {
                 return _deviceEpoch;
+            }
+        }
+    }
+
+    private int CurrentStateEventSequence
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _stateEventSequence;
             }
         }
     }

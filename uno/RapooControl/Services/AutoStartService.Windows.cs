@@ -1,5 +1,4 @@
 #if WINDOWS
-using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace RapooControl.Services;
@@ -16,15 +15,6 @@ public static partial class AutoStartService
         "RapooControl",
         "RapooVT9Tray",
     ];
-
-    private static readonly HashSet<string> LegacyExecutables = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "RapooControl.exe",
-        "RapooControlUno.exe",
-        "RapooVT9Tray.exe",
-        "rapoo-vt9pro-4k.exe",
-        "rapoo-control.exe",
-    };
 
     private static partial bool IsEnabledCore()
     {
@@ -86,7 +76,7 @@ public static partial class AutoStartService
             foreach (var name in LegacyRunValueNames)
             {
                 var command = ReadRunValue(name);
-                if (command is not null && CommandBelongsToRapoo(command))
+                if (command is not null && IsLegacyRapooCommand(command))
                 {
                     legacy.Add((name, command));
                 }
@@ -136,32 +126,6 @@ public static partial class AutoStartService
         }
     }
 
-    private static bool CommandBelongsToRapoo(string command)
-    {
-        // Only touch entries that run a Rapoo Control executable or carry one
-        // of the old app markers. Never delete an unrelated Run value.
-        if (!command.Contains("rapoo", StringComparison.OrdinalIgnoreCase) &&
-            !command.Contains("--app=winui", StringComparison.OrdinalIgnoreCase) &&
-            !command.Contains("--app=wails", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
 
-        var match = Regex.Match(command, "^\\s*\"([^\"]+)\"");
-        if (!match.Success)
-        {
-            match = Regex.Match(command, "^\\s*(\\S+)");
-        }
-        if (!match.Success)
-        {
-            return false;
-        }
-
-        var fileName = Path.GetFileName(match.Groups[1].Value);
-        return LegacyExecutables.Contains(fileName) ||
-            command.Contains("--app=wails", StringComparison.OrdinalIgnoreCase) ||
-            command.Contains("--app=winui", StringComparison.OrdinalIgnoreCase) ||
-            command.Contains("--app=uno", StringComparison.OrdinalIgnoreCase);
-    }
 }
 #endif
