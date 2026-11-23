@@ -31,7 +31,8 @@ public partial class App : Application
 
     private readonly Mutex _instanceMutex;
     private readonly EventWaitHandle _showEvent;
-    private int _showRequested;
+    private readonly object _showGate = new();
+    private bool _showRequested;
 
     public static App Instance => (App)Current;
 
@@ -73,14 +74,17 @@ public partial class App : Application
             _showEvent,
             (_, _) =>
             {
-                _showEvent.Reset();
-                if (MainWindow is RapooControl.MainWindow window)
+                lock (_showGate)
                 {
-                    window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
-                }
-                else
-                {
-                    Interlocked.Exchange(ref _showRequested, 1);
+                    _showEvent.Reset();
+                    if (MainWindow is RapooControl.MainWindow window)
+                    {
+                        window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
+                    }
+                    else
+                    {
+                        _showRequested = true;
+                    }
                 }
             },
             null,
@@ -105,25 +109,31 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        MainWindow = new MainWindow();
-        if (MainWindow is RapooControl.MainWindow mainWindow &&
-            Interlocked.Exchange(ref _showRequested, 0) == 1)
+        var window = new MainWindow();
+        bool showRequested;
+        lock (_showGate)
         {
-            mainWindow.DispatcherQueue.TryEnqueue(mainWindow.ShowFromTray);
+            MainWindow = window;
+            showRequested = _showRequested;
+            _showRequested = false;
         }
-        if (Environment.GetEnvironmentVariable("RAPOO_HEADLESS_TEST") == "1" && MainWindow is not null)
+        if (showRequested)
         {
-            MainWindow.AppWindow.Move(new PointInt32(-2000, -2000));
-            ShowWindow(WindowNative.GetWindowHandle(MainWindow), SwShowNoActivate);
+            window.DispatcherQueue.TryEnqueue(window.ShowFromTray);
         }
-        else if (StartsHidden() && MainWindow is RapooControl.MainWindow { IsTrayReady: true } hiddenWindow)
+        if (Environment.GetEnvironmentVariable("RAPOO_HEADLESS_TEST") == "1")
         {
-            hiddenWindow.AppWindow.Hide();
-            ShowWindow(WindowNative.GetWindowHandle(hiddenWindow), SwHide);
+            window.AppWindow.Move(new PointInt32(-2000, -2000));
+            ShowWindow(WindowNative.GetWindowHandle(window), SwShowNoActivate);
+        }
+        else if (StartsHidden() && window.IsTrayReady)
+        {
+            window.AppWindow.Hide();
+            ShowWindow(WindowNative.GetWindowHandle(window), SwHide);
         }
         else
         {
-            MainWindow?.Activate();
+            window.Activate();
         }
         InitializeService();
     }

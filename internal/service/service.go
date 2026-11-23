@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nico/rapoo-vt9pro-4k/internal/profile"
+	"github.com/nico/rapoo-vt9pro-4k/internal/updaterguard"
 	"github.com/nico/rapoo-vt9pro-4k/pkg/hid"
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
@@ -262,7 +263,7 @@ func (s *MouseService) NotifyDeviceChange() {
 // SetDemoMode toggles between real USB/4K hardware and the built-in VT9 Pro 4K simulator.
 func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 	s.mu.Lock()
-	if s.updaterActive {
+	if s.updaterActive || updaterguard.Held() {
 		s.mu.Unlock()
 		return rapoo.DeviceSnapshot{}, errors.New("ファームウェア更新中はデモモードを切り替えられません")
 	}
@@ -294,7 +295,7 @@ func (s *MouseService) SetPollingMode(mode PollingMode) {
 	defer s.connectMu.Unlock()
 
 	s.mu.Lock()
-	if s.updaterActive && mode != ModePassiveOnly {
+	if (s.updaterActive || updaterguard.Held()) && mode != ModePassiveOnly {
 		s.mu.Unlock()
 		return
 	}
@@ -777,6 +778,10 @@ func (s *MouseService) ensureConnectedAndPollLocked() {
 	s.mu.RUnlock()
 
 	if !hasClient {
+		if updaterguard.Held() {
+			s.markDisconnected(errors.New("ファームウェア更新中です"))
+			return
+		}
 		opts := rapoo.ClientOptions{
 			PassiveOnly:  mode == ModePassiveOnly,
 			OnAsyncEvent: s.handleAsyncEvent,

@@ -7,6 +7,8 @@ import (
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
+
+	"github.com/nico/rapoo-vt9pro-4k/internal/updaterguard"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
@@ -28,6 +30,14 @@ func containsHiddenArg(args []string) bool {
 }
 
 func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "--updater-guard" {
+		if err := updaterguard.Run(os.Args[2]); err != nil {
+			println("updater guard:", err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
 	app := NewApp()
 	startHidden := false
 	if runtime.GOOS == "windows" {

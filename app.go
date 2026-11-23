@@ -298,6 +298,11 @@ func (a *App) startup(ctx context.Context) {
 					defer a.prefsMu.RUnlock()
 					return a.prefs.StartHidden
 				},
+				AutoStartAppArg: "wails",
+				OnAutoStartToggled: func(enabled bool) error {
+					_, err := a.SetAutoStart(enabled)
+					return err
+				},
 			}); err != nil {
 				a.trayReady.Store(false)
 				log.Printf("rapoo: tray unavailable: %v", err)
@@ -566,8 +571,14 @@ func (a *App) launchOfficialUpdater(path string) (string, error) {
 	}
 	a.svc.SetPollingMode(service.ModePassiveOnly)
 
-	cmd := exec.Command(path)
-	cmd.Dir = filepath.Dir(path)
+	self, selfErr := os.Executable()
+	if selfErr != nil {
+		a.svc.EndUpdater()
+		a.svc.SetPollingMode(previousMode)
+		return "", selfErr
+	}
+	cmd := exec.Command(self, "--updater-guard", path)
+	cmd.Dir = filepath.Dir(self)
 	if err := cmd.Start(); err != nil {
 		a.svc.EndUpdater()
 		a.svc.SetPollingMode(previousMode)

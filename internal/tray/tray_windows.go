@@ -542,11 +542,18 @@ func (a *trayApp) showPopupMenu() {
 		a.svc.SetPollingMode(service.ModePassiveOnly)
 	case cmdAutoStart:
 		enabled := !IsAutoStartEnabled(a.opts.RegistryValueName)
-		args := []string(nil)
-		if enabled && a.opts.StartHiddenFn != nil && a.opts.StartHiddenFn() {
-			args = append(args, "--hidden")
+		if a.opts.OnAutoStartToggled != nil {
+			_ = a.opts.OnAutoStartToggled(enabled)
+		} else {
+			args := []string(nil)
+			if a.opts.AutoStartAppArg != "" {
+				args = append(args, "--app="+a.opts.AutoStartAppArg)
+			}
+			if enabled && a.opts.StartHiddenFn != nil && a.opts.StartHiddenFn() {
+				args = append(args, "--hidden")
+			}
+			_ = SetAutoStartEnabledWithArgs(a.opts.RegistryValueName, enabled, args...)
 		}
-		_ = SetAutoStartEnabledWithArgs(a.opts.RegistryValueName, enabled, args...)
 	case cmdQuit:
 		a.userQuit = true
 		procPostMessageW.Call(uintptr(a.hwnd), wmClose, 0, 0)

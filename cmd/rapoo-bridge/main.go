@@ -20,6 +20,7 @@ import (
 	"syscall"
 
 	"github.com/nico/rapoo-vt9pro-4k/internal/service"
+	"github.com/nico/rapoo-vt9pro-4k/internal/updaterguard"
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
@@ -59,6 +60,14 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("rapoo-bridge: ")
 	log.SetOutput(os.Stderr)
+
+	if len(os.Args) >= 3 && os.Args[1] == "--updater-guard" {
+		if err := updaterguard.Run(os.Args[2]); err != nil {
+			log.Printf("updater guard: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	b, err := newBridge(os.Stdout)
 	if err != nil {
@@ -373,8 +382,14 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		}
 		previous := b.svc.GetState().Mode
 		b.svc.SetPollingMode(service.ModePassiveOnly)
-		cmd := exec.Command(path)
-		cmd.Dir = filepath.Dir(path)
+		self, selfErr := os.Executable()
+		if selfErr != nil {
+			b.svc.EndUpdater()
+			b.svc.SetPollingMode(previous)
+			return "", selfErr
+		}
+		cmd := exec.Command(self, "--updater-guard", path)
+		cmd.Dir = filepath.Dir(self)
 		if err := cmd.Start(); err != nil {
 			b.svc.EndUpdater()
 			b.svc.SetPollingMode(previous)

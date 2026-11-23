@@ -27,9 +27,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _cts;
 
+    private readonly object _startGate = new();
     private Process? _process;
     private Task? _readTask;
     private Task? _stderrTask;
+    private Task? _startTask;
     private int _nextId;
     private volatile bool _started;
 
@@ -39,12 +41,25 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public bool IsRunning => _started && _process is { HasExited: false };
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_process is { HasExited: false })
+        lock (_startGate)
         {
-            return;
+            if (_startTask is { IsCompleted: false })
+            {
+                return _startTask;
+            }
+            if (_process is { HasExited: false } && _ready.Task.IsCompletedSuccessfully)
+            {
+                return Task.CompletedTask;
+            }
+            _startTask = StartCoreAsync(cancellationToken);
+            return _startTask;
         }
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
+    {
         if (_process is not null)
         {
             _process.Dispose();
@@ -75,9 +90,17 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
         process.Exited += (_, _) => OnProcessExited(process);
-        _process = process;
         var cts = _cts;
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch
+        {
+            process.Dispose();
+            throw;
+        }
+        _process = process;
         _started = true;
         _readTask = Task.Run(() => ReadLoopAsync(process, cts.Token));
         _stderrTask = Task.Run(() => ReadStderrAsync(process, cts.Token));
@@ -277,6 +300,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
         var token = timeout.Token;
+
+        if (!_ready.Task.IsCompletedSuccessfully)
+        {
+            await _ready.Task.WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+        }
 
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
