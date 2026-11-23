@@ -131,6 +131,42 @@ public sealed class RapooBridgeClientTests
     }
 
     [Test]
+    public async Task ConcurrentStartAndDispose_DoesNotLeaveABridgeRunning()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");
+        var script = CreateScript(
+            """
+            #!/bin/sh
+            sleep 0.4
+            printf '%s\n' '{"event":"ready","data":{"version":"1"}}'
+            while true; do sleep 1; done
+            """);
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        var client = new RapooBridgeClient();
+        try
+        {
+            var start = client.StartAsync();
+            await Task.Delay(50);
+            var dispose = client.DisposeAsync().AsTask();
+            try
+            {
+                await Task.WhenAll(start, dispose).WaitAsync(TimeSpan.FromSeconds(9));
+            }
+            catch (Exception ex) when (ex is ObjectDisposedException or OperationCanceledException)
+            {
+                // Disposal won the race; that is the expected outcome.
+            }
+            Assert.That(client.IsRunning, Is.False);
+        }
+        finally
+        {
+            await client.DisposeAsync();
+            File.Delete(script);
+        }
+    }
+
+    [Test]
     public async Task ConcurrentStopAndDispose_DoNotDeadlock()
     {
         Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");

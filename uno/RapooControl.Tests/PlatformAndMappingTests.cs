@@ -24,9 +24,20 @@ public sealed class PlatformAndMappingTests
     [TestCase(@"C:\Apps\rapoo-vt9pro-4k.exe --app=wails", true)]
     [TestCase(@"C:\Apps\notepad.exe", false)]
     [TestCase(@"C:\Apps\RapooControl.exe --app=other", false)]
+    [TestCase(@"""C:\Apps\RapooControl.exe"" --app=winui", true)]
+    [TestCase(@"""C:\Apps\--app=winui\RapooControl.exe"" --app=other", false)]
     public void IsLegacyRapooCommand_MatchesOnlyTheAppFamily(string command, bool expected)
     {
         Assert.That(AutoStartService.IsLegacyRapooCommand(command), Is.EqualTo(expected));
+    }
+
+    [TestCase(@"""C:\Apps\RapooControl.exe"" --hidden", true)]
+    [TestCase(@"""C:\Apps\RapooControl.exe"" --tray", true)]
+    [TestCase(@"""C:\Apps\--hidden\RapooControl.exe""", false)]
+    [TestCase(@"""C:\Apps\RapooControl.exe"" --hiddenx", false)]
+    public void HasHiddenFlag_MatchesOnlyWholeArguments(string command, bool expected)
+    {
+        Assert.That(AutoStartService.HasHiddenFlag(command), Is.EqualTo(expected));
     }
 
     [Test]

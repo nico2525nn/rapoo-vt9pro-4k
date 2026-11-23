@@ -83,6 +83,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 await StopSessionAsync(previous).ConfigureAwait(false);
             }
 
+            ThrowIfDisposed();
             await StartSessionAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -93,6 +94,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task StartSessionAsync(CancellationToken cancellationToken)
     {
+        ThrowIfDisposed();
         var sidecar = FindSidecar(out var isOverride);
         if (sidecar is null)
         {
@@ -141,15 +143,24 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             _session = session;
         }
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            await StopAfterStartFailureAsync(session).ConfigureAwait(false);
+            throw new ObjectDisposedException(nameof(RapooBridgeClient));
+        }
 
         _ = Task.Run(() => ReadLoopAsync(session), CancellationToken.None);
         _ = Task.Run(() => ReadStderrAsync(session), CancellationToken.None);
 
         try
         {
+            using var readyCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                session.Cts.Token);
             await session.Ready.Task
-                .WaitAsync(ReadyTimeout, cancellationToken)
+                .WaitAsync(ReadyTimeout, readyCts.Token)
                 .ConfigureAwait(false);
+            ThrowIfDisposed();
         }
         catch (TimeoutException)
         {
@@ -260,21 +271,6 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         if (!exited)
         {
-            try
-            {
-                // Last resort: a wedged bridge must not retain HID ownership
-                // while the next instance starts.
-                session.Process.Kill(entireProcessTree: true);
-            }
-            catch (Exception ex)
-            {
-                Log($"tree kill failed: {ex.Message}");
-            }
-            exited = WaitForExit(session.Process, TimeSpan.FromSeconds(2));
-        }
-
-        if (!exited)
-        {
             lock (session.Gate)
             {
                 session.StopTask = null;
@@ -383,7 +379,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             if (_disposeTask is null)
             {
                 Volatile.Write(ref _disposed, 1);
-                _disposeTask = DisposeCoreAsync();
+                // DisposeCore acquires _lifecycle and may need _gate to clear
+                // the session. Starting it under _gate would deadlock with a
+                // start that is already waiting for the lifecycle semaphore.
+                _disposeTask = Task.Run(DisposeCoreAsync, CancellationToken.None);
             }
             disposeTask = _disposeTask;
         }
@@ -392,10 +391,21 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
-        var session = GetSession();
-        if (session is not null)
+        // Interrupt a startup that is waiting for the ready event. StartSerialized
+        // also rechecks disposal after it stops a previous session.
+        GetSession()?.Cts.Cancel();
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
         {
-            await StopSessionAsync(session).ConfigureAwait(false);
+            var session = GetSession();
+            if (session is not null)
+            {
+                await StopSessionAsync(session).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _lifecycle.Release();
         }
     }
 
@@ -449,9 +459,20 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         if (!session.Ready.Task.IsCompletedSuccessfully)
         {
-            await session.Ready.Task
-                .WaitAsync(ReadyTimeout, token)
-                .ConfigureAwait(false);
+            using var readyCts = CancellationTokenSource.CreateLinkedTokenSource(
+                token,
+                session.Cts.Token);
+            try
+            {
+                await session.Ready.Task
+                    .WaitAsync(ReadyTimeout, readyCts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+            }
         }
 
         lock (_gate)

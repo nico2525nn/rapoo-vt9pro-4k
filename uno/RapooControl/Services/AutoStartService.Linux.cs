@@ -35,7 +35,8 @@ public static partial class AutoStartService
                 {
                     // A hidden user override shadows the system entry; deleting
                     // the override would silently re-enable the system one.
-                    if (string.IsNullOrWhiteSpace(executable))
+                    if (string.IsNullOrWhiteSpace(executable) ||
+                        !IsSupportedDesktopExecutable(executable))
                     {
                         return false;
                     }
@@ -50,7 +51,8 @@ public static partial class AutoStartService
                 return !IsEnabledCore();
             }
 
-            if (string.IsNullOrWhiteSpace(executable))
+            if (string.IsNullOrWhiteSpace(executable) ||
+                !IsSupportedDesktopExecutable(executable))
             {
                 return false;
             }

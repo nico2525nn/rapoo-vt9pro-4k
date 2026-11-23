@@ -64,17 +64,11 @@ public static partial class AutoStartService
     /// </summary>
     internal static bool IsLegacyRapooCommand(string command)
     {
-        var match = Regex.Match(command, "^\\s*\"([^\"]+)\"");
-        if (!match.Success)
-        {
-            match = Regex.Match(command, "^\\s*(\\S+)");
-        }
-        if (!match.Success)
+        if (!TrySplitCommandLine(command, out var path, out var arguments))
         {
             return false;
         }
 
-        var path = match.Groups[1].Value;
         var separator = Math.Max(path.LastIndexOf('\\'), path.LastIndexOf('/'));
         var fileName = separator >= 0 ? path[(separator + 1)..] : path;
         if (!LegacyExecutablePattern.IsMatch(fileName))
@@ -82,8 +76,42 @@ public static partial class AutoStartService
             return false;
         }
 
-        return !command.Contains("--app=", StringComparison.OrdinalIgnoreCase) ||
-            LegacyAppFlag.IsMatch(command);
+        return !arguments.Contains("--app=", StringComparison.OrdinalIgnoreCase) ||
+            LegacyAppFlag.IsMatch(arguments);
+    }
+
+    /// <summary>
+    /// GLib's desktop-entry parser cannot reliably launch an executable whose
+    /// path contains a literal percent field code. Refuse to write an entry
+    /// that would be reported as enabled but never start.
+    /// </summary>
+    internal static bool IsSupportedDesktopExecutable(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && !path.Contains('%');
+
+    /// <summary>True for the exact --hidden or --tray argument, never a path substring.</summary>
+    internal static bool HasHiddenFlag(string command) =>
+        TrySplitCommandLine(command, out _, out var arguments) &&
+        Regex.IsMatch(
+            arguments,
+            @"(?:^|\s)--(?:hidden|tray)(?=\s|$)",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    private static bool TrySplitCommandLine(
+        string command,
+        out string executable,
+        out string arguments)
+    {
+        var match = Regex.Match(command, "^\\s*(?:\"([^\"]+)\"|(\\S+))(.*)$");
+        if (!match.Success)
+        {
+            executable = string.Empty;
+            arguments = string.Empty;
+            return false;
+        }
+
+        executable = match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value;
+        arguments = match.Groups[3].Value;
+        return executable.Length > 0;
     }
 
     private static partial bool IsEnabledCore();

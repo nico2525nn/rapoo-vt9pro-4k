@@ -57,9 +57,17 @@ public sealed class RealRapooServiceTests
         var service = new RealRapooService();
         try
         {
+            var notifications = new List<bool>();
+            service.StatusChanged += (_, status) => notifications.Add(status.Connected);
             await service.StartAsync();
             var status = await service.GetStatusAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.That(status.Connected, Is.False);
+            Assert.Multiple(() =>
+            {
+                Assert.That(status.Connected, Is.False);
+                var firstDisconnect = notifications.IndexOf(false);
+                Assert.That(firstDisconnect, Is.GreaterThanOrEqualTo(0));
+                Assert.That(notifications.Skip(firstDisconnect).Any(connected => connected), Is.False);
+            });
         }
         finally
         {

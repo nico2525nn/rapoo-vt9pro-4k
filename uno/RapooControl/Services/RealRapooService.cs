@@ -134,10 +134,23 @@ public sealed partial class RealRapooService : IRapooService
         bool enabled,
         CancellationToken cancellationToken = default)
     {
+        var epoch = CurrentEpoch;
         var snapshot = await _client.SetDemoModeAsync(enabled, cancellationToken).ConfigureAwait(false);
-        // Demo mode intentionally changes the device identity. Publish the
-        // reply against the epoch it produced rather than the pre-request one.
-        PublishSnapshot(snapshot, CurrentEpoch);
+        try
+        {
+            PublishSnapshot(snapshot, epoch);
+        }
+        catch (InvalidOperationException)
+        {
+            // Demo mode legitimately changes the device identity. Accept the
+            // reply only when the current device is exactly the one it describes;
+            // an unrelated reconnect must still invalidate it.
+            if (!MatchesCurrentDevice(snapshot))
+            {
+                throw;
+            }
+            PublishSnapshot(snapshot, CurrentEpoch);
+        }
         return snapshot;
     }
 
@@ -186,28 +199,24 @@ public sealed partial class RealRapooService : IRapooService
 
     private DeviceStatus PublishState(BridgeState state, bool fromEvent = false)
     {
-        DeviceStatus status;
         lock (_stateGate)
         {
-            status = ApplyStateLocked(state, fromEvent);
+            var status = ApplyStateLocked(state, fromEvent);
+            StatusChanged?.Invoke(this, status);
+            return status;
         }
-
-        StatusChanged?.Invoke(this, status);
-        return status;
     }
 
     private DeviceStatus PublishStateIfUnchanged(BridgeState state, int sequence)
     {
-        DeviceStatus status;
         lock (_stateGate)
         {
-            status = sequence != _stateEventSequence && _lastState is not null
+            var status = sequence != _stateEventSequence && _lastState is not null
                 ? MapStatus(_lastState, _lastSnapshot)
                 : ApplyStateLocked(state, fromEvent: false);
+            StatusChanged?.Invoke(this, status);
+            return status;
         }
-
-        StatusChanged?.Invoke(this, status);
-        return status;
     }
 
     private DeviceStatus ApplyStateLocked(BridgeState state, bool fromEvent)
@@ -228,7 +237,6 @@ public sealed partial class RealRapooService : IRapooService
 
     private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot, int epoch)
     {
-        DeviceStatus status;
         lock (_stateGate)
         {
             EnsureEpochLocked(epoch);
@@ -236,11 +244,10 @@ public sealed partial class RealRapooService : IRapooService
             _snapshotEpoch = epoch;
             var state = _lastState ?? CreateState(snapshot);
             _lastState = state;
-            status = MapStatus(state, snapshot);
+            var status = MapStatus(state, snapshot);
+            StatusChanged?.Invoke(this, status);
+            return status;
         }
-
-        StatusChanged?.Invoke(this, status);
-        return status;
     }
 
     private void PublishFault(string message)
@@ -259,9 +266,9 @@ public sealed partial class RealRapooService : IRapooService
                 UpdatedAt = DateTimeOffset.Now,
             };
             status = MapStatus(_lastState, null);
+            StatusChanged?.Invoke(this, status);
         }
 
-        StatusChanged?.Invoke(this, status);
         Faulted?.Invoke(this, message);
     }
 
@@ -301,6 +308,17 @@ public sealed partial class RealRapooService : IRapooService
         {
             throw new InvalidOperationException(
                 LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
+    }
+
+    private bool MatchesCurrentDevice(BridgeSnapshot snapshot)
+    {
+        lock (_stateGate)
+        {
+            return _lastState is { } state &&
+                state.DemoMode == snapshot.DemoMode &&
+                state.DeviceName == snapshot.Model?.Name &&
+                state.Connection == snapshot.Model?.Connection;
         }
     }
 

@@ -32,8 +32,7 @@ public static partial class AutoStartService
     private static partial bool IsStartHiddenCore()
     {
         var command = ReadRunValue(RunValueName);
-        return command is not null &&
-            command.Contains("--hidden", StringComparison.OrdinalIgnoreCase);
+        return command is not null && HasHiddenFlag(command);
     }
 
     private static partial bool SetEnabledCore(bool enabled, bool startHidden)
@@ -89,8 +88,7 @@ public static partial class AutoStartService
 
             if (ReadRunValue(RunValueName) is null)
             {
-                var hidden = legacy.Any(item =>
-                    item.Command.Contains("--hidden", StringComparison.OrdinalIgnoreCase));
+                var hidden = legacy.Any(item => HasHiddenFlag(item.Command));
                 if (!SetEnabledCore(true, hidden))
                 {
                     return;

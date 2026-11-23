@@ -105,9 +105,13 @@ public sealed class SingleInstance : IDisposable
     /// </summary>
     public void BeginShutdown()
     {
-        if (Interlocked.Exchange(ref _shuttingDown, 1) != 0)
+        lock (_showGate)
         {
-            return;
+            if (_shuttingDown != 0)
+            {
+                return;
+            }
+            _shuttingDown = 1;
         }
         try
         {
@@ -279,14 +283,24 @@ public sealed class SingleInstance : IDisposable
                     AutoFlush = true,
                 };
                 var line = await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false);
-                if (Volatile.Read(ref _shuttingDown) != 0)
-                {
-                    await writer.WriteLineAsync("retry").ConfigureAwait(false);
-                    return;
-                }
                 if (string.Equals(line, "ping", StringComparison.Ordinal))
                 {
-                    await writer.WriteLineAsync($"ok {Environment.ProcessId}").ConfigureAwait(false);
+                    var retry = false;
+                    lock (_showGate)
+                    {
+                        if (_shuttingDown != 0)
+                        {
+                            retry = true;
+                        }
+                        else
+                        {
+                            writer.WriteLine($"ok {Environment.ProcessId}");
+                        }
+                    }
+                    if (retry)
+                    {
+                        await writer.WriteLineAsync("retry").ConfigureAwait(false);
+                    }
                     return;
                 }
                 if (!string.Equals(line, "show", StringComparison.Ordinal))
@@ -295,37 +309,42 @@ public sealed class SingleInstance : IDisposable
                     return;
                 }
 
-                Func<bool>? handler;
                 var accepted = false;
                 lock (_showGate)
                 {
-                    handler = _show;
-                    if (handler is null)
+                    if (_shuttingDown != 0)
+                    {
+                        accepted = false;
+                    }
+                    else if (_show is null)
                     {
                         _pendingShow = true;
                         accepted = true;
                     }
-                }
-
-                if (handler is not null)
-                {
-                    try
+                    else
                     {
-                        accepted = handler();
+                        try
+                        {
+                            accepted = _show();
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"single-instance activation: {ex}");
+                        }
                     }
-                    catch (Exception ex)
+
+                    if (accepted)
                     {
-                        System.Diagnostics.Debug.WriteLine($"single-instance activation: {ex}");
+                        // Hold the gate through the acknowledgement so shutdown
+                        // cannot report a successful handoff after this ACK.
+                        writer.WriteLine($"ok {Environment.ProcessId}");
                     }
                 }
 
                 if (!accepted)
                 {
                     await writer.WriteLineAsync("retry").ConfigureAwait(false);
-                    return;
                 }
-
-                await writer.WriteLineAsync($"ok {Environment.ProcessId}").ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
