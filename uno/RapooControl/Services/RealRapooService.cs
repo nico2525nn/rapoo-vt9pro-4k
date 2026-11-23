@@ -70,7 +70,6 @@ public sealed partial class RealRapooService : IRapooService
 
             var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
             PublishState(initial.SessionId, initial.State, initial.Sequence);
-            var epoch = CurrentEpoch;
 
             try
             {
@@ -79,6 +78,9 @@ public sealed partial class RealRapooService : IRapooService
                     await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
                 }
 
+                // Capture the epoch after the optional demo transition; the
+                // snapshot below belongs to that state.
+                var epoch = CurrentEpoch;
                 var snapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
                 PublishSnapshot(snapshot, epoch, sessionId);
             }
