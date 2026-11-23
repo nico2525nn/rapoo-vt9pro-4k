@@ -13,6 +13,18 @@ Windows tools and a HID protocol implementation for the Rapoo VT9 Pro 4K.
 - `vt9ctl-v1.3.0-windows-amd64.exe` / `vt9ctl-v1.3.0-linux-amd64` — CLI
 - `checksums.txt` — SHA256 checksums
 
+## Screenshots
+
+| Native WinUI 3 | Wails |
+|:---:|:---:|
+| <img src="docs/images/winui-overview.png" width="560" alt="WinUI 3 overview"> | <img src="docs/images/wails-dpi.png" width="560" alt="Wails DPI and polling"> |
+| WinUI 3 overview (Japanese) | Wails DPI / polling page (English) |
+
+| Battery icon | Notification-area menu |
+|:---:|:---:|
+| <img src="docs/images/tray-icon.png" width="280" alt="Battery percentage tray icon"> | <img src="docs/images/tray-menu.png" width="260" alt="Notification-area menu"> |
+| Transparent 7-segment icon with a level bar | Right-click modes, startup, and quit |
+
 ## Usage
 
 - `vt9tray.exe`: run it. Right-click for polling mode and exit.
