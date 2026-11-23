@@ -39,6 +39,7 @@ public sealed class BridgeSnapshot
     [JsonPropertyName("sensor")] public BridgeSensor? Sensor { get; set; }
     [JsonPropertyName("buttons")] public List<BridgeButtonMapping>? Buttons { get; set; }
     [JsonPropertyName("demoMode")] public bool DemoMode { get; set; }
+    [JsonPropertyName("stateRevision")] public long StateRevision { get; set; }
 }
 
 public sealed class BridgeModel

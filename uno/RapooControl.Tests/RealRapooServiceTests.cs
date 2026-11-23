@@ -102,6 +102,7 @@ public sealed class RealRapooServiceTests
                     "model": {"name": "Rapoo VT9 Pro 4K", "productId": 4625,
                               "connection": "wireless_4k", "maxRateHz": 4000},
                     "demoMode": demo,
+                    "stateRevision": 2,
                     "battery": {"percentage": 82, "charging": False, "online": True},
                     "sensor": {"pollingRateHz": 1000},
                     "dpi": {"currentStage": 1, "stageCount": 1,

@@ -156,7 +156,8 @@ public sealed partial class RealRapooService : IRapooService
             configuration.StageCount,
             configuration.CurrentStage,
             stages,
-            cancellationToken).ConfigureAwait(false);
+            cancellationToken,
+            sessionId).ConfigureAwait(false);
 
         return PublishSnapshot(snapshot, epoch, sessionId);
     }
@@ -167,7 +168,9 @@ public sealed partial class RealRapooService : IRapooService
     {
         var epoch = CurrentEpoch;
         var sessionId = CurrentSession();
-        var snapshot = await _client.SetPollingRateAsync(hertz, cancellationToken).ConfigureAwait(false);
+        var snapshot = await _client
+            .SetPollingRateAsync(hertz, cancellationToken, sessionId)
+            .ConfigureAwait(false);
         return PublishSnapshot(snapshot, epoch, sessionId);
     }
 
@@ -177,7 +180,9 @@ public sealed partial class RealRapooService : IRapooService
     {
         var epoch = CurrentEpoch;
         var sessionId = CurrentSession();
-        var snapshot = await _client.SetDemoModeAsync(enabled, cancellationToken).ConfigureAwait(false);
+        var snapshot = await _client
+            .SetDemoModeAsync(enabled, cancellationToken, sessionId)
+            .ConfigureAwait(false);
         try
         {
             PublishSnapshot(snapshot, epoch, sessionId);
@@ -196,7 +201,9 @@ public sealed partial class RealRapooService : IRapooService
         string mode,
         CancellationToken cancellationToken = default)
     {
-        var state = await _client.SetPollingModeWithSequenceAsync(mode, cancellationToken).ConfigureAwait(false);
+        var state = await _client
+            .SetPollingModeWithSequenceAsync(mode, cancellationToken, CurrentSession())
+            .ConfigureAwait(false);
         return PublishState(state.SessionId, state.State, state.Sequence);
     }
 
@@ -300,6 +307,11 @@ public sealed partial class RealRapooService : IRapooService
     private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         EnsureEpochLocked(epoch);
+        if (snapshot.StateRevision > 0 && snapshot.StateRevision < _lastStateRevision)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
         _lastSnapshot = snapshot;
         _snapshotEpoch = epoch;
         _snapshotSessionId = sessionId;
@@ -316,6 +328,7 @@ public sealed partial class RealRapooService : IRapooService
         {
             if (sessionId != _activeSessionId ||
                 !_client.IsSessionCurrent(sessionId) ||
+                snapshot.StateRevision == 0 ||
                 !MatchesCurrentDeviceLocked(snapshot))
             {
                 throw new InvalidOperationException(

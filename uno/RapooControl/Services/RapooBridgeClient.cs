@@ -339,8 +339,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("snapshot", null, cancellationToken);
 
-    public Task<BridgeSnapshot> SetDemoModeAsync(bool enabled, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("demo", new { enabled }, cancellationToken);
+    public Task<BridgeSnapshot> SetDemoModeAsync(
+        bool enabled,
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("demo", new { enabled }, cancellationToken, sessionId);
 
     public Task<BridgeState> SetLanguageAsync(string language, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeState>("setLanguage", new { language }, cancellationToken);
@@ -352,23 +355,28 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public async Task<BridgeStateEvent> SetPollingModeWithSequenceAsync(
         string mode,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long sessionId = 0)
     {
-        var reply = await RequestElementAsync("pollingMode", new { mode }, cancellationToken).ConfigureAwait(false);
+        var reply = await RequestElementAsync("pollingMode", new { mode }, cancellationToken, sessionId).ConfigureAwait(false);
         return new BridgeStateEvent(
             reply.SessionId,
             DeserializeReply<BridgeState>(reply, "pollingMode"),
             reply.Sequence);
     }
 
-    public Task<BridgeSnapshot> SetPollingRateAsync(int hz, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("pollingRate", new { hz }, cancellationToken);
+    public Task<BridgeSnapshot> SetPollingRateAsync(
+        int hz,
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("pollingRate", new { hz }, cancellationToken, sessionId);
 
     public Task<BridgeSnapshot> SetDpiConfigAsync(
         int stageCount,
         int currentStage,
         IReadOnlyList<BridgeDpiStage> stages,
-        CancellationToken cancellationToken = default) =>
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
         RequestAsync<BridgeSnapshot>(
             "dpiConfig",
             new
@@ -381,22 +389,31 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     stages,
                 },
             },
-            cancellationToken);
+            cancellationToken,
+            sessionId);
 
-    public Task<BridgeSnapshot> ApplySensorAsync(object patch, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("sensor", new { patch }, cancellationToken);
+    public Task<BridgeSnapshot> ApplySensorAsync(
+        object patch,
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("sensor", new { patch }, cancellationToken, sessionId);
 
     public Task<BridgeSnapshot> SetButtonAsync(
         int buttonId,
         object action,
-        CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("button", new { buttonId, action }, cancellationToken);
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("button", new { buttonId, action }, cancellationToken, sessionId);
 
-    public Task<BridgeSnapshot> ResetButtonsAsync(CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("resetButtons", null, cancellationToken);
+    public Task<BridgeSnapshot> ResetButtonsAsync(
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("resetButtons", null, cancellationToken, sessionId);
 
-    public Task<BridgeSnapshot> FactoryResetAsync(CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("factoryReset", null, cancellationToken);
+    public Task<BridgeSnapshot> FactoryResetAsync(
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("factoryReset", null, cancellationToken, sessionId);
 
     public Task<BridgeCatalog> GetCatalogAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeCatalog>("catalog", null, cancellationToken);
@@ -411,8 +428,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         CancellationToken cancellationToken = default) =>
         RequestAsync<BridgePreset>("savePreset", new { id, name, description }, cancellationToken);
 
-    public Task<BridgeSnapshot> ApplyPresetAsync(string id, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeSnapshot>("applyPreset", new { id }, cancellationToken);
+    public Task<BridgeSnapshot> ApplyPresetAsync(
+        string id,
+        CancellationToken cancellationToken = default,
+        long sessionId = 0) =>
+        RequestAsync<BridgeSnapshot>("applyPreset", new { id }, cancellationToken, sessionId);
 
     public Task DeletePresetAsync(string id, CancellationToken cancellationToken = default) =>
         RequestVoidAsync("deletePreset", new { id }, cancellationToken);
@@ -466,9 +486,13 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private async Task<T> RequestAsync<T>(string method, object? parameters, CancellationToken cancellationToken)
+    private async Task<T> RequestAsync<T>(
+        string method,
+        object? parameters,
+        CancellationToken cancellationToken,
+        long sessionId = 0)
     {
-        var reply = await RequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
+        var reply = await RequestElementAsync(method, parameters, cancellationToken, sessionId).ConfigureAwait(false);
         return DeserializeReply<T>(reply, method);
     }
 
@@ -495,20 +519,30 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private async Task RequestVoidAsync(string method, object? parameters, CancellationToken cancellationToken)
+    private async Task RequestVoidAsync(
+        string method,
+        object? parameters,
+        CancellationToken cancellationToken,
+        long sessionId = 0)
     {
-        _ = await RequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
+        _ = await RequestElementAsync(method, parameters, cancellationToken, sessionId).ConfigureAwait(false);
     }
 
     private async Task<BridgeReply> RequestElementAsync(
         string method,
         object? parameters,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        long sessionId = 0)
     {
         ThrowIfDisposed();
         var session = GetSession() ??
             throw new InvalidOperationException(
                 LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+        if (sessionId != 0 && session.Id != sessionId)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
         if (!session.CanAcceptRequests)
         {
             throw new InvalidOperationException(
@@ -539,7 +573,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         lock (_gate)
         {
-            if (!ReferenceEquals(_session, session) || !session.CanAcceptRequests)
+            if ((sessionId != 0 && session.Id != sessionId) ||
+                !ReferenceEquals(_session, session) ||
+                !session.CanAcceptRequests)
             {
                 throw new InvalidOperationException(
                     LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
@@ -588,7 +624,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             });
 
             var reply = await completion.Task.ConfigureAwait(false);
-            if (Volatile.Read(ref session.Faulted) != 0 ||
+            if ((sessionId != 0 && session.Id != sessionId) ||
+                Volatile.Read(ref session.Faulted) != 0 ||
                 Volatile.Read(ref session.Stopping) != 0 ||
                 Volatile.Read(ref session.Exited) != 0 ||
                 !ReferenceEquals(_session, session))

@@ -382,7 +382,12 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 }
 
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
-func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
+func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
+	defer func() {
+		s.mu.RLock()
+		snap.StateRevision = s.state.Revision
+		s.mu.RUnlock()
+	}()
 	s.mu.RLock()
 	c := s.client
 	demo := s.demoMode
@@ -402,7 +407,7 @@ func (s *MouseService) ReadSnapshot() (rapoo.DeviceSnapshot, error) {
 		return rapoo.DeviceSnapshot{}, errors.New("ゲーム優先 (完全受動) モード中はマウスへの読み書き通信を停止しています。設定を開くにはモードを「通常」に切り替えてください。")
 	}
 
-	snap, err := c.ReadSnapshot()
+	snap, err = c.ReadSnapshot()
 	snap.DemoMode = demo
 	if err != nil {
 		if errors.Is(err, rapoo.ErrMouseAsleep) {
