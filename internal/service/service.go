@@ -392,11 +392,9 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	s.mu.RUnlock()
 
 	defer func() {
-		if snap.StateRevision == 0 {
-			// Delayed cached/error results keep the revision of the state they
-			// actually describe, not a newer state that happened during the read.
-			snap.StateRevision = readRevision
-		}
+		// The snapshot describes the state as of the read start. Never stamp it
+		// with a revision that a later device/state transition produced.
+		snap.StateRevision = readRevision
 	}()
 
 	if c == nil {
@@ -464,9 +462,6 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 		return snap, errors.New("接続先が変わりました。設定を再読み込みしてください。")
 	}
 	s.updateFromSnapshot(snap)
-	s.mu.RLock()
-	snap.StateRevision = s.state.Revision
-	s.mu.RUnlock()
 	return snap, nil
 }
 

@@ -307,6 +307,13 @@ public sealed partial class RealRapooService : IRapooService
     private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         EnsureEpochLocked(epoch);
+        if (_lastSnapshot is { StateRevision: > 0 } cached &&
+            snapshot.StateRevision > 0 &&
+            snapshot.StateRevision < cached.StateRevision)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
         _lastSnapshot = snapshot;
         _snapshotEpoch = epoch;
         _snapshotSessionId = sessionId;
