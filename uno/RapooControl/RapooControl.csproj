@@ -1,0 +1,69 @@
+<Project Sdk="Uno.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net10.0-windows10.0.26100;net10.0-desktop;net10.0</TargetFrameworks>
+
+    <OutputType>Exe</OutputType>
+    <UnoSingleProject>true</UnoSingleProject>
+
+    <!-- Display name -->
+    <ApplicationTitle>RapooControl</ApplicationTitle>
+    <!-- App Identifier -->
+    <ApplicationId>com.companyname.rapoocontrol</ApplicationId>
+    <!-- Versions -->
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <!-- Package Publisher -->
+    <ApplicationPublisher>RapooControl</ApplicationPublisher>
+    <!-- Package Description -->
+    <Description>RapooControl powered by Uno Platform.</Description>
+    <!--
+      If you encounter this error message:
+
+        error NETSDK1148: A referenced assembly was compiled using a newer version of Microsoft.Windows.SDK.NET.dll.
+        Please update to a newer .NET SDK in order to reference this assembly.
+
+      This means that the two packages below must be aligned with the "build" version number of
+      the "Microsoft.Windows.SDK.BuildTools" package above, and the "revision" version number
+      must be the highest found in https://www.nuget.org/packages/Microsoft.Windows.SDK.NET.Ref.
+    -->
+    <!-- <WindowsSdkPackageVersion>10.0.22621.28</WindowsSdkPackageVersion> -->
+
+    <!--
+      UnoFeatures are used to quickly add and manage features enabled for your app.
+      https://aka.platform.uno/singleproject-features
+    -->
+    <UnoFeatures>
+      Hosting;
+      Mvvm;
+      Skia;
+    </UnoFeatures>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
+    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
+    <Content Include="..\..\build\bin\rapoo-bridge"
+             Condition="Exists('..\..\build\bin\rapoo-bridge')"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="rapoo-bridge" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
+    <Content Include="..\..\build\bin\rapoo-bridge.exe"
+             Condition="Exists('..\..\build\bin\rapoo-bridge.exe')"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="rapoo-bridge.exe" />
+    <PackageReference Include="H.NotifyIcon.WinUI" />
+  </ItemGroup>
+
+</Project>

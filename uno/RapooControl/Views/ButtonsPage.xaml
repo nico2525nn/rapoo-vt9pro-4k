@@ -1,0 +1,47 @@
+<Page
+    x:Class="RapooControl.Views.ButtonsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:views="using:RapooControl.Views"
+    NavigationCacheMode="Required"
+    Loaded="Page_Loaded"
+    Unloaded="Page_Unloaded">
+
+    <ScrollViewer>
+        <StackPanel Style="{StaticResource SettingsPageLayout}">
+            <TextBlock Style="{StaticResource SettingsPageTitleStyle}" Text="ボタン" />
+
+            <Border Style="{StaticResource CardBorderStyle}">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="割り当て" />
+                        <Button x:Name="ResetButton" Grid.Column="1" Click="Reset_Click" Content="既定の割り当てに戻す" />
+                    </Grid>
+                    <TextBlock x:Name="DeviceNotice" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" Tag="loc-skip" />
+                    <TextBlock
+                        AutomationProperties.LiveSetting="Polite"
+                        Style="{StaticResource PageSubtitleStyle}"
+                        Text="{x:Bind Feedback.Message, Mode=OneWay}" Tag="loc-skip"
+                        Visibility="{x:Bind Feedback.HasMessage, Mode=OneWay}" />
+                    <ItemsControl x:Name="AssignmentList" ItemsSource="{x:Bind Assignments}" Visibility="Collapsed">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="views:ButtonAssignment">
+                                <Grid Style="{StaticResource SettingsRowStyle}" Tag="loc-skip">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="{x:Bind Name, Mode=OneWay}" />
+                                    <TextBlock Grid.Column="1" Style="{StaticResource SettingsRowLabelStyle}" Text="{x:Bind ActionLabel, Mode=OneWay}" />
+                                    <Button Grid.Column="2" VerticalAlignment="Center" Click="Edit_Click"
+                                        Tag="{x:Bind}" Content="{x:Bind ChangeLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind EditLabel, Mode=OneWay}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
