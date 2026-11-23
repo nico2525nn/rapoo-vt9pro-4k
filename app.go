@@ -567,11 +567,12 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 }
 
 func (a *App) launchOfficialUpdater(path string) (string, error) {
-	previousMode := a.svc.GetState().Mode
-	// Release the vendor HID handle before the official updater takes over.
+	// Claim the updater first. A second launch must fail before it can
+	// capture the temporary passive mode as its previous mode.
 	if err := a.svc.BeginUpdater(); err != nil {
 		return "", err
 	}
+	previousMode := a.svc.GetState().Mode
 	a.svc.SetPollingMode(service.ModePassiveOnly)
 
 	self, selfErr := os.Executable()
