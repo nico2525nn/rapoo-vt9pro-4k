@@ -110,9 +110,18 @@ public static partial class AutoStartService
             var character = arguments[i];
             if (character == '"')
             {
+                // A doubled quote inside a quoted argument is a literal quote.
                 // Windows command-line parsing treats only double quotes as
                 // quoting; single quotes are ordinary characters.
-                inQuotes = !inQuotes;
+                if (inQuotes && i + 1 < arguments.Length && arguments[i + 1] == '"')
+                {
+                    token.Append('"');
+                    i++;
+                }
+                else
+                {
+                    inQuotes = !inQuotes;
+                }
             }
             else if (character == '\\' && i + 1 < arguments.Length &&
                      arguments[i + 1] is '"' or '\\')

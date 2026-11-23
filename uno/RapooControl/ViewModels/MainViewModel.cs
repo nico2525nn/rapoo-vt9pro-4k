@@ -235,6 +235,10 @@ public sealed class MainViewModel : ObservableObject
         var deviceChanged = _status.DemoMode != status.DemoMode || _status.Connection != status.Connection ||
             _status.DeviceName != status.DeviceName;
         _status = status;
+        if (status.Connected)
+        {
+            ClearError();
+        }
         if (deviceChanged)
         {
             DeviceRevision++;

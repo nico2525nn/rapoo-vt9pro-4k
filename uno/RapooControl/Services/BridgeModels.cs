@@ -26,6 +26,7 @@ public sealed class BridgeState
     [JsonPropertyName("permissionDenied")] public bool PermissionDenied { get; set; }
     [JsonPropertyName("platform")] public string? Platform { get; set; }
     [JsonPropertyName("updatedAt")] public DateTimeOffset UpdatedAt { get; set; }
+    [JsonPropertyName("revision")] public long Revision { get; set; }
     [JsonPropertyName("lastError")] public string? LastError { get; set; }
 }
 

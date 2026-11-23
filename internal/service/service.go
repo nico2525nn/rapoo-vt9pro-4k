@@ -63,6 +63,7 @@ type State struct {
 	PermissionDenied bool                 `json:"permissionDenied"` // Linux udev /dev/hidraw* EACCES
 	Platform         string               `json:"platform"`
 	UpdatedAt        time.Time            `json:"updatedAt"`
+	Revision         uint64               `json:"revision"`
 	LastError        string               `json:"lastError,omitempty"`
 }
 
@@ -1102,13 +1103,15 @@ func (s *MouseService) markDisconnected(err error) {
 }
 
 func (s *MouseService) publish(snap State) {
-	s.mu.RLock()
+	s.mu.Lock()
+	s.state.Revision++
+	snap.Revision = s.state.Revision
 	listeners := make([]Listener, 0, len(s.subscribers))
 	for _, fn := range s.subscribers {
 		listeners = append(listeners, fn)
 	}
 	emit := s.cfg.OnEventEmit
-	s.mu.RUnlock()
+	s.mu.Unlock()
 
 	for _, fn := range listeners {
 		fn(snap)

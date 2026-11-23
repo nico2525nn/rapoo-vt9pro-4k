@@ -18,12 +18,20 @@ public sealed partial class RealRapooService : IRapooService
     private BridgeSnapshot? _lastSnapshot;
     private int _deviceEpoch;
     private int _snapshotEpoch;
-    private int _stateEventSequence;
+    private long _lastStateSequence;
+    private long _lastStateRevision;
 
     public RealRapooService()
     {
-        _client.StateChanged += (_, state) => PublishState(state, fromEvent: true);
-        _client.Faulted += (_, message) => PublishFault(message);
+        _client.StateChanged += (_, state) =>
+            PublishState(state.State, state.Sequence);
+        _client.Faulted += (_, fault) =>
+        {
+            if (fault.SessionId == _client.CurrentSessionId)
+            {
+                PublishFault(fault.Message, fault.Sequence);
+            }
+        };
     }
 
     public bool IsMock => false;
@@ -36,10 +44,20 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        var sequence = CurrentStateEventSequence;
+        if (!_client.IsRunning)
+        {
+            lock (_stateGate)
+            {
+                _lastStateSequence = 0;
+                _lastStateRevision = 0;
+                _lastSnapshot = null;
+                _snapshotEpoch = 0;
+            }
+        }
+
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
-        var initial = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        PublishStateIfUnchanged(initial, sequence);
+        var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
+        PublishState(initial.State, initial.Sequence);
         var epoch = CurrentEpoch;
 
         try
@@ -62,9 +80,8 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        var sequence = CurrentStateEventSequence;
-        var state = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        return PublishStateIfUnchanged(state, sequence);
+        var state = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
+        return PublishState(state.State, state.Sequence);
     }
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
@@ -154,9 +171,8 @@ public sealed partial class RealRapooService : IRapooService
         string mode,
         CancellationToken cancellationToken = default)
     {
-        var sequence = CurrentStateEventSequence;
-        var state = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
-        return PublishStateIfUnchanged(state, sequence);
+        var state = await _client.SetPollingModeWithSequenceAsync(mode, cancellationToken).ConfigureAwait(false);
+        return PublishState(state.State, state.Sequence);
     }
 
     public async ValueTask DisposeAsync() =>
@@ -193,34 +209,40 @@ public sealed partial class RealRapooService : IRapooService
         throw last ?? new RapooBridgeException("デバイス設定を読み取れませんでした。");
     }
 
-    private DeviceStatus PublishState(BridgeState state, bool fromEvent = false)
+    private DeviceStatus PublishState(BridgeState state, long sequence)
     {
         lock (_stateGate)
         {
-            var status = ApplyStateLocked(state, fromEvent);
+            if (state.Revision > 0)
+            {
+                if (state.Revision < _lastStateRevision)
+                {
+                    return MapStatus(_lastState ?? state, _lastSnapshot);
+                }
+                if (state.Revision == _lastStateRevision &&
+                    sequence > 0 && sequence <= _lastStateSequence)
+                {
+                    return MapStatus(_lastState ?? state, _lastSnapshot);
+                }
+                _lastStateRevision = state.Revision;
+            }
+            else if (sequence > 0 && sequence <= _lastStateSequence)
+            {
+                return MapStatus(_lastState ?? state, _lastSnapshot);
+            }
+
+            if (sequence > 0)
+            {
+                _lastStateSequence = sequence;
+            }
+            var status = ApplyStateLocked(state);
             StatusChanged?.Invoke(this, status);
             return status;
         }
     }
 
-    private DeviceStatus PublishStateIfUnchanged(BridgeState state, int sequence)
+    private DeviceStatus ApplyStateLocked(BridgeState state)
     {
-        lock (_stateGate)
-        {
-            var status = sequence != _stateEventSequence && _lastState is not null
-                ? MapStatus(_lastState, _lastSnapshot)
-                : ApplyStateLocked(state, fromEvent: false);
-            StatusChanged?.Invoke(this, status);
-            return status;
-        }
-    }
-
-    private DeviceStatus ApplyStateLocked(BridgeState state, bool fromEvent)
-    {
-        if (fromEvent)
-        {
-            _stateEventSequence++;
-        }
         if (_lastState is { } previous && DeviceChanged(previous, state))
         {
             _deviceEpoch++;
@@ -264,12 +286,19 @@ public sealed partial class RealRapooService : IRapooService
         }
     }
 
-    private void PublishFault(string message)
+    private void PublishFault(string message, long sequence)
     {
         DeviceStatus status;
         lock (_stateGate)
         {
-            _stateEventSequence++;
+            if (sequence > 0 && sequence < _lastStateSequence)
+            {
+                return;
+            }
+            if (sequence > 0)
+            {
+                _lastStateSequence = sequence;
+            }
             _deviceEpoch++;
             _lastSnapshot = null;
             _snapshotEpoch = 0;
@@ -293,17 +322,6 @@ public sealed partial class RealRapooService : IRapooService
             lock (_stateGate)
             {
                 return _deviceEpoch;
-            }
-        }
-    }
-
-    private int CurrentStateEventSequence
-    {
-        get
-        {
-            lock (_stateGate)
-            {
-                return _stateEventSequence;
             }
         }
     }

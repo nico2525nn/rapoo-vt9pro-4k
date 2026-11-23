@@ -29,6 +29,7 @@ public sealed class RealRapooServiceTests
                         "percentage": -1,
                         "mouseOnline": False,
                         "sleeping": False,
+                        "revision": 2,
                         "updatedAt": "2026-01-01T00:00:00Z"
                     }
                 }), flush=True)
@@ -42,6 +43,7 @@ public sealed class RealRapooServiceTests
                         "percentage": -1,
                         "mouseOnline": True,
                         "sleeping": False,
+                        "revision": 1,
                         "updatedAt": "2026-01-01T00:00:00Z"
                     }
                 }), flush=True)
@@ -91,7 +93,8 @@ public sealed class RealRapooServiceTests
                     "connected": True, "demoMode": demo, "deviceName": name,
                     "productId": 4625, "connection": "wireless_4k",
                     "hasBattery": True, "percentage": 82, "mouseOnline": True,
-                    "sleeping": False, "maxRateHz": 4000
+                    "sleeping": False, "maxRateHz": 4000,
+                    "revision": 2 if demo else 1
                 }
 
             def snapshot(demo):

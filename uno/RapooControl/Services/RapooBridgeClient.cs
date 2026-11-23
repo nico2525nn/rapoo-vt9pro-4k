@@ -41,6 +41,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         });
     private readonly CancellationTokenSource _notificationCts = new();
     private long _nextSessionId;
+    private long _wireSequence;
     private volatile BridgeSession? _session;
     private Task? _startTask;
     private Task? _disposeTask;
@@ -52,9 +53,13 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         _ = Task.Run(ProcessNotificationsAsync, CancellationToken.None);
     }
 
-    public event EventHandler<BridgeState>? StateChanged;
+    public event EventHandler<BridgeStateEvent>? StateChanged;
 
-    public event EventHandler<string>? Faulted;
+    public event EventHandler<BridgeFault>? Faulted;
+
+    public long CurrentSessionId => _session?.Id ?? 0;
+
+    public long CurrentWireSequence => Interlocked.Read(ref _wireSequence);
 
     public bool IsRunning
     {
@@ -313,8 +318,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         session.Cts.Dispose();
     }
 
-    public Task<BridgeState> GetStateAsync(CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeState>("state", null, cancellationToken);
+    public async Task<BridgeState> GetStateAsync(CancellationToken cancellationToken = default) =>
+        (await GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false)).State;
+
+    public async Task<BridgeStateEvent> GetStateWithSequenceAsync(CancellationToken cancellationToken = default)
+    {
+        var reply = await RequestElementAsync("state", null, cancellationToken).ConfigureAwait(false);
+        return new BridgeStateEvent(DeserializeReply<BridgeState>(reply, "state"), reply.Sequence);
+    }
 
     public Task<BridgeSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("snapshot", null, cancellationToken);
@@ -325,8 +336,18 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeState> SetLanguageAsync(string language, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeState>("setLanguage", new { language }, cancellationToken);
 
-    public Task<BridgeState> SetPollingModeAsync(string mode, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeState>("pollingMode", new { mode }, cancellationToken);
+    public async Task<BridgeState> SetPollingModeAsync(
+        string mode,
+        CancellationToken cancellationToken = default) =>
+        (await SetPollingModeWithSequenceAsync(mode, cancellationToken).ConfigureAwait(false)).State;
+
+    public async Task<BridgeStateEvent> SetPollingModeWithSequenceAsync(
+        string mode,
+        CancellationToken cancellationToken = default)
+    {
+        var reply = await RequestElementAsync("pollingMode", new { mode }, cancellationToken).ConfigureAwait(false);
+        return new BridgeStateEvent(DeserializeReply<BridgeState>(reply, "pollingMode"), reply.Sequence);
+    }
 
     public Task<BridgeSnapshot> SetPollingRateAsync(int hz, CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("pollingRate", new { hz }, cancellationToken);
@@ -435,10 +456,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task<T> RequestAsync<T>(string method, object? parameters, CancellationToken cancellationToken)
     {
-        var element = await RequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
+        var reply = await RequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
+        return DeserializeReply<T>(reply, method);
+    }
+
+    private T DeserializeReply<T>(BridgeReply reply, string method)
+    {
         try
         {
-            var result = element.Deserialize<T>(JsonOptions);
+            var result = reply.Element.Deserialize<T>(JsonOptions);
             if (result is null)
             {
                 throw new InvalidOperationException($"rapoo-bridge: {method} returned an empty result.");
@@ -447,7 +473,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log($"decode {method} failed: {ex}\nraw={element.GetRawText()}");
+            Log($"decode {method} failed: {ex}\nraw={reply.Element.GetRawText()}");
             throw new InvalidOperationException(
                 LocalizationService.Instance.Format(
                     "rapoo-bridge: {0} の応答を解釈できません: {1}",
@@ -462,7 +488,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         _ = await RequestElementAsync(method, parameters, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<JsonElement> RequestElementAsync(
+    private async Task<BridgeReply> RequestElementAsync(
         string method,
         object? parameters,
         CancellationToken cancellationToken)
@@ -509,7 +535,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
 
         var id = Interlocked.Increment(ref _nextId);
-        var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<BridgeReply>(TaskCreationOptions.RunContinuationsAsynchronously);
         var payload = JsonSerializer.Serialize(new BridgeRequest
         {
             Id = id,
@@ -587,13 +613,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     continue;
                 }
 
+                var sequence = Interlocked.Increment(ref _wireSequence);
                 try
                 {
                     using var document = JsonDocument.Parse(line);
                     var root = document.RootElement;
                     if (root.TryGetProperty("event", out var eventName))
                     {
-                        HandleEvent(session, eventName.GetString(), root);
+                        HandleEvent(session, eventName.GetString(), root, sequence);
                         continue;
                     }
 
@@ -623,13 +650,13 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     }
                     else if (hasResult)
                     {
-                        completion.TrySetResult(resultElement.Clone());
+                        completion.TrySetResult(new BridgeReply(resultElement.Clone(), sequence));
                     }
                     else
                     {
                         // The Go bridge omits a nil result for void calls such
                         // as deletePreset; the id is a valid acknowledgement.
-                        completion.TrySetResult(default);
+                        completion.TrySetResult(new BridgeReply(default, sequence));
                     }
                 }
                 catch (JsonException ex)
@@ -648,7 +675,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private void HandleEvent(BridgeSession session, string? name, JsonElement root)
+    private void HandleEvent(BridgeSession session, string? name, JsonElement root, long sequence)
     {
         lock (_gate)
         {
@@ -707,7 +734,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             {
                 return;
             }
-            _notifications.Writer.TryWrite(new BridgeNotification(session.Id, state, null));
+            _notifications.Writer.TryWrite(
+                new BridgeNotification(session.Id, new BridgeStateEvent(state, sequence), null, sequence));
         }
     }
 
@@ -718,6 +746,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             return;
         }
 
+        Volatile.Write(ref session.Exited, 1);
         int exitCode;
         try
         {
@@ -736,6 +765,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private void FaultSession(BridgeSession session, string message)
     {
+        var sequence = CurrentWireSequence;
         lock (_eventGate)
         {
             if (Volatile.Read(ref session.Stopping) != 0 ||
@@ -744,10 +774,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 return;
             }
 
-            var error = new InvalidOperationException(message);
-            CompleteSession(session, error);
-            _notifications.Writer.TryWrite(new BridgeNotification(session.Id, null, message));
+            _notifications.Writer.TryWrite(
+                new BridgeNotification(session.Id, null, message, sequence));
         }
+
+        // Complete outside the event gate: CompleteSession takes the session
+        // gate, and request admission may hold that gate while Process.Exited
+        // synchronously re-enters here.
+        CompleteSession(session, new InvalidOperationException(message));
     }
 
     private void CompleteSession(BridgeSession session, Exception error)
@@ -777,13 +811,25 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     continue;
                 }
 
-                if (notification.State is { } state)
+                try
                 {
-                    StateChanged?.Invoke(this, state);
+                    if (notification.State is { } state)
+                    {
+                        StateChanged?.Invoke(this, state);
+                    }
+                    else if (notification.Fault is { } fault)
+                    {
+                        Faulted?.Invoke(this, new BridgeFault(
+                            notification.SessionId,
+                            fault,
+                            notification.Sequence));
+                    }
                 }
-                else if (notification.Fault is { } fault)
+                catch (Exception ex)
                 {
-                    Faulted?.Invoke(this, fault);
+                    // One faulty subscriber must not stop the client from
+                    // delivering subsequent state/fault notifications.
+                    Log($"notification subscriber failed: {ex}");
                 }
             }
         }
@@ -945,11 +991,12 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         public long Id { get; } = id;
         public TaskCompletionSource<bool> Ready { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> Pending { get; } = new();
+        public ConcurrentDictionary<int, TaskCompletionSource<BridgeReply>> Pending { get; } = new();
         public object Gate { get; } = new();
         public Task? StopTask { get; set; }
         public int Stopping;
         public int Faulted;
+        public int Exited;
 
         public void Cancel()
         {
@@ -966,10 +1013,16 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         public bool CanAcceptRequests =>
             Volatile.Read(ref Stopping) == 0 &&
             Volatile.Read(ref Faulted) == 0 &&
-            !Process.HasExited;
+            Volatile.Read(ref Exited) == 0;
     }
 
-    private readonly record struct BridgeNotification(long SessionId, BridgeState? State, string? Fault);
+    private readonly record struct BridgeNotification(
+        long SessionId,
+        BridgeStateEvent? State,
+        string? Fault,
+        long Sequence);
+
+    private readonly record struct BridgeReply(JsonElement Element, long Sequence);
 
     private sealed class BridgeRequest
     {
@@ -978,5 +1031,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         [JsonPropertyName("params")] public object? Params { get; set; }
     }
 }
+
+public sealed record BridgeStateEvent(BridgeState State, long Sequence);
+
+public sealed record BridgeFault(long SessionId, string Message, long Sequence);
 
 public sealed class RapooBridgeException(string message) : Exception(message);
