@@ -53,10 +53,6 @@ public static partial class AutoStartService
         @"^(?:rapoo[-_ ]?control|rapoovt9tray|rapoo-vt9pro-4k|vt9tray)[-_a-z0-9.]*\.exe$",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    private static readonly Regex LegacyAppFlag = new(
-        @"(?:^|\s)--app=(?:winui|wails|uno)(?=\s|$)",
-        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-
     /// <summary>
     /// True only for executable names in the Rapoo app family. The standalone
     /// tray writes its path without an --app marker, so the name match is
@@ -76,8 +72,13 @@ public static partial class AutoStartService
             return false;
         }
 
-        return !arguments.Contains("--app=", StringComparison.OrdinalIgnoreCase) ||
-            LegacyAppFlag.IsMatch(arguments);
+        var tokens = SplitArguments(arguments).ToArray();
+        if (!tokens.Any(token => token.StartsWith("--app=", StringComparison.OrdinalIgnoreCase)))
+        {
+            return true;
+        }
+
+        return tokens.Any(IsAppMarker);
     }
 
     /// <summary>
@@ -91,10 +92,62 @@ public static partial class AutoStartService
     /// <summary>True for the exact --hidden or --tray argument, never a path substring.</summary>
     internal static bool HasHiddenFlag(string command) =>
         TrySplitCommandLine(command, out _, out var arguments) &&
-        Regex.IsMatch(
-            arguments,
-            @"(?:^|\s)--(?:hidden|tray)(?=\s|$)",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        SplitArguments(arguments).Any(argument =>
+            string.Equals(argument, "--hidden", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argument, "--tray", StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsAppMarker(string argument) =>
+        string.Equals(argument, "--app=winui", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(argument, "--app=wails", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(argument, "--app=uno", StringComparison.OrdinalIgnoreCase);
+
+    private static IEnumerable<string> SplitArguments(string arguments)
+    {
+        var token = new System.Text.StringBuilder();
+        var quote = '\0';
+        for (var i = 0; i < arguments.Length; i++)
+        {
+            var character = arguments[i];
+            if (quote != '\0')
+            {
+                if (character == quote)
+                {
+                    quote = '\0';
+                }
+                else if (character == '\\' && i + 1 < arguments.Length)
+                {
+                    token.Append(arguments[++i]);
+                }
+                else
+                {
+                    token.Append(character);
+                }
+                continue;
+            }
+
+            if (character is '"' or '\'')
+            {
+                quote = character;
+            }
+            else if (char.IsWhiteSpace(character))
+            {
+                if (token.Length > 0)
+                {
+                    yield return token.ToString();
+                    token.Clear();
+                }
+            }
+            else
+            {
+                token.Append(character);
+            }
+        }
+
+        if (token.Length > 0)
+        {
+            yield return token.ToString();
+        }
+    }
 
     private static bool TrySplitCommandLine(
         string command,

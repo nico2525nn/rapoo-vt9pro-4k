@@ -34,13 +34,12 @@ public static partial class AutoStartService
                 if (SystemAutoStartPaths().Any(File.Exists))
                 {
                     // A hidden user override shadows the system entry; deleting
-                    // the override would silently re-enable the system one.
-                    if (string.IsNullOrWhiteSpace(executable) ||
-                        !IsSupportedDesktopExecutable(executable))
-                    {
-                        return false;
-                    }
-                    WriteUserEntry(path, executable, hidden: true);
+                    // the override would silently re-enable the system one. The
+                    // safe fallback is never executed because Hidden=true.
+                    var disableExecutable = IsSupportedDesktopExecutable(executable)
+                        ? executable!
+                        : "/bin/true";
+                    WriteUserEntry(path, disableExecutable, hidden: true);
                     return !IsEntryEnabled(path);
                 }
 

@@ -194,7 +194,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             return Task.CompletedTask;
         }
-        GetSession()?.Cts.Cancel();
+        GetSession()?.Cancel();
         return StopSerializedAsync();
     }
 
@@ -233,7 +233,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private async Task StopSessionCoreAsync(BridgeSession session)
     {
         Volatile.Write(ref session.Stopping, 1);
-        session.Cts.Cancel();
+        session.Cancel();
         CompleteSession(
             session,
             new InvalidOperationException(
@@ -393,7 +393,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     {
         // Interrupt a startup that is waiting for the ready event. StartSerialized
         // also rechecks disposal after it stops a previous session.
-        GetSession()?.Cts.Cancel();
+        GetSession()?.Cancel();
         await _lifecycle.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -653,23 +653,34 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
 
         if (name != "state" ||
-            !root.TryGetProperty("data", out var data) ||
-            Volatile.Read(ref session.Faulted) != 0)
+            !root.TryGetProperty("data", out var data))
         {
             return;
         }
 
-        try
+        // Deliver events under the session gate so a process-exit fault cannot
+        // publish a disconnect first and then let an older connected event
+        // overtake it.
+        lock (session.Gate)
         {
-            var state = data.Deserialize<BridgeState>(JsonOptions);
-            if (state is not null)
+            if (Volatile.Read(ref session.Stopping) != 0 ||
+                Volatile.Read(ref session.Faulted) != 0)
             {
-                StateChanged?.Invoke(this, state);
+                return;
             }
-        }
-        catch (Exception ex)
-        {
-            Log($"state event decode failed: {ex}");
+
+            try
+            {
+                var state = data.Deserialize<BridgeState>(JsonOptions);
+                if (state is not null)
+                {
+                    StateChanged?.Invoke(this, state);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"state event decode failed: {ex}");
+            }
         }
     }
 
@@ -746,7 +757,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         catch
         {
-            return true;
+            // An exception is not proof of exit; keep trying to stop it.
+            return false;
         }
     }
 
@@ -874,6 +886,18 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         public Task? StopTask { get; set; }
         public int Stopping;
         public int Faulted;
+
+        public void Cancel()
+        {
+            try
+            {
+                Cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A concurrent teardown already disposed the source.
+            }
+        }
 
         public bool CanAcceptRequests =>
             Volatile.Read(ref Stopping) == 0 &&

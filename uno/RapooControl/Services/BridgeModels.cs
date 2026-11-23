@@ -44,6 +44,7 @@ public sealed class BridgeModel
 {
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("connection")] public string? Connection { get; set; }
+    [JsonPropertyName("productId")] public int ProductId { get; set; }
     [JsonPropertyName("protocolGen")] public int ProtocolGen { get; set; }
     [JsonPropertyName("maxRateHz")] public int MaxRateHz { get; set; }
 }

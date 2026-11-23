@@ -142,14 +142,10 @@ public sealed partial class RealRapooService : IRapooService
         }
         catch (InvalidOperationException)
         {
-            // Demo mode legitimately changes the device identity. Accept the
-            // reply only when the current device is exactly the one it describes;
-            // an unrelated reconnect must still invalidate it.
-            if (!MatchesCurrentDevice(snapshot))
-            {
-                throw;
-            }
-            PublishSnapshot(snapshot, CurrentEpoch);
+            // Demo mode legitimately changes the display name. Accept the reply
+            // only for the same product in the new demo state; the identity and
+            // epoch check happen in one critical section.
+            PublishSnapshotForDemoChange(snapshot);
         }
         return snapshot;
     }
@@ -239,14 +235,32 @@ public sealed partial class RealRapooService : IRapooService
     {
         lock (_stateGate)
         {
-            EnsureEpochLocked(epoch);
-            _lastSnapshot = snapshot;
-            _snapshotEpoch = epoch;
-            var state = _lastState ?? CreateState(snapshot);
-            _lastState = state;
-            var status = MapStatus(state, snapshot);
-            StatusChanged?.Invoke(this, status);
-            return status;
+            return PublishSnapshotLocked(snapshot, epoch);
+        }
+    }
+
+    private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch)
+    {
+        EnsureEpochLocked(epoch);
+        _lastSnapshot = snapshot;
+        _snapshotEpoch = epoch;
+        var state = _lastState ?? CreateState(snapshot);
+        _lastState = state;
+        var status = MapStatus(state, snapshot);
+        StatusChanged?.Invoke(this, status);
+        return status;
+    }
+
+    private DeviceStatus PublishSnapshotForDemoChange(BridgeSnapshot snapshot)
+    {
+        lock (_stateGate)
+        {
+            if (!MatchesCurrentDeviceLocked(snapshot))
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+            }
+            return PublishSnapshotLocked(snapshot, _deviceEpoch);
         }
     }
 
@@ -311,15 +325,17 @@ public sealed partial class RealRapooService : IRapooService
         }
     }
 
-    private bool MatchesCurrentDevice(BridgeSnapshot snapshot)
+    private bool MatchesCurrentDeviceLocked(BridgeSnapshot snapshot)
     {
-        lock (_stateGate)
+        if (_lastState is not { } state || state.DemoMode != snapshot.DemoMode)
         {
-            return _lastState is { } state &&
-                state.DemoMode == snapshot.DemoMode &&
-                state.DeviceName == snapshot.Model?.Name &&
-                state.Connection == snapshot.Model?.Connection;
+            return false;
         }
+
+        var productId = snapshot.Model?.ProductId ?? 0;
+        return productId > 0
+            ? state.ProductId == productId
+            : state.DeviceName == snapshot.Model?.Name;
     }
 
     private static bool DeviceChanged(BridgeState previous, BridgeState current) =>
