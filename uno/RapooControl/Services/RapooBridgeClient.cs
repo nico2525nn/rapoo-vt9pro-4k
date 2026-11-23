@@ -59,6 +59,12 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public long CurrentSessionId => _session?.Id ?? 0;
 
+    public bool IsSessionCurrent(long sessionId)
+    {
+        var session = _session;
+        return session is { CanAcceptRequests: true } && session.Id == sessionId;
+    }
+
     public long CurrentWireSequence => Interlocked.Read(ref _wireSequence);
 
     public bool IsRunning

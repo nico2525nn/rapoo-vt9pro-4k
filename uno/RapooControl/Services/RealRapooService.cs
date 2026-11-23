@@ -20,6 +20,7 @@ public sealed partial class RealRapooService : IRapooService
     private int _snapshotEpoch;
     private long _lastStateSequence;
     private long _lastStateRevision;
+    private long _activeSessionId;
 
     public RealRapooService()
     {
@@ -44,10 +45,15 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (!_client.IsRunning)
+        await _client.StartAsync(cancellationToken).ConfigureAwait(false);
+        var sessionId = _client.CurrentSessionId;
+        lock (_stateGate)
         {
-            lock (_stateGate)
+            if (sessionId != _activeSessionId)
             {
+                // Reset only after the new session exists. A delayed event from
+                // the old session can no longer poison the revision baseline.
+                _activeSessionId = sessionId;
                 _lastStateSequence = 0;
                 _lastStateRevision = 0;
                 _lastSnapshot = null;
@@ -55,7 +61,6 @@ public sealed partial class RealRapooService : IRapooService
             }
         }
 
-        await _client.StartAsync(cancellationToken).ConfigureAwait(false);
         var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
         PublishState(initial.SessionId, initial.State, initial.Sequence);
         var epoch = CurrentEpoch;
@@ -213,7 +218,8 @@ public sealed partial class RealRapooService : IRapooService
     {
         lock (_stateGate)
         {
-            if (sessionId != _client.CurrentSessionId)
+            if (sessionId != _activeSessionId ||
+                !_client.IsSessionCurrent(sessionId))
             {
                 return MapStatus(_lastState ?? state, _lastSnapshot);
             }

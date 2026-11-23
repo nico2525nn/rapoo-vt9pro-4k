@@ -119,10 +119,9 @@ public sealed class MainViewModel : ObservableObject
     private async Task InitializeCoreAsync()
     {
         await _service.StartAsync();
-
-        var status = await _service.GetStatusAsync();
-        ClearError();
-        ApplyStatus(status);
+        // Status is applied through the ordered StatusChanged stream; applying
+        // a fetched reply directly here can overtake a newer disconnect.
+        _ = await _service.GetStatusAsync();
     }
 
     public async Task RefreshAsync()
@@ -138,14 +137,13 @@ public sealed class MainViewModel : ObservableObject
             }
             else
             {
-                ApplyStatus(await _service.GetStatusAsync());
+                _ = await _service.GetStatusAsync();
             }
 
             if (DeviceService is not null && CanConfigureDevice)
             {
                 await Dpi.LoadAsync();
             }
-            ClearError();
         }
         catch (Exception ex)
         {
