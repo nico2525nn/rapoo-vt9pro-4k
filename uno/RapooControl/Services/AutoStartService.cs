@@ -104,32 +104,22 @@ public static partial class AutoStartService
     private static IEnumerable<string> SplitArguments(string arguments)
     {
         var token = new System.Text.StringBuilder();
-        var quote = '\0';
+        var inQuotes = false;
         for (var i = 0; i < arguments.Length; i++)
         {
             var character = arguments[i];
-            if (quote != '\0')
+            if (character == '"')
             {
-                if (character == quote)
-                {
-                    quote = '\0';
-                }
-                else if (character == '\\' && i + 1 < arguments.Length)
-                {
-                    token.Append(arguments[++i]);
-                }
-                else
-                {
-                    token.Append(character);
-                }
-                continue;
+                // Windows command-line parsing treats only double quotes as
+                // quoting; single quotes are ordinary characters.
+                inQuotes = !inQuotes;
             }
-
-            if (character is '"' or '\'')
+            else if (inQuotes && character == '\\' && i + 1 < arguments.Length &&
+                     arguments[i + 1] is '"' or '\\')
             {
-                quote = character;
+                token.Append(arguments[++i]);
             }
-            else if (char.IsWhiteSpace(character))
+            else if (!inQuotes && char.IsWhiteSpace(character))
             {
                 if (token.Length > 0)
                 {

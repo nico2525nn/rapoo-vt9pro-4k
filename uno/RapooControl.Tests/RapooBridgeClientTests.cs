@@ -193,6 +193,36 @@ public sealed class RapooBridgeClientTests
         }
     }
 
+
+    [Test]
+    public async Task StateCallback_CanReadIsRunningWithoutDeadlock()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");
+        var script = CreateScript(
+            """
+            #!/bin/sh
+            printf '%s\n' '{"event":"ready","data":{"version":"1"}}'
+            printf '%s\n' '{"event":"state","data":{"connected":true,"demoMode":false,"deviceName":"Fake","hasBattery":false,"percentage":-1,"mouseOnline":true}}'
+            while IFS= read -r line; do
+              printf '%s\n' '{"id":1,"result":{"connected":true,"demoMode":false,"deviceName":"Fake","maxRateHz":4000}}'
+            done
+            """);
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        await using var client = new RapooBridgeClient();
+        try
+        {
+            var observed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.StateChanged += (_, _) => observed.TrySetResult(client.IsRunning);
+            await client.StartAsync();
+            Assert.That(await observed.Task.WaitAsync(TimeSpan.FromSeconds(3)), Is.True);
+        }
+        finally
+        {
+            File.Delete(script);
+        }
+    }
+
     private static string CreateScript(string contents)
     {
         var path = Path.Combine(Path.GetTempPath(), $"rapoo-bridge-test-{Guid.NewGuid():N}.sh");

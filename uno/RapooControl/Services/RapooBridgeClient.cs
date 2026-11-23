@@ -31,7 +31,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly object _gate = new();
-    private BridgeSession? _session;
+    private volatile BridgeSession? _session;
     private Task? _startTask;
     private Task? _disposeTask;
     private int _nextId;
@@ -45,10 +45,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     {
         get
         {
-            lock (_gate)
-            {
-                return _session is { CanAcceptRequests: true };
-            }
+            // Lock-free: a StateChanged subscriber may call this while the
+            // event is being delivered under the session gate.
+            var session = _session;
+            return session is { CanAcceptRequests: true };
         }
     }
 
@@ -252,7 +252,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         var exited = HasExited(session.Process);
         if (!exited)
         {
-            exited = session.Process.WaitForExit(2500);
+            exited = WaitForExit(session.Process, TimeSpan.FromMilliseconds(2500));
         }
         if (!exited)
         {
@@ -730,7 +730,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             session.Pending.Clear();
         }
 
-        if (raiseFault)
+        if (raiseFault && ReferenceEquals(_session, session))
         {
             Faulted?.Invoke(this, error.Message);
         }
