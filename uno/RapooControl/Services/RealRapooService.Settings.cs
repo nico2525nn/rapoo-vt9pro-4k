@@ -8,7 +8,11 @@ public sealed partial class RealRapooService
         {
             lock (_stateGate)
             {
-                return _snapshotEpoch == _deviceEpoch ? _lastSnapshot : null;
+                return _snapshotEpoch == _deviceEpoch &&
+                       _snapshotSessionId == _activeSessionId &&
+                       _client.IsSessionCurrent(_activeSessionId)
+                    ? _lastSnapshot
+                    : null;
             }
         }
     }
@@ -47,8 +51,9 @@ public sealed partial class RealRapooService
     private async Task<BridgeSnapshot> UpdateSnapshotAsync(Func<Task<BridgeSnapshot>> request)
     {
         var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
         var snapshot = await request().ConfigureAwait(false);
-        PublishSnapshot(snapshot, epoch);
+        PublishSnapshot(snapshot, epoch, sessionId);
         return snapshot;
     }
 }

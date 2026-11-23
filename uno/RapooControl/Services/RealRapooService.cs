@@ -13,11 +13,13 @@ namespace RapooControl.Services;
 public sealed partial class RealRapooService : IRapooService
 {
     private readonly RapooBridgeClient _client = new();
+    private readonly SemaphoreSlim _startGate = new(1, 1);
     private readonly object _stateGate = new();
     private BridgeState? _lastState;
     private BridgeSnapshot? _lastSnapshot;
     private int _deviceEpoch;
     private int _snapshotEpoch;
+    private long _snapshotSessionId;
     private long _lastStateSequence;
     private long _lastStateRevision;
     private long _activeSessionId;
@@ -45,39 +47,48 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        await _client.StartAsync(cancellationToken).ConfigureAwait(false);
-        var sessionId = _client.CurrentSessionId;
-        lock (_stateGate)
-        {
-            if (sessionId != _activeSessionId)
-            {
-                // Reset only after the new session exists. A delayed event from
-                // the old session can no longer poison the revision baseline.
-                _activeSessionId = sessionId;
-                _lastStateSequence = 0;
-                _lastStateRevision = 0;
-                _lastSnapshot = null;
-                _snapshotEpoch = 0;
-            }
-        }
-
-        var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
-        PublishState(initial.SessionId, initial.State, initial.Sequence);
-        var epoch = CurrentEpoch;
-
+        await _startGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (Environment.GetEnvironmentVariable("RAPOO_DEMO") == "1")
+            await _client.StartAsync(cancellationToken).ConfigureAwait(false);
+            var sessionId = _client.CurrentSessionId;
+            lock (_stateGate)
             {
-                await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
+                if (sessionId > _activeSessionId)
+                {
+                    // Reset only after the new session exists. Never move the
+                    // active id backwards when a delayed start resumes.
+                    _activeSessionId = sessionId;
+                    _lastStateSequence = 0;
+                    _lastStateRevision = 0;
+                    _lastSnapshot = null;
+                    _snapshotEpoch = 0;
+                    _snapshotSessionId = 0;
+                }
             }
 
-            var snapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
-            PublishSnapshot(snapshot, epoch);
+            var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
+            PublishState(initial.SessionId, initial.State, initial.Sequence);
+            var epoch = CurrentEpoch;
+
+            try
+            {
+                if (Environment.GetEnvironmentVariable("RAPOO_DEMO") == "1")
+                {
+                    await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
+                }
+
+                var snapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+                PublishSnapshot(snapshot, epoch, sessionId);
+            }
+            catch (Exception ex) when (ex is RapooBridgeException or InvalidOperationException)
+            {
+                // The mouse may be asleep or disconnected. The shell still renders.
+            }
         }
-        catch (Exception ex) when (ex is RapooBridgeException or InvalidOperationException)
+        finally
         {
-            // The mouse may be asleep or disconnected. The shell still renders.
+            _startGate.Release();
         }
     }
 
@@ -92,9 +103,15 @@ public sealed partial class RealRapooService : IRapooService
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
         var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
         var snapshot = CachedSnapshot ??
             await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
         EnsureEpoch(epoch);
+        if (sessionId != CurrentSession() || !_client.IsSessionCurrent(sessionId))
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
         return snapshot.Dpi is { } dpi
             ? MapDpiConfiguration(dpi)
             : throw new InvalidOperationException("DPI設定を読み取れませんでした。");
@@ -115,6 +132,7 @@ public sealed partial class RealRapooService : IRapooService
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
 
         var stages = configuration.Stages
             .OrderBy(stage => stage.Index)
@@ -140,7 +158,7 @@ public sealed partial class RealRapooService : IRapooService
             stages,
             cancellationToken).ConfigureAwait(false);
 
-        return PublishSnapshot(snapshot, epoch);
+        return PublishSnapshot(snapshot, epoch, sessionId);
     }
 
     public async Task<DeviceStatus> SetPollingRateAsync(
@@ -148,8 +166,9 @@ public sealed partial class RealRapooService : IRapooService
         CancellationToken cancellationToken = default)
     {
         var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
         var snapshot = await _client.SetPollingRateAsync(hertz, cancellationToken).ConfigureAwait(false);
-        return PublishSnapshot(snapshot, epoch);
+        return PublishSnapshot(snapshot, epoch, sessionId);
     }
 
     public async Task<BridgeSnapshot> SetDemoModeAsync(
@@ -157,17 +176,18 @@ public sealed partial class RealRapooService : IRapooService
         CancellationToken cancellationToken = default)
     {
         var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
         var snapshot = await _client.SetDemoModeAsync(enabled, cancellationToken).ConfigureAwait(false);
         try
         {
-            PublishSnapshot(snapshot, epoch);
+            PublishSnapshot(snapshot, epoch, sessionId);
         }
         catch (InvalidOperationException)
         {
             // Demo mode legitimately changes the display name. Accept the reply
             // only for the same product in the new demo state; the identity and
             // epoch check happen in one critical section.
-            PublishSnapshotForDemoChange(snapshot);
+            PublishSnapshotForDemoChange(snapshot, sessionId);
         }
         return snapshot;
     }
@@ -258,24 +278,31 @@ public sealed partial class RealRapooService : IRapooService
             _deviceEpoch++;
             _lastSnapshot = null;
             _snapshotEpoch = 0;
+            _snapshotSessionId = 0;
         }
         _lastState = state;
         return MapStatus(state, _lastSnapshot);
     }
 
-    private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot, int epoch)
+    private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         lock (_stateGate)
         {
-            return PublishSnapshotLocked(snapshot, epoch);
+            if (sessionId != _activeSessionId || !_client.IsSessionCurrent(sessionId))
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+            }
+            return PublishSnapshotLocked(snapshot, epoch, sessionId);
         }
     }
 
-    private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch)
+    private DeviceStatus PublishSnapshotLocked(BridgeSnapshot snapshot, int epoch, long sessionId)
     {
         EnsureEpochLocked(epoch);
         _lastSnapshot = snapshot;
         _snapshotEpoch = epoch;
+        _snapshotSessionId = sessionId;
         var state = _lastState ?? CreateState(snapshot);
         _lastState = state;
         var status = MapStatus(state, snapshot);
@@ -283,16 +310,18 @@ public sealed partial class RealRapooService : IRapooService
         return status;
     }
 
-    private DeviceStatus PublishSnapshotForDemoChange(BridgeSnapshot snapshot)
+    private DeviceStatus PublishSnapshotForDemoChange(BridgeSnapshot snapshot, long sessionId)
     {
         lock (_stateGate)
         {
-            if (!MatchesCurrentDeviceLocked(snapshot))
+            if (sessionId != _activeSessionId ||
+                !_client.IsSessionCurrent(sessionId) ||
+                !MatchesCurrentDeviceLocked(snapshot))
             {
                 throw new InvalidOperationException(
                     LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
             }
-            return PublishSnapshotLocked(snapshot, _deviceEpoch);
+            return PublishSnapshotLocked(snapshot, _deviceEpoch, sessionId);
         }
     }
 
@@ -312,6 +341,7 @@ public sealed partial class RealRapooService : IRapooService
             _deviceEpoch++;
             _lastSnapshot = null;
             _snapshotEpoch = 0;
+            _snapshotSessionId = 0;
             _lastState = new BridgeState
             {
                 Connected = false,
@@ -323,6 +353,14 @@ public sealed partial class RealRapooService : IRapooService
         }
 
         Faulted?.Invoke(this, message);
+    }
+
+    private long CurrentSession()
+    {
+        lock (_stateGate)
+        {
+            return _activeSessionId;
+        }
     }
 
     private int CurrentEpoch
