@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace RapooControl.Services;
 
@@ -180,12 +181,13 @@ public sealed class DesktopPreferences
         try
         {
             var temporary = _path + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new
+            var payload = new JsonObject
             {
-                closeToTray = CloseToTray,
-                autoStart = AutoStart,
-                startHidden = StartHidden,
-            }, JsonOptions));
+                ["closeToTray"] = CloseToTray,
+                ["autoStart"] = AutoStart,
+                ["startHidden"] = StartHidden,
+            };
+            File.WriteAllText(temporary, payload.ToJsonString(JsonOptions));
             File.Move(temporary, _path, overwrite: true);
             return true;
         }

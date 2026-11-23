@@ -10,9 +10,9 @@
     <!-- App Identifier -->
     <ApplicationId>io.github.nico2525nn.rapoocontrol</ApplicationId>
     <!-- Versions -->
-    <Version>1.4.0</Version>
-    <InformationalVersion>1.4.0</InformationalVersion>
-    <ApplicationDisplayVersion>1.4.0</ApplicationDisplayVersion>
+    <Version>1.5.0</Version>
+    <InformationalVersion>1.5.0</InformationalVersion>
+    <ApplicationDisplayVersion>1.5.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <!-- Package Publisher -->
     <ApplicationPublisher>RapooControl</ApplicationPublisher>
@@ -35,16 +35,21 @@
       https://aka.platform.uno/singleproject-features
     -->
     <UnoFeatures>Skia</UnoFeatures>
+
+    <!-- Keep publish output lean: no ReadyToRun images, no framework satellite
+         resources, and no documentation files. -->
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <PublishDocumentationFiles>false</PublishDocumentationFiles>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
     <SidecarPath>..\..\build\bin\rapoo-bridge.exe</SidecarPath>
     <SidecarFileName>rapoo-bridge.exe</SidecarFileName>
-    <PublishTrimmed>false</PublishTrimmed>
     <WindowsPackageType>None</WindowsPackageType>
-    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
-    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained Condition="'$(WindowsAppSDKSelfContained)' == ''">true</WindowsAppSDKSelfContained>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
@@ -52,7 +57,6 @@
     <DefineConstants Condition="'$(RuntimeIdentifier)' == 'linux-x64' or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux')))">$(DefineConstants);LINUX</DefineConstants>
     <SidecarPath>..\..\build\bin\rapoo-bridge</SidecarPath>
     <SidecarFileName>rapoo-bridge</SidecarFileName>
-    <PublishTrimmed>false</PublishTrimmed>
   </PropertyGroup>
 
   <Target Name="ValidateUnoSidecar" BeforeTargets="PrepareForPublish" Condition="'$(SidecarPath)' != ''">
@@ -76,5 +80,48 @@
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
     <PackageReference Include="H.NotifyIcon.WinUI" />
   </ItemGroup>
+
+  <!-- Symbols are not shipped. Delete them after publish instead of compiling
+       with DebugType=none, because Uno's resource injector expects the PDB to
+       match the assembly it is rewriting. -->
+  <Target Name="RemovePublishSymbols"
+          AfterTargets="Publish"
+          Condition="'$(PublishDir)' != ''">
+    <ItemGroup>
+      <_PublishSymbol Include="$(PublishDir)**/*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(_PublishSymbol)" />
+  </Target>
+
+  <!-- Windows App SDK 1.8 copies the Windows ML stack (ONNX Runtime and
+       DirectML, ~40 MB) into every unpackaged publish. This app never calls
+       Windows ML, so drop the files after publish. -->
+  <Target Name="RemoveUnusedWindowsML"
+          AfterTargets="Publish"
+          Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100' and '$(PublishDir)' != ''">
+    <ItemGroup>
+      <_UnusedWindowsMLFile Include="$(PublishDir)onnxruntime.dll" />
+      <_UnusedWindowsMLFile Include="$(PublishDir)onnxruntime_providers_shared.dll" />
+      <_UnusedWindowsMLFile Include="$(PublishDir)DirectML.dll" />
+      <_UnusedWindowsMLFile Include="$(PublishDir)Microsoft.Windows.AI.MachineLearning.dll" />
+      <_UnusedWindowsMLFile Include="$(PublishDir)Microsoft.Windows.AI.MachineLearning.Projection.dll" />
+      <_UnusedWindowsMLFile Include="$(PublishDir)Microsoft.ML.OnnxRuntime.dll" />
+    </ItemGroup>
+    <Delete Files="@(_UnusedWindowsMLFile)" />
+  </Target>
+
+  <!-- Uno's Win32 runtime references WebView2 even when the app has no WebView.
+       ILLink then walks the 29-deep ICoreWebView2_* interface chain and can run
+       for hours (unoplatform/uno#24618). The app never uses WebView, so hide
+       those references from the linker in trimmed desktop builds. -->
+  <Target Name="HideUnusedWebView2FromILLink"
+          BeforeTargets="_RunILLink"
+          Condition="'$(TargetFramework)' == 'net10.0-desktop' and '$(PublishTrimmed)' == 'true'">
+    <ItemGroup>
+      <_UnusedWebView2Reference Include="@(ReferencePath)"
+                                Condition="'%(Filename)' == 'WebView2' or '%(Filename)' == 'DirectN' or '%(Filename)' == 'DirectN.Extensions'" />
+      <ReferencePath Remove="@(_UnusedWebView2Reference)" />
+    </ItemGroup>
+  </Target>
 
 </Project>

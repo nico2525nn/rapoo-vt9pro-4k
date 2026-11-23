@@ -1,5 +1,49 @@
 # Changelog
 
+## v1.5.0 — 2026-11-24
+
+### Changed
+
+- Release bundles are split into **slim** (framework-dependent) and
+  **portable** (self-contained) variants for Windows and Linux
+- Windows slim requires the .NET 10 Desktop Runtime and Windows App Runtime 1.8
+- Linux slim requires the .NET 10 Runtime
+- Windows portable and Linux portable need no runtime installation
+- Removed the unused Windows ML payload (ONNX Runtime and DirectML, ~40 MB)
+  from both Windows bundles
+- Disabled ReadyToRun images, removed PDBs, and limited satellite resources to
+  English
+- Linux portable is published with IL trimming; the bridge protocol now uses
+  source-generated `System.Text.Json` metadata
+- Added `uno/package-linux.sh` and `uno/package-windows.ps1`
+
+### Fixed
+
+- DPI stage serialization under trimming now writes a JSON array instead of
+  failing on an `IReadOnlyList` to `List` cast
+- Added a bridge regression test for the DPI request payload
+
+### Download sizes
+
+| Bundle | 7z / tar.xz | zip / tar.gz |
+|:--|--:|--:|
+| Windows slim | 8.8 MB | 14.0 MB |
+| Windows portable | 47.8 MB | 76.3 MB |
+| Linux slim | 15.6 MB | 22.1 MB |
+| Linux portable | 21.2 MB | 30.6 MB |
+
+The Windows slim `.7z` is about 12.7× smaller than the v1.4.0 Windows zip
+(111.7 MB); the Linux slim `.tar.xz` is about 3.8× smaller than the v1.4.0
+Linux tarball (58.9 MB).
+
+## v1.4.0 — 2026-11-24
+
+### Added
+
+- Uno Platform single-project port of the WinUI UI for Windows and Linux
+- Go sidecar packaging, single-instance ownership, autostart migration, bridge
+  session/generation ordering, tray integration, and close-to-tray behavior
+
 ## v1.3.0 — 2026-11-23
 
 ### Added

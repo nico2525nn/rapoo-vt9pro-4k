@@ -34,14 +34,24 @@ or `build/bin/rapoo-bridge.exe`. Build both sidecars with:
 ```
 
 Publishing fails deliberately if the sidecar is missing or the release RID is
-not explicit. Release publish therefore uses:
+not explicit. Release publishing uses one of two profiles:
+
+- `win-x64` — slim: framework-dependent .NET and Windows App SDK. Requires the
+  .NET 10 Desktop Runtime and Windows App Runtime 1.8.
+- `win-x64-portable` — self-contained .NET and Windows App SDK.
+
+Both profiles remove the unused Windows ML stack after publish and skip
+ReadyToRun and PDBs. The Linux release script publishes a framework-dependent
+slim bundle and a self-contained, IL-trimmed portable bundle:
 
 ```bash
-dotnet publish uno/RapooControl/RapooControl.csproj -f net10.0-desktop -c Release -r linux-x64
+./uno/package-linux.sh
+powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1
 ```
 
-Both app heads disable trimming because the bridge protocol uses
-reflection-based `System.Text.Json`.
+The Skia head uses source-generated `System.Text.Json` metadata
+(`Services/BridgeJsonContext.cs`). Keep every new wire type registered there or
+trimmed publishes will fail at run time. The WinUI head is not trimmed.
 
 ## Run
 

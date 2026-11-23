@@ -2,7 +2,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Channels;
 
 namespace RapooControl.Services;
@@ -18,11 +19,6 @@ namespace RapooControl.Services;
 /// </summary>
 public sealed class RapooBridgeClient : IAsyncDisposable
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
     // The Go JSON decoder rejects a UTF-8 BOM, so stdin must not emit one.
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private const string BridgeProtocolVersion = "1";
@@ -343,10 +339,17 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         bool enabled,
         CancellationToken cancellationToken = default,
         long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("demo", new { enabled }, cancellationToken, sessionId);
+        RequestAsync<BridgeSnapshot>(
+            "demo",
+            new JsonObject { ["enabled"] = enabled },
+            cancellationToken,
+            sessionId);
 
     public Task<BridgeState> SetLanguageAsync(string language, CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgeState>("setLanguage", new { language }, cancellationToken);
+        RequestAsync<BridgeState>(
+            "setLanguage",
+            new JsonObject { ["language"] = language },
+            cancellationToken);
 
     public async Task<BridgeState> SetPollingModeAsync(
         string mode,
@@ -358,7 +361,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         CancellationToken cancellationToken = default,
         long sessionId = 0)
     {
-        var reply = await RequestElementAsync("pollingMode", new { mode }, cancellationToken, sessionId).ConfigureAwait(false);
+        var reply = await RequestElementAsync(
+            "pollingMode",
+            new JsonObject { ["mode"] = mode },
+            cancellationToken,
+            sessionId).ConfigureAwait(false);
         return new BridgeStateEvent(
             reply.SessionId,
             DeserializeReply<BridgeState>(reply, "pollingMode"),
@@ -369,7 +376,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         int hz,
         CancellationToken cancellationToken = default,
         long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("pollingRate", new { hz }, cancellationToken, sessionId);
+        RequestAsync<BridgeSnapshot>(
+            "pollingRate",
+            new JsonObject { ["hz"] = hz },
+            cancellationToken,
+            sessionId);
 
     public Task<BridgeSnapshot> SetDpiConfigAsync(
         int stageCount,
@@ -379,31 +390,62 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         long sessionId = 0) =>
         RequestAsync<BridgeSnapshot>(
             "dpiConfig",
-            new
+            new JsonObject
             {
-                config = new
+                ["config"] = new JsonObject
                 {
-                    currentStage,
-                    stageCount,
-                    independentXY = stages.Any(stage => stage.X != stage.Y),
-                    stages,
+                    ["currentStage"] = currentStage,
+                    ["stageCount"] = stageCount,
+                    ["independentXY"] = stages.Any(stage => stage.X != stage.Y),
+                    ["stages"] = CreateStageArray(stages),
                 },
             },
             cancellationToken,
             sessionId);
 
     public Task<BridgeSnapshot> ApplySensorAsync(
-        object patch,
+        IReadOnlyDictionary<string, object> patch,
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("sensor", new { patch }, cancellationToken, sessionId);
+        long sessionId = 0)
+    {
+        var patchNode = new JsonObject();
+        foreach (var (key, value) in patch)
+        {
+            patchNode[key] = value switch
+            {
+                bool boolean => JsonValue.Create(boolean),
+                int integer => JsonValue.Create(integer),
+                long longInteger => JsonValue.Create(longInteger),
+                double number => JsonValue.Create(number),
+                string text => JsonValue.Create(text),
+                _ => throw new InvalidOperationException(
+                    $"rapoo-bridge: unsupported sensor patch value for {key}: {value.GetType().Name}"),
+            };
+        }
+
+        return RequestAsync<BridgeSnapshot>(
+            "sensor",
+            new JsonObject { ["patch"] = patchNode },
+            cancellationToken,
+            sessionId);
+    }
 
     public Task<BridgeSnapshot> SetButtonAsync(
         int buttonId,
-        object action,
+        BridgeButtonAction action,
         CancellationToken cancellationToken = default,
         long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("button", new { buttonId, action }, cancellationToken, sessionId);
+        RequestAsync<BridgeSnapshot>(
+            "button",
+            new JsonObject
+            {
+                ["buttonId"] = buttonId,
+                ["action"] = JsonSerializer.SerializeToNode(
+                    action,
+                    BridgeJsonContext.Default.BridgeButtonAction),
+            },
+            cancellationToken,
+            sessionId);
 
     public Task<BridgeSnapshot> ResetButtonsAsync(
         CancellationToken cancellationToken = default,
@@ -426,19 +468,37 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         string name,
         string description,
         CancellationToken cancellationToken = default) =>
-        RequestAsync<BridgePreset>("savePreset", new { id, name, description }, cancellationToken);
+        RequestAsync<BridgePreset>(
+            "savePreset",
+            new JsonObject
+            {
+                ["id"] = id,
+                ["name"] = name,
+                ["description"] = description,
+            },
+            cancellationToken);
 
     public Task<BridgeSnapshot> ApplyPresetAsync(
         string id,
         CancellationToken cancellationToken = default,
         long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("applyPreset", new { id }, cancellationToken, sessionId);
+        RequestAsync<BridgeSnapshot>(
+            "applyPreset",
+            new JsonObject { ["id"] = id },
+            cancellationToken,
+            sessionId);
 
     public Task DeletePresetAsync(string id, CancellationToken cancellationToken = default) =>
-        RequestVoidAsync("deletePreset", new { id }, cancellationToken);
+        RequestVoidAsync(
+            "deletePreset",
+            new JsonObject { ["id"] = id },
+            cancellationToken);
 
     public Task<string> OpenFirmwareUpdaterAsync(string? path = null, CancellationToken cancellationToken = default) =>
-        RequestAsync<string>("openUpdater", new { path = path ?? string.Empty }, cancellationToken);
+        RequestAsync<string>(
+            "openUpdater",
+            new JsonObject { ["path"] = path ?? string.Empty },
+            cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
@@ -488,7 +548,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task<T> RequestAsync<T>(
         string method,
-        object? parameters,
+        JsonNode? parameters,
         CancellationToken cancellationToken,
         long sessionId = 0)
     {
@@ -496,11 +556,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         return DeserializeReply<T>(reply, method);
     }
 
-    private T DeserializeReply<T>(BridgeReply reply, string method)
+    private static T DeserializeReply<T>(BridgeReply reply, string method)
     {
         try
         {
-            var result = reply.Element.Deserialize<T>(JsonOptions);
+            var typeInfo = (JsonTypeInfo<T>?)BridgeJsonContext.Default.GetTypeInfo(typeof(T))
+                ?? throw new InvalidOperationException(
+                    $"rapoo-bridge: {typeof(T).Name} is not registered in BridgeJsonContext.");
+            var result = reply.Element.Deserialize(typeInfo);
             if (result is null)
             {
                 throw new InvalidOperationException($"rapoo-bridge: {method} returned an empty result.");
@@ -521,7 +584,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task RequestVoidAsync(
         string method,
-        object? parameters,
+        JsonNode? parameters,
         CancellationToken cancellationToken,
         long sessionId = 0)
     {
@@ -530,7 +593,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private async Task<BridgeReply> RequestElementAsync(
         string method,
-        object? parameters,
+        JsonNode? parameters,
         CancellationToken cancellationToken,
         long sessionId = 0)
     {
@@ -584,12 +647,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<BridgeReply>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var payload = JsonSerializer.Serialize(new BridgeRequest
-        {
-            Id = id,
-            Method = method,
-            Params = parameters,
-        }, JsonOptions);
+        var payload = SerializeRequest(id, method, parameters);
 
         lock (session.Gate)
         {
@@ -648,6 +706,37 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             session.Pending.TryRemove(id, out _);
             throw;
         }
+    }
+
+    private static JsonArray CreateStageArray(IReadOnlyList<BridgeDpiStage> stages)
+    {
+        var array = new JsonArray();
+        foreach (var stage in stages)
+        {
+            JsonNode stageNode = new JsonObject
+            {
+                ["index"] = stage.Index,
+                ["x"] = stage.X,
+                ["y"] = stage.Y,
+                ["enabled"] = stage.Enabled,
+            };
+            array.Add(stageNode);
+        }
+        return array;
+    }
+
+    private static string SerializeRequest(int id, string method, JsonNode? parameters)
+    {
+        var request = new JsonObject
+        {
+            ["id"] = id,
+            ["method"] = method,
+        };
+        if (parameters is not null)
+        {
+            request["params"] = parameters;
+        }
+        return request.ToJsonString();
     }
 
     private async Task ReadLoopAsync(BridgeSession session)
@@ -771,7 +860,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         BridgeState? state;
         try
         {
-            state = data.Deserialize<BridgeState>(JsonOptions);
+            state = data.Deserialize(BridgeJsonContext.Default.BridgeState);
         }
         catch (Exception ex)
         {
@@ -1086,13 +1175,6 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         long Sequence);
 
     private readonly record struct BridgeReply(JsonElement Element, long SessionId, long Sequence);
-
-    private sealed class BridgeRequest
-    {
-        [JsonPropertyName("id")] public int Id { get; set; }
-        [JsonPropertyName("method")] public string Method { get; set; } = string.Empty;
-        [JsonPropertyName("params")] public object? Params { get; set; }
-    }
 }
 
 public sealed record BridgeStateEvent(long SessionId, BridgeState State, long Sequence);

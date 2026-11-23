@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -306,7 +307,11 @@ public sealed class LocalizationService
         try
         {
             var temporary = _prefsPath + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new { language = next }, JsonOptions));
+            var payload = new JsonObject
+            {
+                ["language"] = next,
+            };
+            File.WriteAllText(temporary, payload.ToJsonString(JsonOptions));
             File.Move(temporary, _prefsPath, overwrite: true);
         }
         catch

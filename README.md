@@ -8,11 +8,29 @@ remains the only process that touches HID.
 
 [Releases](https://github.com/nico2525nn/rapoo-vt9pro-4k/releases)
 
-- `rapoo-control-uno-v1.4.0-windows-amd64.zip` — Windows app (self-contained, sidecar included)
-- `rapoo-control-uno-v1.4.0-linux-amd64.tar.gz` — Linux app (self-contained, sidecar included)
-- `checksums.txt` — SHA256 checksums
+Each platform has two bundles. The **slim** bundle is the small download and
+needs the runtimes listed below; the **portable** bundle runs without installing
+anything. The Windows slim `.7z` is about one twelfth of the v1.4.0 Windows
+download, and the Linux slim `.tar.xz` is about one third of the v1.4.0 Linux
+tarball.
 
-The v1.3.0 WinUI/Wails releases remain available for reference.
+| Bundle | Download | Requires |
+|:--|:--|:--|
+| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 1.8 |
+| Windows portable | `...-windows-amd64-portable.7z` (47.8 MB) / `.zip` (76.3 MB) | nothing |
+| Linux slim | `...-linux-amd64-slim.tar.xz` (15.6 MB) / `.tar.gz` (22.1 MB) | .NET 10 Runtime |
+| Linux portable | `...-linux-amd64-portable.tar.xz` (21.2 MB) / `.tar.gz` (30.6 MB) | nothing (X11 + OpenGL) |
+
+- A `.7z` needs [7-Zip](https://www.7-zip.org/); the `.zip` opens with Windows
+  Explorer. On Linux, `tar.xz` is smaller and `tar.gz` is more widely supported.
+- `.NET 10 Desktop Runtime`:
+  <https://dotnet.microsoft.com/download/dotnet/10.0>
+- `Windows App Runtime 1.8`:
+  <https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads>
+- `checksums.txt` — SHA256 checksums for every asset.
+
+The v1.4.0 self-contained release remains available for reference. The v1.3.0
+WinUI/Wails releases are unchanged.
 
 ## Screenshots
 
@@ -30,8 +48,18 @@ The v1.3.0 WinUI/Wails releases remain available for reference.
 
 ### Windows
 
-Extract the zip and run `RapooControl.exe`. The Go sidecar is included next to
-the app; no installer or .NET runtime is required.
+Pick the slim bundle for the smallest download, or the portable bundle when the
+target machine cannot install runtimes.
+
+- **Slim:** install the [.NET 10 Desktop
+  Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) and the [Windows
+  App Runtime
+  1.8](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads),
+  then extract the archive and run `RapooControl.exe`.
+- **Portable:** extract the archive and run `RapooControl.exe`. No runtime
+  installation is needed.
+
+The Go sidecar is included next to the app.
 
 - DPI, polling rate, lift-off distance, Motion Sync, debounce, 10 buttons,
   profiles, 0-TX (gaming lock), and demo mode.
@@ -46,7 +74,17 @@ the app; no installer or .NET runtime is required.
 
 ### Linux
 
-Extract the tarball and run `./RapooControl`. The bundle is self-contained.
+- **Slim:** install the [.NET 10
+  Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), extract the
+  archive, and run `./RapooControl`. If the runtime is not in
+  `/usr/share/dotnet`, point the app at it:
+
+  ```bash
+  DOTNET_ROOT="$HOME/.dotnet" ./RapooControl
+  ```
+
+- **Portable:** extract the archive and run `./RapooControl`. The bundle is
+  self-contained and only needs X11, OpenGL, and fontconfig from the system.
 
 - The app uses XDG autostart when enabled in Settings.
 - A Linux tray is not implemented yet; close-to-tray and start-hidden are
@@ -92,15 +130,18 @@ dotnet build uno/RapooControl/RapooControl.csproj -f net10.0-windows10.0.26100 -
 # Tests (DPI, bridge faults/restart, state ordering, autostart, migration)
 dotnet test uno/RapooControl.Tests/RapooControl.Tests.csproj
 
-# Windows release (run on Windows)
-dotnet publish uno/RapooControl/RapooControl.csproj -f net10.0-windows10.0.26100 -c Release -p:PublishProfile=win-x64
+# Linux release bundles (slim + portable, tar.xz + tar.gz)
+./uno/package-linux.sh
 
-# Linux self-contained release
-dotnet publish uno/RapooControl/RapooControl.csproj -f net10.0-desktop -c Release -r linux-x64 --self-contained true -o dist/linux
+# Windows release bundles (run on Windows after build-sidecars.sh)
+powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1
 ```
 
-Publishing requires the sidecar and an explicit RID. Both heads disable
-trimming because the bridge protocol uses reflection-based `System.Text.Json`.
+The Linux portable bundle is published with `PublishTrimmed=true`. The bridge
+protocol uses source-generated `System.Text.Json` metadata, so trimming is safe
+for the Skia head; the WinUI head is published untrimmed. The Windows publish
+profiles also remove the unused Windows ML stack (ONNX Runtime and DirectML),
+ReadyToRun images, and PDBs.
 
 ## Troubleshooting
 
