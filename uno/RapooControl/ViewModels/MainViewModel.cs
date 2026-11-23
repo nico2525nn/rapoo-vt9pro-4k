@@ -17,10 +17,6 @@ public sealed class MainViewModel : ObservableObject
     {
         _service = service;
         _service.StatusChanged += OnStatusChanged;
-        if (service is RealRapooService real)
-        {
-            real.Faulted += OnServiceFaulted;
-        }
 
         _status = new DeviceStatus(
             DeviceName: "Rapoo VT9 Pro 4K",
@@ -199,43 +195,17 @@ public sealed class MainViewModel : ObservableObject
         _post(() => ApplyStatus(status));
     }
 
-    private void OnServiceFaulted(object? sender, string message)
-    {
-        void Apply()
-        {
-            _initialization = null;
-            Dpi.InvalidateConfiguration();
-            ApplyStatus(_status with
-            {
-                Connection = ConnectionKind.Disconnected,
-                Connected = false,
-                MouseOnline = false,
-                BatteryPercent = -1,
-                Charging = false,
-                Sleeping = false,
-                LastError = message,
-                PermissionDenied = false,
-                UpdatedAt = DateTimeOffset.Now,
-            });
-            SetError(message);
-        }
-
-        if (_post is null)
-        {
-            Apply();
-        }
-        else
-        {
-            _post(Apply);
-        }
-    }
-
     private void ApplyStatus(DeviceStatus status)
     {
         var deviceChanged = _status.DemoMode != status.DemoMode || _status.Connection != status.Connection ||
             _status.DeviceName != status.DeviceName;
         _status = status;
-        if (status.Connected)
+        if (!string.IsNullOrEmpty(status.LastError) && !status.Connected)
+        {
+            _initialization = null;
+            SetError(status.LastError);
+        }
+        else if (status.Connected)
         {
             ClearError();
         }

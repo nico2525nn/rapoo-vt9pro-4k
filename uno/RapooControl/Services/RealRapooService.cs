@@ -24,7 +24,7 @@ public sealed partial class RealRapooService : IRapooService
     public RealRapooService()
     {
         _client.StateChanged += (_, state) =>
-            PublishState(state.State, state.Sequence);
+            PublishState(state.SessionId, state.State, state.Sequence);
         _client.Faulted += (_, fault) =>
         {
             if (fault.SessionId == _client.CurrentSessionId)
@@ -57,7 +57,7 @@ public sealed partial class RealRapooService : IRapooService
 
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
         var initial = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
-        PublishState(initial.State, initial.Sequence);
+        PublishState(initial.SessionId, initial.State, initial.Sequence);
         var epoch = CurrentEpoch;
 
         try
@@ -81,7 +81,7 @@ public sealed partial class RealRapooService : IRapooService
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         var state = await _client.GetStateWithSequenceAsync(cancellationToken).ConfigureAwait(false);
-        return PublishState(state.State, state.Sequence);
+        return PublishState(state.SessionId, state.State, state.Sequence);
     }
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
@@ -172,7 +172,7 @@ public sealed partial class RealRapooService : IRapooService
         CancellationToken cancellationToken = default)
     {
         var state = await _client.SetPollingModeWithSequenceAsync(mode, cancellationToken).ConfigureAwait(false);
-        return PublishState(state.State, state.Sequence);
+        return PublishState(state.SessionId, state.State, state.Sequence);
     }
 
     public async ValueTask DisposeAsync() =>
@@ -209,10 +209,14 @@ public sealed partial class RealRapooService : IRapooService
         throw last ?? new RapooBridgeException("デバイス設定を読み取れませんでした。");
     }
 
-    private DeviceStatus PublishState(BridgeState state, long sequence)
+    private DeviceStatus PublishState(long sessionId, BridgeState state, long sequence)
     {
         lock (_stateGate)
         {
+            if (sessionId != _client.CurrentSessionId)
+            {
+                return MapStatus(_lastState ?? state, _lastSnapshot);
+            }
             if (state.Revision > 0)
             {
                 if (state.Revision < _lastStateRevision)

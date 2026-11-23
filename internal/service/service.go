@@ -315,7 +315,7 @@ func (s *MouseService) SetPollingMode(mode PollingMode) {
 		oldClient = s.client
 	}
 	s.state.Mode = mode
-	snap := s.state
+	snap := s.snapshotLocked()
 	s.mu.Unlock()
 
 	if oldClient != nil {
@@ -375,7 +375,7 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 		return
 	}
 	s.state.Mode = mode
-	snap := s.state
+	snap := s.snapshotLocked()
 	s.mu.Unlock()
 	s.connectMu.Unlock()
 	s.publish(snap)
@@ -836,7 +836,7 @@ func (s *MouseService) ensureConnectedAndPollLocked() {
 		s.state.MaxRateHz = model.MaxRateHz
 		s.state.PermissionDenied = false
 		s.state.LastError = ""
-		snap := s.state
+		snap := s.snapshotLocked()
 		s.mu.Unlock()
 		s.publish(snap)
 	}
@@ -911,7 +911,7 @@ func (s *MouseService) markSleeping(transient bool) bool {
 	s.state.Sleeping = true
 	s.state.Charging = false
 	s.state.LastError = ""
-	snap := s.state
+	snap := s.snapshotLocked()
 	s.mu.Unlock()
 	log.Printf("mouse marked sleeping")
 	s.publish(snap)
@@ -968,7 +968,7 @@ func (s *MouseService) applyBattery(bat rapoo.BatteryState) {
 	}
 	s.state.PermissionDenied = false
 	s.state.LastError = ""
-	snap := s.state
+	snap := s.snapshotLocked()
 	s.mu.Unlock()
 
 	s.publish(snap)
@@ -1006,7 +1006,7 @@ func (s *MouseService) updateFromSnapshot(ds rapoo.DeviceSnapshot) {
 	}
 	s.state.PermissionDenied = false
 	s.state.LastError = ""
-	st := s.state
+	st := s.snapshotLocked()
 	emit := s.cfg.OnEventEmit
 	s.mu.Unlock()
 
@@ -1094,7 +1094,7 @@ func (s *MouseService) markDisconnected(err error) {
 	} else {
 		s.state.LastError = ""
 	}
-	snap := s.state
+	snap := s.snapshotLocked()
 	s.mu.Unlock()
 
 	if changed {
@@ -1102,16 +1102,22 @@ func (s *MouseService) markDisconnected(err error) {
 	}
 }
 
-func (s *MouseService) publish(snap State) {
-	s.mu.Lock()
+// snapshotLocked takes a state copy with a revision assigned at mutation time.
+// A delayed publish of an older snapshot therefore carries an older revision
+// and cannot overtake a newer state.
+func (s *MouseService) snapshotLocked() State {
 	s.state.Revision++
-	snap.Revision = s.state.Revision
+	return s.state
+}
+
+func (s *MouseService) publish(snap State) {
+	s.mu.RLock()
 	listeners := make([]Listener, 0, len(s.subscribers))
 	for _, fn := range s.subscribers {
 		listeners = append(listeners, fn)
 	}
 	emit := s.cfg.OnEventEmit
-	s.mu.Unlock()
+	s.mu.RUnlock()
 
 	for _, fn := range listeners {
 		fn(snap)

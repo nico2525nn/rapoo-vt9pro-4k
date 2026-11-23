@@ -324,7 +324,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public async Task<BridgeStateEvent> GetStateWithSequenceAsync(CancellationToken cancellationToken = default)
     {
         var reply = await RequestElementAsync("state", null, cancellationToken).ConfigureAwait(false);
-        return new BridgeStateEvent(DeserializeReply<BridgeState>(reply, "state"), reply.Sequence);
+        return new BridgeStateEvent(
+            reply.SessionId,
+            DeserializeReply<BridgeState>(reply, "state"),
+            reply.Sequence);
     }
 
     public Task<BridgeSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
@@ -346,7 +349,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var reply = await RequestElementAsync("pollingMode", new { mode }, cancellationToken).ConfigureAwait(false);
-        return new BridgeStateEvent(DeserializeReply<BridgeState>(reply, "pollingMode"), reply.Sequence);
+        return new BridgeStateEvent(
+            reply.SessionId,
+            DeserializeReply<BridgeState>(reply, "pollingMode"),
+            reply.Sequence);
     }
 
     public Task<BridgeSnapshot> SetPollingRateAsync(int hz, CancellationToken cancellationToken = default) =>
@@ -575,7 +581,16 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 }
             });
 
-            return await completion.Task.ConfigureAwait(false);
+            var reply = await completion.Task.ConfigureAwait(false);
+            if (Volatile.Read(ref session.Faulted) != 0 ||
+                Volatile.Read(ref session.Stopping) != 0 ||
+                Volatile.Read(ref session.Exited) != 0 ||
+                !ReferenceEquals(_session, session))
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+            }
+            return reply;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -650,13 +665,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     }
                     else if (hasResult)
                     {
-                        completion.TrySetResult(new BridgeReply(resultElement.Clone(), sequence));
+                        completion.TrySetResult(
+                            new BridgeReply(resultElement.Clone(), session.Id, sequence));
                     }
                     else
                     {
                         // The Go bridge omits a nil result for void calls such
                         // as deletePreset; the id is a valid acknowledgement.
-                        completion.TrySetResult(new BridgeReply(default, sequence));
+                        completion.TrySetResult(new BridgeReply(default, session.Id, sequence));
                     }
                 }
                 catch (JsonException ex)
@@ -735,7 +751,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 return;
             }
             _notifications.Writer.TryWrite(
-                new BridgeNotification(session.Id, new BridgeStateEvent(state, sequence), null, sequence));
+                new BridgeNotification(
+                    session.Id,
+                    new BridgeStateEvent(session.Id, state, sequence),
+                    null,
+                    sequence));
         }
     }
 
@@ -1022,7 +1042,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         string? Fault,
         long Sequence);
 
-    private readonly record struct BridgeReply(JsonElement Element, long Sequence);
+    private readonly record struct BridgeReply(JsonElement Element, long SessionId, long Sequence);
 
     private sealed class BridgeRequest
     {
@@ -1032,7 +1052,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     }
 }
 
-public sealed record BridgeStateEvent(BridgeState State, long Sequence);
+public sealed record BridgeStateEvent(long SessionId, BridgeState State, long Sequence);
 
 public sealed record BridgeFault(long SessionId, string Message, long Sequence);
 
