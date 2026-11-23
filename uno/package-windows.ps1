@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     slim     - framework-dependent; requires the .NET 10 Desktop Runtime and
-               the Windows App Runtime 1.8.
+               the Windows App Runtime 2.5.1 (x64).
     portable - self-contained; no runtime installation required.
 
     Run this on Windows after uno/build-sidecars.sh has produced
@@ -31,6 +31,29 @@ if (-not $Version) {
 $sidecar = Join-Path $root "build\bin\rapoo-bridge.exe"
 if (-not (Test-Path $sidecar)) {
     throw "Missing $sidecar. Run ./uno/build-sidecars.sh on Linux first."
+}
+
+$newestGoSource = Get-ChildItem `
+    (Join-Path $root "cmd"), (Join-Path $root "internal"), (Join-Path $root "pkg") `
+    -Recurse -File -Filter *.go -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($newestGoSource -and
+    (Get-Item $sidecar).LastWriteTime -lt $newestGoSource.LastWriteTime) {
+    throw "The sidecar is older than $($newestGoSource.FullName). Rebuild it with ./uno/build-sidecars.sh."
+}
+
+$go = Get-Command go -ErrorAction SilentlyContinue
+if ($go) {
+    $vcs = & $go.Source version -m $sidecar | Select-String 'vcs\.(revision|modified)='
+    if (-not $vcs) {
+        throw "The sidecar has no VCS stamp; rebuild it from the release checkout."
+    }
+    if ($vcs -match 'vcs\.modified=true') {
+        throw "The sidecar was built from a dirty tree; rebuild it from the release commit."
+    }
+    Write-Host ($vcs -join [Environment]::NewLine)
+} else {
+    Write-Warning "Go is not installed; the sidecar VCS stamp was not checked (freshness was checked)."
 }
 
 $dotnet = Join-Path $env:USERPROFILE ".dotnet\dotnet.exe"
@@ -79,6 +102,23 @@ function Publish-Bundle {
 
     Copy-Item (Join-Path $root "README.md") $out
     Copy-Item (Join-Path $root "LICENSE") $out
+
+    if ($Name -eq "slim") {
+        $depsPath = Join-Path $out "RapooControl.deps.json"
+        $deps = Get-Content $depsPath -Raw | ConvertFrom-Json
+        $wasdk = $deps.libraries.PSObject.Properties.Name |
+            Where-Object { $_ -like "Microsoft.WindowsAppSDK/*" } |
+            Select-Object -First 1
+        if (-not $wasdk) {
+            throw "No Microsoft.WindowsAppSDK entry in $depsPath"
+        }
+        $wasdkVersion = ($wasdk -split '/')[-1]
+        $readmeText = Get-Content (Join-Path $out "README.md") -Raw
+        if ($readmeText -notmatch [regex]::Escape("Windows App Runtime $wasdkVersion")) {
+            throw "README does not mention Windows App Runtime $wasdkVersion, which the slim bundle requires."
+        }
+        Write-Host "Windows App SDK $wasdkVersion; README runtime prerequisite matches."
+    }
 
     $sevenZipPath = Join-Path $dist "$prefix-$Name.7z"
     if (Test-Path $sevenZipPath) {

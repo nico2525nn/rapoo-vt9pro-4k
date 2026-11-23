@@ -8,15 +8,15 @@ remains the only process that touches HID.
 
 [Releases](https://github.com/nico2525nn/rapoo-vt9pro-4k/releases)
 
-Each platform has two bundles. The **slim** bundle is the small download and
-needs the runtimes listed below; the **portable** bundle runs without installing
-anything. The Windows slim `.7z` is about one twelfth of the v1.4.0 Windows
-download, and the Linux slim `.tar.xz` is about one third of the v1.4.0 Linux
-tarball.
+Each platform has two bundles. **portable** is self-contained and the best
+choice for a fresh machine. **slim** is the smallest app download and needs the
+runtimes listed below. The Windows slim `.7z` is about one twelfth of the
+v1.4.0 Windows download, and the Linux slim `.tar.xz` is about one third of the
+v1.4.0 Linux tarball.
 
 | Bundle | Download | Requires |
 |:--|:--|:--|
-| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 1.8 |
+| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 2.5.1 (x64) |
 | Windows portable | `...-windows-amd64-portable.7z` (47.8 MB) / `.zip` (76.3 MB) | nothing |
 | Linux slim | `...-linux-amd64-slim.tar.xz` (15.6 MB) / `.tar.gz` (22.1 MB) | .NET 10 Runtime |
 | Linux portable | `...-linux-amd64-portable.tar.xz` (21.2 MB) / `.tar.gz` (30.6 MB) | nothing (X11 + OpenGL) |
@@ -25,8 +25,10 @@ tarball.
   Explorer. On Linux, `tar.xz` is smaller and `tar.gz` is more widely supported.
 - `.NET 10 Desktop Runtime`:
   <https://dotnet.microsoft.com/download/dotnet/10.0>
-- `Windows App Runtime 1.8`:
-  <https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads>
+- `Windows App Runtime 2.5.1` (x64):
+  <https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe>
+  The app targets Windows App SDK 2.5.1, so the 2.5 runtime is required; the
+  2.6/2.7 runtimes do not satisfy it. The installer is about 120 MB.
 - `checksums.txt` — SHA256 checksums for every asset.
 
 The v1.4.0 self-contained release remains available for reference. The v1.3.0
@@ -48,16 +50,13 @@ WinUI/Wails releases are unchanged.
 
 ### Windows
 
-Pick the slim bundle for the smallest download, or the portable bundle when the
-target machine cannot install runtimes.
-
+- **Portable (recommended for a fresh machine):** extract the archive and run
+  `RapooControl.exe`. No runtime installation is needed.
 - **Slim:** install the [.NET 10 Desktop
   Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) and the [Windows
-  App Runtime
-  1.8](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads),
-  then extract the archive and run `RapooControl.exe`.
-- **Portable:** extract the archive and run `RapooControl.exe`. No runtime
-  installation is needed.
+  App Runtime 2.5.1 (x64)](https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe),
+  then extract the archive and run `RapooControl.exe`. The 2.5 runtime is
+  required; 2.6/2.7 do not satisfy it.
 
 The Go sidecar is included next to the app.
 
@@ -74,6 +73,9 @@ The Go sidecar is included next to the app.
 
 ### Linux
 
+- **Portable (recommended for a fresh machine):** extract the archive and run
+  `./RapooControl`. The bundle is self-contained and only needs X11, OpenGL,
+  and fontconfig from the system.
 - **Slim:** install the [.NET 10
   Runtime](https://dotnet.microsoft.com/download/dotnet/10.0), extract the
   archive, and run `./RapooControl`. If the runtime is not in
@@ -82,9 +84,6 @@ The Go sidecar is included next to the app.
   ```bash
   DOTNET_ROOT="$HOME/.dotnet" ./RapooControl
   ```
-
-- **Portable:** extract the archive and run `./RapooControl`. The bundle is
-  self-contained and only needs X11, OpenGL, and fontconfig from the system.
 
 - The app uses XDG autostart when enabled in Settings.
 - A Linux tray is not implemented yet; close-to-tray and start-hidden are
