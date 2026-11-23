@@ -40,6 +40,7 @@ public sealed class PlatformAndMappingTests
     [TestCase("\"C:\\Apps\\RapooControl.exe\" \"--tray\"", true)]
     [TestCase("\"C:\\Apps\\RapooControl.exe\" '--hidden'", false)]
     [TestCase("\"C:\\Apps\\RapooControl.exe\" \"\\--hidden\"", false)]
+    [TestCase("\"C:\\Apps\\RapooControl.exe\" --note=\\\" --hidden", true)]
     public void HasHiddenFlag_MatchesOnlyWholeArguments(string command, bool expected)
     {
         Assert.That(AutoStartService.HasHiddenFlag(command), Is.EqualTo(expected));

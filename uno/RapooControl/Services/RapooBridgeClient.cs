@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Channels;
 
 namespace RapooControl.Services;
 
@@ -31,11 +32,25 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly object _gate = new();
+    private readonly object _eventGate = new();
+    private readonly Channel<BridgeNotification> _notifications =
+        Channel.CreateUnbounded<BridgeNotification>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+        });
+    private readonly CancellationTokenSource _notificationCts = new();
+    private long _nextSessionId;
     private volatile BridgeSession? _session;
     private Task? _startTask;
     private Task? _disposeTask;
     private int _nextId;
     private int _disposed;
+
+    public RapooBridgeClient()
+    {
+        _ = Task.Run(ProcessNotificationsAsync, CancellationToken.None);
+    }
 
     public event EventHandler<BridgeState>? StateChanged;
 
@@ -126,7 +141,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             },
             EnableRaisingEvents = true,
         };
-        var session = new BridgeSession(process, cts);
+        var session = new BridgeSession(
+            process,
+            cts,
+            Interlocked.Increment(ref _nextSessionId));
         process.Exited += (_, _) => HandleProcessExited(session);
         try
         {
@@ -237,8 +255,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         CompleteSession(
             session,
             new InvalidOperationException(
-                LocalizationService.Instance.T("rapoo-bridge が終了しました。")),
-            raiseFault: false);
+                LocalizationService.Instance.T("rapoo-bridge が終了しました。")));
 
         try
         {
@@ -283,8 +300,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         CompleteSession(
             session,
             new InvalidOperationException(
-                LocalizationService.Instance.T("rapoo-bridge が終了しました。")),
-            raiseFault: false);
+                LocalizationService.Instance.T("rapoo-bridge が終了しました。")));
 
         lock (_gate)
         {
@@ -386,7 +402,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             }
             disposeTask = _disposeTask;
         }
-        await disposeTask.ConfigureAwait(false);
+        try
+        {
+            await disposeTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            _notificationCts.Cancel();
+            _notifications.Writer.TryComplete();
+        }
     }
 
     private async Task DisposeCoreAsync()
@@ -658,29 +682,32 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             return;
         }
 
-        // Deliver events under the session gate so a process-exit fault cannot
-        // publish a disconnect first and then let an older connected event
-        // overtake it.
-        lock (session.Gate)
+        BridgeState? state;
+        try
+        {
+            state = data.Deserialize<BridgeState>(JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            Log($"state event decode failed: {ex}");
+            return;
+        }
+        if (state is null)
+        {
+            return;
+        }
+
+        // Queue the event; delivery happens outside all session locks so a
+        // subscriber can safely call GetStateAsync, StopAsync, or IsRunning.
+        lock (_eventGate)
         {
             if (Volatile.Read(ref session.Stopping) != 0 ||
-                Volatile.Read(ref session.Faulted) != 0)
+                Volatile.Read(ref session.Faulted) != 0 ||
+                _session?.Id != session.Id)
             {
                 return;
             }
-
-            try
-            {
-                var state = data.Deserialize<BridgeState>(JsonOptions);
-                if (state is not null)
-                {
-                    StateChanged?.Invoke(this, state);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log($"state event decode failed: {ex}");
-            }
+            _notifications.Writer.TryWrite(new BridgeNotification(session.Id, state, null));
         }
     }
 
@@ -709,16 +736,21 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private void FaultSession(BridgeSession session, string message)
     {
-        if (Volatile.Read(ref session.Stopping) != 0 ||
-            Interlocked.Exchange(ref session.Faulted, 1) != 0)
+        lock (_eventGate)
         {
-            return;
-        }
+            if (Volatile.Read(ref session.Stopping) != 0 ||
+                Interlocked.Exchange(ref session.Faulted, 1) != 0)
+            {
+                return;
+            }
 
-        CompleteSession(session, new InvalidOperationException(message), raiseFault: true);
+            var error = new InvalidOperationException(message);
+            CompleteSession(session, error);
+            _notifications.Writer.TryWrite(new BridgeNotification(session.Id, null, message));
+        }
     }
 
-    private void CompleteSession(BridgeSession session, Exception error, bool raiseFault)
+    private void CompleteSession(BridgeSession session, Exception error)
     {
         lock (session.Gate)
         {
@@ -729,10 +761,38 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             }
             session.Pending.Clear();
         }
+    }
 
-        if (raiseFault && ReferenceEquals(_session, session))
+    private async Task ProcessNotificationsAsync()
+    {
+        try
         {
-            Faulted?.Invoke(this, error.Message);
+            await foreach (var notification in _notifications.Reader
+                .ReadAllAsync(_notificationCts.Token)
+                .ConfigureAwait(false))
+            {
+                var session = _session;
+                if (session is null || session.Id != notification.SessionId)
+                {
+                    continue;
+                }
+
+                if (notification.State is { } state)
+                {
+                    StateChanged?.Invoke(this, state);
+                }
+                else if (notification.Fault is { } fault)
+                {
+                    Faulted?.Invoke(this, fault);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log($"notification loop failed: {ex}");
         }
     }
 
@@ -875,10 +935,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private sealed class BridgeSession(Process process, CancellationTokenSource cts)
+    private sealed class BridgeSession(
+        Process process,
+        CancellationTokenSource cts,
+        long id)
     {
         public Process Process { get; } = process;
         public CancellationTokenSource Cts { get; } = cts;
+        public long Id { get; } = id;
         public TaskCompletionSource<bool> Ready { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> Pending { get; } = new();
@@ -904,6 +968,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             Volatile.Read(ref Faulted) == 0 &&
             !Process.HasExited;
     }
+
+    private readonly record struct BridgeNotification(long SessionId, BridgeState? State, string? Fault);
 
     private sealed class BridgeRequest
     {

@@ -114,9 +114,11 @@ public static partial class AutoStartService
                 // quoting; single quotes are ordinary characters.
                 inQuotes = !inQuotes;
             }
-            else if (inQuotes && character == '\\' && i + 1 < arguments.Length &&
+            else if (character == '\\' && i + 1 < arguments.Length &&
                      arguments[i + 1] is '"' or '\\')
             {
+                // Windows treats backslash-escaped quote as a literal quote,
+                // both inside and outside a quoted argument.
                 token.Append(arguments[++i]);
             }
             else if (!inQuotes && char.IsWhiteSpace(character))

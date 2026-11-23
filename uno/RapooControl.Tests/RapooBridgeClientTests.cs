@@ -223,6 +223,59 @@ public sealed class RapooBridgeClientTests
         }
     }
 
+
+    [Test]
+    public async Task StateCallback_CanCallGetStateAndRestart()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX script.");
+        var script = CreateScript(
+            """
+            #!/usr/bin/env python3
+            import json, sys
+            print(json.dumps({"event": "ready", "data": {"version": "1"}}), flush=True)
+            print(json.dumps({"event": "state", "data": {"connected": True, "demoMode": False,
+                "deviceName": "Fake", "hasBattery": False, "percentage": -1,
+                "mouseOnline": True}}), flush=True)
+            for line in sys.stdin:
+                request = json.loads(line)
+                print(json.dumps({"id": request["id"], "result": {"connected": True,
+                    "demoMode": False, "deviceName": "Fake", "maxRateHz": 4000}}), flush=True)
+            """);
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(script,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        var client = new RapooBridgeClient();
+        try
+        {
+            var restarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            client.StateChanged += (_, _) => _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await client.GetStateAsync().WaitAsync(TimeSpan.FromSeconds(2));
+                    await client.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                    await client.StartAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                    restarted.TrySetResult(client.IsRunning);
+                }
+                catch (Exception ex)
+                {
+                    restarted.TrySetException(ex);
+                }
+            });
+            await client.StartAsync();
+            Assert.That(await restarted.Task.WaitAsync(TimeSpan.FromSeconds(8)), Is.True);
+        }
+        finally
+        {
+            await client.DisposeAsync();
+            File.Delete(script);
+        }
+    }
+
     private static string CreateScript(string contents)
     {
         var path = Path.Combine(Path.GetTempPath(), $"rapoo-bridge-test-{Guid.NewGuid():N}.sh");
