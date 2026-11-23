@@ -59,6 +59,7 @@ public sealed partial class RealRapooService : IRapooService
                     // Reset only after the new session exists. Never move the
                     // active id backwards when a delayed start resumes.
                     _activeSessionId = sessionId;
+                    _lastState = null;
                     _lastStateSequence = 0;
                     _lastStateRevision = 0;
                     _lastSnapshot = null;
@@ -250,10 +251,13 @@ public sealed partial class RealRapooService : IRapooService
             {
                 return MapStatus(_lastState ?? state, _lastSnapshot);
             }
-            if (state.Generation > 0 && _lastState is { Generation: > 0 } previousGeneration)
+            if (_lastState is { Generation: > 0 } previousGeneration)
             {
-                if (state.Generation < previousGeneration.Generation)
+                if (state.Generation == 0 ||
+                    state.Generation < previousGeneration.Generation)
                 {
+                    // Unknown generation (queued old payload) or an explicit
+                    // older device instance must not overwrite the current one.
                     return MapStatus(_lastState!, _lastSnapshot);
                 }
                 if (state.Generation > previousGeneration.Generation)
@@ -489,6 +493,7 @@ public sealed partial class RealRapooService : IRapooService
             DemoMode = snapshot.DemoMode,
             Generation = snapshot.Generation,
             DeviceName = snapshot.Model?.Name,
+            ProductId = snapshot.Model?.ProductId ?? 0,
             MaxRateHz = snapshot.Model?.MaxRateHz ?? 4000,
             HasBattery = snapshot.Battery is not null,
             Percentage = snapshot.Battery?.Percentage ?? -1,
