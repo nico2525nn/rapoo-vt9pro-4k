@@ -315,8 +315,12 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 // acquireDeviceMutex gives one process ownership of the writable command
 // endpoint. The report endpoint remains shareable, and 0-TX releases this
 // mutex when the command handle closes.
+func CommandMutexName(vendorID, productID uint16) string {
+	return fmt.Sprintf(`Local\RapooVT9Pro4K_%04X_%04X`, vendorID, productID)
+}
+
 func acquireDeviceMutex(info DeviceInfo) (windows.Handle, error) {
-	name := fmt.Sprintf(`Local\RapooVT9Pro4K_%04X_%04X`, info.VendorID, info.ProductID)
+	name := CommandMutexName(info.VendorID, info.ProductID)
 	namePtr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
 		return 0, err

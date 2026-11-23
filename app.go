@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,7 @@ import (
 	"github.com/nico/rapoo-vt9pro-4k/internal/profile"
 	"github.com/nico/rapoo-vt9pro-4k/internal/service"
 	"github.com/nico/rapoo-vt9pro-4k/internal/tray"
+	"github.com/nico/rapoo-vt9pro-4k/internal/updaterguard"
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
@@ -577,12 +580,45 @@ func (a *App) launchOfficialUpdater(path string) (string, error) {
 		a.svc.SetPollingMode(previousMode)
 		return "", selfErr
 	}
-	cmd := exec.Command(self, "--updater-guard", path)
+	state := a.svc.GetState()
+	cmd := exec.Command(self, "--updater-guard", path,
+		strconv.Itoa(0x24AE), strconv.Itoa(int(state.ProductID)))
 	cmd.Dir = filepath.Dir(self)
+	updaterguard.ConfigureCommand(cmd)
+	stdout, pipeErr := cmd.StdoutPipe()
+	if pipeErr != nil {
+		a.svc.EndUpdater()
+		a.svc.SetPollingMode(previousMode)
+		return "", pipeErr
+	}
 	if err := cmd.Start(); err != nil {
 		a.svc.EndUpdater()
 		a.svc.SetPollingMode(previousMode)
 		return "", err
+	}
+	ready := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		if scanner.Scan() && strings.TrimSpace(scanner.Text()) == "ready" {
+			ready <- nil
+			return
+		}
+		ready <- errors.New("the official updater did not start")
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			_ = cmd.Wait()
+			a.svc.EndUpdater()
+			a.svc.SetPollingMode(previousMode)
+			return "", err
+		}
+	case <-time.After(15 * time.Second):
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		a.svc.EndUpdater()
+		a.svc.SetPollingMode(previousMode)
+		return "", errors.New("the official updater did not start")
 	}
 	go func() {
 		_ = cmd.Wait()

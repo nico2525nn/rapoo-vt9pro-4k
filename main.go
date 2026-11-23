@@ -2,8 +2,10 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"os"
 	"runtime"
+	"strconv"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -30,8 +32,17 @@ func containsHiddenArg(args []string) bool {
 }
 
 func main() {
-	if len(os.Args) >= 3 && os.Args[1] == "--updater-guard" {
-		if err := updaterguard.Run(os.Args[2]); err != nil {
+	if len(os.Args) >= 5 && os.Args[1] == "--updater-guard" {
+		vendor, vendorErr := strconv.Atoi(os.Args[3])
+		product, productErr := strconv.Atoi(os.Args[4])
+		if vendorErr != nil || productErr != nil {
+			println("updater guard: invalid device id")
+			os.Exit(1)
+		}
+		if err := updaterguard.Run(os.Args[2], uint16(vendor), uint16(product), func() {
+			fmt.Println("ready")
+			_ = os.Stdout.Sync()
+		}); err != nil {
 			println("updater guard:", err.Error())
 			os.Exit(1)
 		}

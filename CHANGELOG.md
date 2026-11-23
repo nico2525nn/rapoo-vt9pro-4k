@@ -27,7 +27,8 @@
 - WinUI waits for a valid sidecar handshake before the first RPC and isolates restarts from old read loops
 - Auto-start migration recognizes the documented v1.2.0 filenames and new per-app markers
 - Early second-launch requests use a manual-reset event and synchronized Wails state
-- Firmware updates run under a detached guard process that holds a cross-process mutex, so relaunching either app during an update is refused
+- Firmware updates run under a detached, console-less guard process that holds a cross-process mutex and waits for existing HID command handles to close
+- The guard reports readiness only after the official updater actually starts, so the UI no longer claims success on a failed launch
 - WinUI serializes bridge startup, waits for the handshake before any RPC, and retries after a launch failure
 - Early show requests use a locked handoff; the Wails tray auto-start toggle goes through the app's migration and legacy cleanup
 - WinUI uses an explicit sleeping state, respects an explicit `IsPromoted=0`, writes preferences atomically, and clamps wired DPI rates

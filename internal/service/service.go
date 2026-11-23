@@ -682,6 +682,15 @@ func (s *MouseService) loop(ctx context.Context) {
 			lastPoll = time.Now()
 
 		case now := <-ticker.C:
+			if updaterguard.Held() {
+				s.connectMu.Lock()
+				s.closeClient()
+				s.connectMu.Unlock()
+				s.markDisconnected(errors.New("ファームウェア更新中です"))
+				lastPoll = now
+				continue
+			}
+
 			s.mu.RLock()
 			connected := s.client != nil
 			mode := s.state.Mode

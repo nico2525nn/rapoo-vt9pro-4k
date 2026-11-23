@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,9 +16,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/nico/rapoo-vt9pro-4k/internal/service"
 	"github.com/nico/rapoo-vt9pro-4k/internal/updaterguard"
@@ -61,8 +64,17 @@ func main() {
 	log.SetPrefix("rapoo-bridge: ")
 	log.SetOutput(os.Stderr)
 
-	if len(os.Args) >= 3 && os.Args[1] == "--updater-guard" {
-		if err := updaterguard.Run(os.Args[2]); err != nil {
+	if len(os.Args) >= 5 && os.Args[1] == "--updater-guard" {
+		vendor, vendorErr := strconv.Atoi(os.Args[3])
+		product, productErr := strconv.Atoi(os.Args[4])
+		if vendorErr != nil || productErr != nil {
+			log.Printf("updater guard: invalid device id")
+			os.Exit(1)
+		}
+		if err := updaterguard.Run(os.Args[2], uint16(vendor), uint16(product), func() {
+			fmt.Println("ready")
+			_ = os.Stdout.Sync()
+		}); err != nil {
 			log.Printf("updater guard: %v", err)
 			os.Exit(1)
 		}
@@ -388,12 +400,45 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 			b.svc.SetPollingMode(previous)
 			return "", selfErr
 		}
-		cmd := exec.Command(self, "--updater-guard", path)
+		state := b.svc.GetState()
+		cmd := exec.Command(self, "--updater-guard", path,
+			strconv.Itoa(0x24AE), strconv.Itoa(int(state.ProductID)))
 		cmd.Dir = filepath.Dir(self)
+		updaterguard.ConfigureCommand(cmd)
+		stdout, pipeErr := cmd.StdoutPipe()
+		if pipeErr != nil {
+			b.svc.EndUpdater()
+			b.svc.SetPollingMode(previous)
+			return "", pipeErr
+		}
 		if err := cmd.Start(); err != nil {
 			b.svc.EndUpdater()
 			b.svc.SetPollingMode(previous)
 			return "", err
+		}
+		ready := make(chan error, 1)
+		go func() {
+			scanner := bufio.NewScanner(stdout)
+			if scanner.Scan() && strings.TrimSpace(scanner.Text()) == "ready" {
+				ready <- nil
+				return
+			}
+			ready <- errors.New("the official updater did not start")
+		}()
+		select {
+		case err := <-ready:
+			if err != nil {
+				_ = cmd.Wait()
+				b.svc.EndUpdater()
+				b.svc.SetPollingMode(previous)
+				return "", err
+			}
+		case <-time.After(15 * time.Second):
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			b.svc.EndUpdater()
+			b.svc.SetPollingMode(previous)
+			return "", errors.New("the official updater did not start")
 		}
 		go func() {
 			_ = cmd.Wait()
