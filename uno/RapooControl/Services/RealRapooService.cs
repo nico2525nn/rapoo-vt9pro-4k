@@ -250,6 +250,21 @@ public sealed partial class RealRapooService : IRapooService
             {
                 return MapStatus(_lastState ?? state, _lastSnapshot);
             }
+            if (state.Generation > 0 && _lastState is { Generation: > 0 } previousGeneration)
+            {
+                if (state.Generation < previousGeneration.Generation)
+                {
+                    return MapStatus(_lastState!, _lastSnapshot);
+                }
+                if (state.Generation > previousGeneration.Generation)
+                {
+                    // A new device generation is newer than any revision from the
+                    // old generation, even if its revision counter is lower.
+                    _lastStateRevision = 0;
+                    _lastStateSequence = 0;
+                }
+            }
+
             if (state.Revision > 0)
             {
                 if (state.Revision < _lastStateRevision)
@@ -349,25 +364,33 @@ public sealed partial class RealRapooService : IRapooService
             var state = _lastState;
             if (state is not null)
             {
-                var productId = snapshot.Model?.ProductId ?? 0;
-                if (productId > 0 && state.ProductId > 0 && productId != state.ProductId)
-                {
-                    throw new InvalidOperationException(
-                        LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
-                }
-                if (snapshot.Generation > 0 && state.Generation > snapshot.Generation)
-                {
-                    throw new InvalidOperationException(
-                        LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
-                }
-                if (state.Generation == snapshot.Generation &&
-                    state.DemoMode != snapshot.DemoMode)
+                if (snapshot.Generation > 0 &&
+                    state.Generation > 0 &&
+                    snapshot.Generation < state.Generation)
                 {
                     throw new InvalidOperationException(
                         LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
                 }
 
-                if (snapshot.Generation > state.Generation)
+                var newerGeneration = snapshot.Generation > 0 &&
+                    (state.Generation == 0 || snapshot.Generation > state.Generation);
+                if (!newerGeneration)
+                {
+                    var productId = snapshot.Model?.ProductId ?? 0;
+                    if (productId > 0 && state.ProductId > 0 && productId != state.ProductId)
+                    {
+                        throw new InvalidOperationException(
+                            LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+                    }
+                    if (state.Generation == snapshot.Generation &&
+                        state.DemoMode != snapshot.DemoMode)
+                    {
+                        throw new InvalidOperationException(
+                            LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+                    }
+                }
+
+                if (newerGeneration)
                 {
                     // The demo transition event may still be queued; adopt the
                     // snapshot's new generation so the successful reply is usable.
@@ -375,6 +398,8 @@ public sealed partial class RealRapooService : IRapooService
                     _lastSnapshot = null;
                     _snapshotEpoch = 0;
                     _snapshotSessionId = 0;
+                    _lastStateRevision = 0;
+                    _lastStateSequence = 0;
                 }
             }
 
