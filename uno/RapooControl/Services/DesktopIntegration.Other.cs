@@ -1,10 +1,10 @@
-#if !WINDOWS && !LINUX
+#if !WINDOWS
 using Microsoft.UI.Xaml;
 using RapooControl.ViewModels;
 
 namespace RapooControl.Services;
 
-/// <summary>Fallback for platform-neutral builds.</summary>
+/// <summary>Non-Windows head (Skia desktop). A system tray is not available yet.</summary>
 public sealed partial class DesktopIntegration
 {
     public static DesktopIntegration Current { get; } = new();

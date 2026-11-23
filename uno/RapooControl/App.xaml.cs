@@ -23,6 +23,8 @@ public partial class App : Application
     {
         InitializeComponent();
         LocalizationService.Instance.Initialize();
+        AutoStartService.MigrateLegacy();
+        DesktopPreferences.Current.MigrateLegacy();
         DesktopPreferences.Current.Load();
 
         var useMock = Environment.GetEnvironmentVariable("RAPOO_USE_MOCK") == "1";
@@ -43,8 +45,6 @@ public partial class App : Application
             Environment.Exit(1);
         }
 
-        AutoStartService.MigrateLegacy();
-
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
     }
 
@@ -64,7 +64,7 @@ public partial class App : Application
         ViewModel.AttachDispatcher(action =>
             MainWindow.DispatcherQueue.TryEnqueue(() => action()));
         SingleInstance.Current.SetShowHandler(
-            () => MainWindow?.DispatcherQueue.TryEnqueue(ShowWindow));
+            () => MainWindow is { } window && window.DispatcherQueue.TryEnqueue(ShowWindow));
         DesktopIntegration.Current.Initialize(MainWindow, ViewModel);
         if (_startHidden && DesktopIntegration.Current.IsTrayReady)
         {
@@ -101,8 +101,20 @@ public partial class App : Application
 #endif
     }
 
-    private static bool ShouldStartHidden() => Environment.GetCommandLineArgs()
-        .Any(argument => argument is "--hidden" or "--tray");
+    private static bool ShouldStartHidden()
+    {
+        if (string.Equals(
+            Environment.GetEnvironmentVariable("RAPOO_START_HIDDEN"),
+            "1",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Environment.GetCommandLineArgs().Any(argument =>
+            string.Equals(argument, "--hidden", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(argument, "--tray", StringComparison.OrdinalIgnoreCase));
+    }
 
     internal void ShowWindow()
     {
@@ -119,7 +131,9 @@ public partial class App : Application
         {
             System.Diagnostics.Debug.WriteLine(ex);
             ViewModel.SetError(LocalizationService.Instance.Format(
-                "サービスの初期化に失敗しました: {0}: {1}", ex.GetType().Name, ex.Message));
+                "サービスの初期化に失敗しました: {0}: {1}",
+                ex.GetType().Name,
+                LocalizationService.Instance.Error(ex.Message)));
         }
     }
 
@@ -143,9 +157,11 @@ public partial class App : Application
         {
             app.RapooService.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
-        catch
+        catch (Exception ex)
         {
-            // Shutdown is best effort; never delay process exit.
+            // Shutdown is best effort; never delay process exit, but keep a
+            // diagnostic trail if the sidecar could not be stopped.
+            System.Diagnostics.Debug.WriteLine($"service shutdown failed: {ex}");
         }
     }
 

@@ -113,7 +113,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
             if (service.CachedSnapshot is { Buttons: not null } snapshot)
             {
                 await LoadKeysAsync(service);
-                LoadAssignments(snapshot, discardDraft: true);
+                LoadAssignments(snapshot, discardDraft: true, ViewModel.DeviceRevision);
             }
             else if (ViewModel.CanConfigureDevice)
             {
@@ -134,8 +134,20 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
 
     private async Task LoadAsync(RealRapooService service)
     {
+        var revision = ViewModel.DeviceRevision;
         await LoadKeysAsync(service);
-        LoadAssignments(await service.RefreshSnapshotAsync(), discardDraft: true);
+        var snapshot = await service.RefreshSnapshotAsync();
+        EnsureRevision(revision);
+        LoadAssignments(snapshot, discardDraft: true, revision);
+    }
+
+    private void EnsureRevision(int revision)
+    {
+        if (revision != ViewModel.DeviceRevision)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
     }
 
     private async Task LoadKeysAsync(RealRapooService service)
@@ -144,7 +156,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
             ?? throw new InvalidOperationException("キーボードの選択肢を読み取れませんでした。");
     }
 
-    private void LoadAssignments(BridgeSnapshot snapshot, bool discardDraft)
+    private void LoadAssignments(BridgeSnapshot snapshot, bool discardDraft, int revision)
     {
         var mappings = snapshot.Buttons ?? throw new InvalidOperationException("ボタンの割り当てを読み取れませんでした。");
         var saved = new List<ButtonAssignment>();
@@ -161,7 +173,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
             _draft.Clear();
         }
         _saved = saved;
-        _deviceRevision = ViewModel.DeviceRevision;
+        _deviceRevision = revision;
         ShowDraft();
     }
 
@@ -214,7 +226,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
                     throw new InvalidOperationException("ボタンの割り当てを読み取れませんでした。");
                 }
                 _draft.Remove(id);
-                LoadAssignments(snapshot, discardDraft: false);
+                LoadAssignments(snapshot, discardDraft: false, revision);
             }
         }, PageFeedback.Applied);
     }

@@ -9,6 +9,11 @@ namespace RapooControl.Services;
 /// <summary>
 /// Owns the Go sidecar process and speaks newline-delimited JSON over its
 /// stdin/stdout. All HID access stays inside the sidecar.
+///
+/// Each process start is a <see cref="BridgeSession"/>. A session owns its
+/// pending requests and readiness gate, so a late reply from an old process can
+/// never satisfy a request belonging to a newer one. Teardown is shared and
+/// confirms process exit before the session is cleared.
 /// </summary>
 public sealed class RapooBridgeClient : IAsyncDisposable
 {
@@ -20,37 +25,44 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     // The Go JSON decoder rejects a UTF-8 BOM, so stdin must not emit one.
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private const string BridgeProtocolVersion = "1";
+    private static readonly TimeSpan ReadyTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(15);
 
-    private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
-    private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
-    private TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private CancellationTokenSource? _cts;
-
-    private readonly object _startGate = new();
-    private Process? _process;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly object _gate = new();
+    private BridgeSession? _session;
     private Task? _startTask;
+    private Task? _disposeTask;
     private int _nextId;
-    private int _faulted;
     private int _disposed;
-    private volatile bool _started;
 
     public event EventHandler<BridgeState>? StateChanged;
 
     public event EventHandler<string>? Faulted;
 
-    public bool IsRunning => _started && _process is { HasExited: false };
+    public bool IsRunning
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _session is { CanAcceptRequests: true };
+            }
+        }
+    }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        lock (_startGate)
+        ThrowIfDisposed();
+        lock (_gate)
         {
             if (_startTask is { IsCompleted: false })
             {
                 return _startTask;
             }
-            if (IsRunning && _ready.Task.IsCompletedSuccessfully)
+            if (_session is { CanAcceptRequests: true } session &&
+                session.Ready.Task.IsCompletedSuccessfully)
             {
                 return Task.CompletedTask;
             }
@@ -64,12 +76,14 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            if (IsRunning && _ready.Task.IsCompletedSuccessfully)
+            ThrowIfDisposed();
+            var previous = GetSession();
+            if (previous is not null)
             {
-                return;
+                await StopSessionAsync(previous).ConfigureAwait(false);
             }
-            await StartCoreAsync(cancellationToken).ConfigureAwait(false);
+
+            await StartSessionAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {
@@ -77,55 +91,41 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private async Task StartCoreAsync(CancellationToken cancellationToken)
+    private async Task StartSessionAsync(CancellationToken cancellationToken)
     {
-        if (_process is not null)
+        var sidecar = FindSidecar(out var isOverride);
+        if (sidecar is null)
         {
-            // Never replace a live sidecar without stopping it first: the old
-            // process still owns HID handles until it exits.
-            await StopCoreAsync().ConfigureAwait(false);
+            throw new FileNotFoundException(
+                LocalizationService.Instance.T(
+                    "rapoo-bridge が見つかりません。アプリと同じフォルダに配置してください。"));
         }
 
-        _cts?.Dispose();
-        _cts = new CancellationTokenSource();
-        _ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        Interlocked.Exchange(ref _faulted, 0);
-
-        var exe = FindSidecar() ?? throw new FileNotFoundException(
-            "rapoo-bridge.exe が見つかりません。RapooControl.exe と同じフォルダに配置してください。");
-        Log($"starting {exe}");
-        if (!OperatingSystem.IsWindows())
+        if (!isOverride)
         {
-            try
-            {
-                File.SetUnixFileMode(exe,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                    UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                    UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-            }
-            catch
-            {
-                // The file may already be executable or on a read-only mount.
-            }
+            MakeExecutable(sidecar);
         }
-
-        var startInfo = new ProcessStartInfo
+        Log($"starting {sidecar}");
+        var cts = new CancellationTokenSource();
+        var process = new Process
         {
-            FileName = exe,
-            WorkingDirectory = Path.GetDirectoryName(exe) ?? AppContext.BaseDirectory,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardInputEncoding = Utf8NoBom,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8,
-            UseShellExecute = false,
-            CreateNoWindow = true,
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = sidecar,
+                WorkingDirectory = Path.GetDirectoryName(sidecar) ?? AppContext.BaseDirectory,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                StandardInputEncoding = Utf8NoBom,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            },
+            EnableRaisingEvents = true,
         };
-
-        var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
-        process.Exited += (_, _) => OnProcessExited(process);
-        var cts = _cts;
+        var session = new BridgeSession(process, cts);
+        process.Exited += (_, _) => HandleProcessExited(session);
         try
         {
             process.Start();
@@ -133,32 +133,47 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         catch
         {
             process.Dispose();
+            cts.Dispose();
             throw;
         }
-        _process = process;
-        _started = true;
-        _ = Task.Run(() => ReadLoopAsync(process, cts.Token), CancellationToken.None);
-        _ = Task.Run(() => ReadStderrAsync(process, cts.Token), CancellationToken.None);
 
-        var readyTask = _ready.Task;
-        var ready = await Task.WhenAny(
-            readyTask,
-            Task.Delay(TimeSpan.FromSeconds(10), cancellationToken)).ConfigureAwait(false);
-        if (ready != readyTask)
+        lock (_gate)
         {
-            await StopCoreAsync().ConfigureAwait(false);
-            throw new TimeoutException("rapoo-bridge.exe が応答しませんでした。");
+            _session = session;
         }
+
+        _ = Task.Run(() => ReadLoopAsync(session), CancellationToken.None);
+        _ = Task.Run(() => ReadStderrAsync(session), CancellationToken.None);
+
         try
         {
-            // Observe a faulted ready task (for example a protocol mismatch)
-            // before the first RPC is allowed to run.
-            await readyTask.ConfigureAwait(false);
+            await session.Ready.Task
+                .WaitAsync(ReadyTimeout, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            await StopAfterStartFailureAsync(session).ConfigureAwait(false);
+            throw new TimeoutException(
+                LocalizationService.Instance.T("rapoo-bridge が応答しませんでした。"));
         }
         catch
         {
-            await StopCoreAsync().ConfigureAwait(false);
+            await StopAfterStartFailureAsync(session).ConfigureAwait(false);
             throw;
+        }
+    }
+
+    private async Task StopAfterStartFailureAsync(BridgeSession session)
+    {
+        try
+        {
+            await StopSessionAsync(session).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Preserve the startup failure; the stop failure is diagnostic.
+            Log($"stop after start failure: {ex.Message}");
         }
     }
 
@@ -168,6 +183,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             return Task.CompletedTask;
         }
+        GetSession()?.Cts.Cancel();
         return StopSerializedAsync();
     }
 
@@ -176,7 +192,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         await _lifecycle.WaitAsync().ConfigureAwait(false);
         try
         {
-            await StopCoreAsync().ConfigureAwait(false);
+            var session = GetSession();
+            if (session is not null)
+            {
+                await StopSessionAsync(session).ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -184,58 +204,82 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private Task StopCoreAsync()
+    private async Task StopSessionAsync(BridgeSession session)
     {
-        var process = _process;
-        var cts = _cts;
-        _cts = null;
-
-        if (process is null)
+        Task stopTask;
+        lock (session.Gate)
         {
-            cts?.Cancel();
-            cts?.Dispose();
-            return Task.CompletedTask;
+            stopTask = session.StopTask ??= StopSessionCoreAsync(session);
         }
+        await stopTask.ConfigureAwait(false);
+    }
+
+    private async Task StopSessionCoreAsync(BridgeSession session)
+    {
+        Volatile.Write(ref session.Stopping, 1);
+        session.Cts.Cancel();
+        CompleteSession(
+            session,
+            new InvalidOperationException(
+                LocalizationService.Instance.T("rapoo-bridge が終了しました。")),
+            raiseFault: false);
 
         try
         {
-            process.StandardInput.Close();
+            session.Process.StandardInput.Close();
         }
         catch
         {
             // The process may already have exited.
         }
 
-        cts?.Cancel();
-        try
+        var exited = HasExited(session.Process);
+        if (!exited)
         {
-            if (!process.WaitForExit(2500))
+            exited = session.Process.WaitForExit(2500);
+        }
+        if (!exited)
+        {
+            try
             {
                 // The official firmware updater is a child of the bridge.
                 // Kill only the bridge so an in-flight firmware write can
                 // finish after the UI exits.
-                process.Kill(entireProcessTree: false);
+                session.Process.Kill(entireProcessTree: false);
+            }
+            catch (Exception ex)
+            {
+                Log($"kill failed: {ex.Message}");
+            }
+            exited = WaitForExit(session.Process, TimeSpan.FromSeconds(3));
+        }
+
+        if (!exited)
+        {
+            lock (session.Gate)
+            {
+                session.StopTask = null;
+            }
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("rapoo-bridge のプロセスを終了できませんでした。"));
+        }
+
+        // Drain requests admitted while the process was shutting down.
+        CompleteSession(
+            session,
+            new InvalidOperationException(
+                LocalizationService.Instance.T("rapoo-bridge が終了しました。")),
+            raiseFault: false);
+
+        lock (_gate)
+        {
+            if (ReferenceEquals(_session, session))
+            {
+                _session = null;
             }
         }
-        catch
-        {
-            // Ignore teardown races.
-        }
-
-        process.Dispose();
-        if (ReferenceEquals(_process, process))
-        {
-            _process = null;
-        }
-        _started = false;
-        cts?.Dispose();
-
-        foreach (var pending in _pending.Values)
-        {
-            pending.TrySetException(new InvalidOperationException("rapoo-bridge.exe が終了しました。"));
-        }
-        _pending.Clear();
-        return Task.CompletedTask;
+        session.Process.Dispose();
+        session.Cts.Dispose();
     }
 
     public Task<BridgeState> GetStateAsync(CancellationToken cancellationToken = default) =>
@@ -314,15 +358,35 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        Task disposeTask;
+        lock (_gate)
+        {
+            if (_disposeTask is null)
+            {
+                Volatile.Write(ref _disposed, 1);
+                _disposeTask = DisposeCoreAsync();
+            }
+            disposeTask = _disposeTask;
+        }
+        await disposeTask.ConfigureAwait(false);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        var session = GetSession();
+        if (session is null)
         {
             return;
         }
 
-        await StopSerializedAsync().ConfigureAwait(false);
-        _cts?.Dispose();
-        _writeLock.Dispose();
-        _lifecycle.Dispose();
+        try
+        {
+            await StopSessionAsync(session).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log($"dispose stop failed: {ex.Message}");
+        }
     }
 
     private async Task<T> RequestAsync<T>(string method, object? parameters, CancellationToken cancellationToken)
@@ -340,7 +404,12 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         catch (Exception ex)
         {
             Log($"decode {method} failed: {ex}\nraw={element.GetRawText()}");
-            throw new InvalidOperationException(LocalizationService.Instance.Format("rapoo-bridge: {0} の応答を解釈できません: {1}", method, ex.Message), ex);
+            throw new InvalidOperationException(
+                LocalizationService.Instance.Format(
+                    "rapoo-bridge: {0} の応答を解釈できません: {1}",
+                    method,
+                    ex.Message),
+                ex);
         }
     }
 
@@ -354,25 +423,39 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         object? parameters,
         CancellationToken cancellationToken)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-        var process = _process;
-        if (process is null || process.HasExited)
+        ThrowIfDisposed();
+        var session = GetSession() ??
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+        if (!session.CanAcceptRequests)
         {
-            throw new InvalidOperationException("rapoo-bridge.exe が起動していません。");
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
         }
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        timeout.CancelAfter(RequestTimeout);
         var token = timeout.Token;
 
-        if (!_ready.Task.IsCompletedSuccessfully)
+        if (!session.Ready.Task.IsCompletedSuccessfully)
         {
-            await _ready.Task.WaitAsync(TimeSpan.FromSeconds(10), token).ConfigureAwait(false);
+            await session.Ready.Task
+                .WaitAsync(ReadyTimeout, token)
+                .ConfigureAwait(false);
+        }
+
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_session, session) || !session.CanAcceptRequests)
+            {
+                throw new InvalidOperationException(
+                    LocalizationService.Instance.T("rapoo-bridge が起動していません。"));
+            }
         }
 
         var id = Interlocked.Increment(ref _nextId);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[id] = completion;
+        session.Pending[id] = completion;
 
         var payload = JsonSerializer.Serialize(new BridgeRequest
         {
@@ -386,9 +469,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             await _writeLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                await process.StandardInput.WriteAsync(payload.AsMemory(), token).ConfigureAwait(false);
-                await process.StandardInput.WriteLineAsync().ConfigureAwait(false);
-                await process.StandardInput.FlushAsync(token).ConfigureAwait(false);
+                await session.Process.StandardInput.WriteAsync(payload.AsMemory(), token).ConfigureAwait(false);
+                await session.Process.StandardInput.WriteLineAsync().ConfigureAwait(false);
+                await session.Process.StandardInput.FlushAsync(token).ConfigureAwait(false);
             }
             finally
             {
@@ -397,7 +480,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
             using var registration = token.Register(() =>
             {
-                if (_pending.TryRemove(id, out var pending))
+                if (session.Pending.TryRemove(id, out var pending))
                 {
                     pending.TrySetCanceled(token);
                 }
@@ -407,26 +490,34 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            _pending.TryRemove(id, out _);
-            throw new TimeoutException($"rapoo-bridge: {method} が15秒以内に応答しませんでした。");
+            session.Pending.TryRemove(id, out _);
+            throw new TimeoutException(
+                LocalizationService.Instance.Format(
+                    "rapoo-bridge: {0} が15秒以内に応答しませんでした。",
+                    method));
         }
         catch
         {
-            _pending.TryRemove(id, out _);
+            session.Pending.TryRemove(id, out _);
             throw;
         }
     }
 
-    private async Task ReadLoopAsync(Process process, CancellationToken cancellationToken)
+    private async Task ReadLoopAsync(BridgeSession session)
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            while (!session.Cts.IsCancellationRequested)
             {
-                var line = await process.StandardOutput.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                var line = await session.Process.StandardOutput
+                    .ReadLineAsync(session.Cts.Token)
+                    .ConfigureAwait(false);
                 if (line is null)
                 {
-                    break;
+                    FaultSession(
+                        session,
+                        LocalizationService.Instance.T("rapoo-bridge が出力を閉じました。"));
+                    return;
                 }
                 if (string.IsNullOrWhiteSpace(line))
                 {
@@ -437,31 +528,44 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 {
                     using var document = JsonDocument.Parse(line);
                     var root = document.RootElement;
-
                     if (root.TryGetProperty("event", out var eventName))
                     {
-                        HandleEvent(process, eventName.GetString(), root);
+                        HandleEvent(session, eventName.GetString(), root);
                         continue;
                     }
 
                     if (!root.TryGetProperty("id", out var idElement) ||
-                        !idElement.TryGetInt32(out var id) ||
-                        !_pending.TryRemove(id, out var completion))
+                        !idElement.TryGetInt32(out var id))
+                    {
+                        Log("ignoring message without an id");
+                        continue;
+                    }
+
+                    string? error = null;
+                    if (root.TryGetProperty("error", out var errorElement))
+                    {
+                        error = errorElement.ValueKind == JsonValueKind.String
+                            ? errorElement.GetString()
+                            : errorElement.GetRawText();
+                    }
+                    var hasResult = root.TryGetProperty("result", out var resultElement);
+                    if (error is null && !hasResult)
+                    {
+                        Log($"ignoring response {id} without result or error");
+                        continue;
+                    }
+                    if (!session.Pending.TryRemove(id, out var completion))
                     {
                         continue;
                     }
 
-                    if (root.TryGetProperty("error", out var errorElement))
+                    if (error is not null)
                     {
-                        completion.TrySetException(new RapooBridgeException(errorElement.GetString() ?? "unknown error"));
-                    }
-                    else if (root.TryGetProperty("result", out var resultElement))
-                    {
-                        completion.TrySetResult(resultElement.Clone());
+                        completion.TrySetException(new RapooBridgeException(error));
                     }
                     else
                     {
-                        completion.TrySetResult(default);
+                        completion.TrySetResult(resultElement.Clone());
                     }
                 }
                 catch (JsonException ex)
@@ -476,33 +580,41 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            Log($"read loop failed: {ex}");
-            FaultProcess(process, ex.Message);
+            FaultSession(session, ex.Message);
         }
     }
 
-    private void HandleEvent(Process process, string? name, JsonElement root)
+    private void HandleEvent(BridgeSession session, string? name, JsonElement root)
     {
-        if (!ReferenceEquals(_process, process))
+        lock (_gate)
         {
-            return;
+            if (!ReferenceEquals(_session, session))
+            {
+                return;
+            }
         }
+
         if (name == "ready")
         {
             if (root.TryGetProperty("data", out var readyData) &&
                 readyData.TryGetProperty("version", out var version) &&
                 string.Equals(version.GetString(), BridgeProtocolVersion, StringComparison.Ordinal))
             {
-                _ready.TrySetResult(true);
+                session.Ready.TrySetResult(true);
             }
             else
             {
-                _ready.TrySetException(new InvalidOperationException(
-                    "rapoo-bridge.exe のプロトコルバージョンが一致しません。アプリを再インストールしてください。"));
+                FaultSession(
+                    session,
+                    LocalizationService.Instance.T(
+                        "rapoo-bridge のプロトコルバージョンが一致しません。アプリを再インストールしてください。"));
             }
             return;
         }
-        if (name != "state" || !root.TryGetProperty("data", out var data))
+
+        if (name != "state" ||
+            !root.TryGetProperty("data", out var data) ||
+            Volatile.Read(ref session.Faulted) != 0)
         {
             return;
         }
@@ -521,13 +633,101 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private static async Task ReadStderrAsync(Process process, CancellationToken cancellationToken)
+    private void HandleProcessExited(BridgeSession session)
+    {
+        if (Volatile.Read(ref session.Stopping) != 0)
+        {
+            return;
+        }
+
+        int exitCode;
+        try
+        {
+            exitCode = session.Process.ExitCode;
+        }
+        catch
+        {
+            exitCode = -1;
+        }
+        var message = LocalizationService.Instance.Format(
+            "rapoo-bridge が終了しました (code {0}).",
+            exitCode);
+        Log(message);
+        FaultSession(session, message);
+    }
+
+    private void FaultSession(BridgeSession session, string message)
+    {
+        if (Volatile.Read(ref session.Stopping) != 0 ||
+            Interlocked.Exchange(ref session.Faulted, 1) != 0)
+        {
+            return;
+        }
+
+        CompleteSession(session, new InvalidOperationException(message), raiseFault: true);
+    }
+
+    private void CompleteSession(BridgeSession session, Exception error, bool raiseFault)
+    {
+        session.Ready.TrySetException(error);
+        foreach (var pending in session.Pending.Values)
+        {
+            pending.TrySetException(error);
+        }
+        session.Pending.Clear();
+
+        if (raiseFault)
+        {
+            Faulted?.Invoke(this, error.Message);
+        }
+    }
+
+    private BridgeSession? GetSession()
+    {
+        lock (_gate)
+        {
+            return _session;
+        }
+    }
+
+    private void ThrowIfDisposed()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+    }
+
+    private static bool HasExited(Process process)
     {
         try
         {
-            while (!cancellationToken.IsCancellationRequested)
+            return process.HasExited;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    private static bool WaitForExit(Process process, TimeSpan timeout)
+    {
+        try
+        {
+            return process.WaitForExit((int)timeout.TotalMilliseconds);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task ReadStderrAsync(BridgeSession session)
+    {
+        try
+        {
+            while (!session.Cts.IsCancellationRequested)
             {
-                var line = await process.StandardError.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+                var line = await session.Process.StandardError
+                    .ReadLineAsync(session.Cts.Token)
+                    .ConfigureAwait(false);
                 if (line is null)
                 {
                     break;
@@ -544,47 +744,33 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private void OnProcessExited(Process process)
+    private static void MakeExecutable(string path)
     {
-        if (!ReferenceEquals(_process, process) || !_started)
+        if (OperatingSystem.IsWindows())
         {
             return;
         }
-        _started = false;
-        var message = "rapoo-bridge.exe が終了しました。";
+
         try
         {
-            message = LocalizationService.Instance.Format("rapoo-bridge.exe が終了しました (code {0}).", process.ExitCode);
+            File.SetUnixFileMode(path,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
         catch
         {
+            // The file may already be executable or on a read-only mount.
         }
-        Log(message);
-        FaultProcess(process, message);
     }
 
-    private void FaultProcess(Process process, string message)
+    private static string? FindSidecar(out bool isOverride)
     {
-        if (!ReferenceEquals(_process, process) ||
-            Interlocked.Exchange(ref _faulted, 1) != 0)
-        {
-            return;
-        }
-
-        _started = false;
-        Faulted?.Invoke(this, message);
-        foreach (var pending in _pending.Values)
-        {
-            pending.TrySetException(new InvalidOperationException(message));
-        }
-        _pending.Clear();
-    }
-
-    private static string? FindSidecar()
-    {
+        isOverride = false;
         var overridePath = Environment.GetEnvironmentVariable("RAPOO_BRIDGE_PATH");
         if (!string.IsNullOrWhiteSpace(overridePath) && File.Exists(overridePath))
         {
+            isOverride = true;
             return overridePath;
         }
 
@@ -632,6 +818,24 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             // Diagnostics must never break the app.
         }
+    }
+
+    private sealed class BridgeSession(Process process, CancellationTokenSource cts)
+    {
+        public Process Process { get; } = process;
+        public CancellationTokenSource Cts { get; } = cts;
+        public TaskCompletionSource<bool> Ready { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> Pending { get; } = new();
+        public object Gate { get; } = new();
+        public Task? StopTask { get; set; }
+        public int Stopping;
+        public int Faulted;
+
+        public bool CanAcceptRequests =>
+            Volatile.Read(ref Stopping) == 0 &&
+            Volatile.Read(ref Faulted) == 0 &&
+            !Process.HasExited;
     }
 
     private sealed class BridgeRequest

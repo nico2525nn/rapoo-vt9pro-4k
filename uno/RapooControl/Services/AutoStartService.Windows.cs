@@ -12,9 +12,19 @@ public static partial class AutoStartService
     private static readonly string[] LegacyRunValueNames =
     [
         "RapooControlWinUI",
+        "RapooControlWails",
         "RapooControl",
         "RapooVT9Tray",
     ];
+
+    private static readonly HashSet<string> LegacyExecutables = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "RapooControl.exe",
+        "RapooControlUno.exe",
+        "RapooVT9Tray.exe",
+        "rapoo-vt9pro-4k.exe",
+        "rapoo-control.exe",
+    };
 
     private static partial bool IsEnabledCore()
     {
@@ -72,33 +82,44 @@ public static partial class AutoStartService
     {
         try
         {
-            if (ReadRunValue(RunValueName) is not null)
+            var legacy = new List<(string Name, string Command)>();
+            foreach (var name in LegacyRunValueNames)
+            {
+                var command = ReadRunValue(name);
+                if (command is not null && CommandBelongsToRapoo(command))
+                {
+                    legacy.Add((name, command));
+                }
+            }
+
+            if (legacy.Count == 0)
             {
                 return;
             }
 
-            foreach (var legacyName in LegacyRunValueNames)
+            if (ReadRunValue(RunValueName) is null)
             {
-                var legacy = ReadRunValue(legacyName);
-                if (legacy is null || !CommandBelongsToRapoo(legacy))
-                {
-                    continue;
-                }
-
-                var hidden = legacy.Contains("--hidden", StringComparison.OrdinalIgnoreCase);
+                var hidden = legacy.Any(item =>
+                    item.Command.Contains("--hidden", StringComparison.OrdinalIgnoreCase));
                 if (!SetEnabledCore(true, hidden))
                 {
                     return;
                 }
+            }
 
-                using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
-                key?.DeleteValue(legacyName, throwOnMissingValue: false);
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            if (key is null)
+            {
                 return;
+            }
+            foreach (var (name, _) in legacy)
+            {
+                key.DeleteValue(name, throwOnMissingValue: false);
             }
         }
         catch
         {
-            // Keep the legacy entry when migration is not possible.
+            // Keep legacy entries when migration is not possible; retry next launch.
         }
     }
 
@@ -137,7 +158,10 @@ public static partial class AutoStartService
         }
 
         var fileName = Path.GetFileName(match.Groups[1].Value);
-        return fileName.Contains("rapoo", StringComparison.OrdinalIgnoreCase);
+        return LegacyExecutables.Contains(fileName) ||
+            command.Contains("--app=wails", StringComparison.OrdinalIgnoreCase) ||
+            command.Contains("--app=winui", StringComparison.OrdinalIgnoreCase) ||
+            command.Contains("--app=uno", StringComparison.OrdinalIgnoreCase);
     }
 }
 #endif

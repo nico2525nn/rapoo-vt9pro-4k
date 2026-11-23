@@ -11,6 +11,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     private bool _languageReady;
     private bool _trayPrefsReady;
     private BridgeSnapshot? _lastSnapshot;
+    private int _firmwareRevision = -1;
 
     private MainViewModel ViewModel => App.Instance.ViewModel;
     public PageFeedback Feedback { get; } = new();
@@ -34,11 +35,20 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         LanguageCombo.DropDownClosed += LanguageCombo_DropDownClosed;
         _languageReady = true;
         DesktopPreferences.Current.Load();
+        ApplyPreferencesToControls();
+        DesktopPreferences.Current.Changed += OnPreferencesChanged;
+    }
+
+    private void ApplyPreferencesToControls()
+    {
+        _trayPrefsReady = false;
         CloseToTraySwitch.IsOn = DesktopPreferences.Current.CloseToTray;
         AutoStartSwitch.IsOn = DesktopPreferences.Current.AutoStart;
         StartHiddenSwitch.IsOn = DesktopPreferences.Current.StartHidden;
         _trayPrefsReady = true;
     }
+
+    private void OnPreferencesChanged(object? sender, EventArgs e) => ApplyPreferencesToControls();
 
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
@@ -55,9 +65,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             : Visibility.Collapsed;
         LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
         DesktopPreferences.Current.Load();
-        CloseToTraySwitch.IsOn = DesktopPreferences.Current.CloseToTray;
-        AutoStartSwitch.IsOn = DesktopPreferences.Current.AutoStart;
-        StartHiddenSwitch.IsOn = DesktopPreferences.Current.StartHidden;
+        ApplyPreferencesToControls();
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if (ViewModel.DeviceService is not { } service)
@@ -68,20 +76,32 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             _ = LoadUdevAsync(service);
         }
+        var revision = ViewModel.DeviceRevision;
         await Feedback.RunAsync(async () =>
         {
             await ViewModel.InitializeAsync();
+            if (revision != ViewModel.DeviceRevision)
+            {
+                ClearFirmware();
+                return;
+            }
             if (service.CachedSnapshot is { } snapshot)
             {
-                LoadFirmware(snapshot);
+                LoadFirmware(snapshot, revision);
             }
             else if (ViewModel.CanConfigureDevice)
             {
-                LoadFirmware(await service.RefreshSnapshotAsync());
+                var refreshed = await service.RefreshSnapshotAsync();
+                if (revision != ViewModel.DeviceRevision)
+                {
+                    ClearFirmware();
+                    return;
+                }
+                LoadFirmware(refreshed, revision);
             }
             else
             {
-                MouseFirmware.Text = DongleFirmware.Text = "—";
+                ClearFirmware();
             }
         });
     }
@@ -130,9 +150,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         }
         if (!DesktopPreferences.Current.SetCloseToTray(CloseToTraySwitch.IsOn))
         {
-            _trayPrefsReady = false;
-            CloseToTraySwitch.IsOn = DesktopPreferences.Current.CloseToTray;
-            _trayPrefsReady = true;
+            ApplyPreferencesToControls();
             Feedback.Message = LocalizationService.Instance.T("トレイ設定を保存できませんでした。");
         }
     }
@@ -145,7 +163,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         }
         if (!DesktopPreferences.Current.SetAutoStart(AutoStartSwitch.IsOn))
         {
-            AutoStartSwitch.IsOn = DesktopPreferences.Current.AutoStart;
+            ApplyPreferencesToControls();
             Feedback.Message = LocalizationService.Instance.T("スタートアップ設定を保存できませんでした。");
         }
     }
@@ -158,7 +176,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         }
         if (!DesktopPreferences.Current.SetStartHidden(StartHiddenSwitch.IsOn))
         {
-            StartHiddenSwitch.IsOn = DesktopPreferences.Current.StartHidden;
+            ApplyPreferencesToControls();
             Feedback.Message = LocalizationService.Instance.T("スタートアップ設定を保存できませんでした。");
         }
     }
@@ -185,9 +203,13 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
         UpdateControls();
-        if (_lastSnapshot is { } snapshot)
+        if (_lastSnapshot is { } snapshot && _firmwareRevision == ViewModel.DeviceRevision)
         {
-            LoadFirmware(snapshot);
+            LoadFirmware(snapshot, _firmwareRevision);
+        }
+        else
+        {
+            ClearFirmware();
         }
         Feedback.Message = saved
             ? language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English."
@@ -212,23 +234,46 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
 
     private void DeviceStatusChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainViewModel.CanConfigureDevice))
+        if (e.PropertyName == nameof(MainViewModel.DeviceRevision) &&
+            _firmwareRevision != ViewModel.DeviceRevision)
+        {
+            ClearFirmware();
+        }
+        if (e.PropertyName is nameof(MainViewModel.CanConfigureDevice) or nameof(MainViewModel.DeviceRevision))
         {
             UpdateControls();
         }
     }
 
-    private void LoadFirmware(BridgeSnapshot snapshot)
+    private void LoadFirmware(BridgeSnapshot snapshot, int revision)
     {
         _lastSnapshot = snapshot;
+        _firmwareRevision = revision;
         MouseFirmware.Text = FirmwareText(snapshot.Firmware?.MouseString);
         DongleFirmware.Text = FirmwareText(snapshot.Firmware?.DongleString);
+    }
+
+    private void ClearFirmware()
+    {
+        _lastSnapshot = null;
+        _firmwareRevision = -1;
+        MouseFirmware.Text = DongleFirmware.Text = "—";
     }
 
     private static string FirmwareText(string? value) => string.IsNullOrWhiteSpace(value) || value == "unknown" ? "—" : value;
 
     public Task ReloadAsync() => CanReload && ViewModel.DeviceService is { } service
-        ? Feedback.RunAsync(async () => LoadFirmware(await service.RefreshSnapshotAsync()), PageFeedback.Reloaded)
+        ? Feedback.RunAsync(async () =>
+        {
+            var revision = ViewModel.DeviceRevision;
+            var snapshot = await service.RefreshSnapshotAsync();
+            if (revision != ViewModel.DeviceRevision)
+            {
+                ClearFirmware();
+                return;
+            }
+            LoadFirmware(snapshot, revision);
+        }, PageFeedback.Reloaded)
         : Task.CompletedTask;
 
     public Task ApplyAsync() => Task.CompletedTask;
@@ -253,7 +298,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             {
                 MouseFirmware.Text = DongleFirmware.Text = "—";
                 var snapshot = await service.SetDemoModeAsync(enable);
-                LoadFirmware(snapshot);
+                LoadFirmware(snapshot, ViewModel.DeviceRevision);
             }, enable ? "デモモードを開始しました。" : "デモモードを終了しました。");
         }
     }
@@ -291,7 +336,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         await Feedback.RunAsync(async () =>
         {
             var snapshot = await service.FactoryResetAsync();
-            LoadFirmware(snapshot);
+            LoadFirmware(snapshot, ViewModel.DeviceRevision);
         }, "工場出荷時設定に戻しました。");
     }
 

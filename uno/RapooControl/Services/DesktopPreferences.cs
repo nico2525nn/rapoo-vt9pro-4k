@@ -13,12 +13,16 @@ public sealed class DesktopPreferences
     private readonly string _path;
 
     private DesktopPreferences()
-    {
-        var dir = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "rapoo-vt9pro-4k");
-        Directory.CreateDirectory(dir);
-        _path = Path.Combine(dir, "uno-prefs.json");
+            "rapoo-vt9pro-4k"))
+    {
+    }
+
+    internal DesktopPreferences(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        _path = Path.Combine(directory, "uno-prefs.json");
     }
 
     public static DesktopPreferences Current { get; } = new();
@@ -31,6 +35,48 @@ public sealed class DesktopPreferences
 
     /// <summary>Raised after a preference was changed or reloaded.</summary>
     public event EventHandler? Changed;
+
+    /// <summary>
+    /// Imports the WinUI tray opt-in once. Version 1 defaulted close-to-tray
+    /// to true, so only an explicit version 2+ value is imported.
+    /// </summary>
+    public void MigrateLegacy()
+    {
+        if (File.Exists(_path))
+        {
+            return;
+        }
+
+        try
+        {
+            var legacyPath = Path.Combine(Path.GetDirectoryName(_path)!, "winui-tray-prefs.json");
+            if (!File.Exists(legacyPath))
+            {
+                return;
+            }
+
+            using var document = JsonDocument.Parse(File.ReadAllText(legacyPath));
+            var root = document.RootElement;
+            var version = root.TryGetProperty("version", out var versionElement)
+                ? versionElement.GetInt32()
+                : 0;
+            if (version >= 2 &&
+                root.TryGetProperty("closeToTray", out var closeElement))
+            {
+                CloseToTray = closeElement.GetBoolean();
+            }
+            if (root.TryGetProperty("startHidden", out var hiddenElement))
+            {
+                StartHidden = hiddenElement.GetBoolean();
+            }
+
+            _ = Save();
+        }
+        catch
+        {
+            // A malformed legacy file must not block startup.
+        }
+    }
 
     public void Load()
     {
@@ -92,8 +138,11 @@ public sealed class DesktopPreferences
             return true;
         }
 
-        AutoStart = previousAuto;
-        StartHidden = previousHidden;
+        // The OS entry is authoritative. Keep the state read back from it and
+        // report the save failure separately so the UI never shows "off" while
+        // the OS still starts the app.
+        AutoStart = AutoStartService.IsEnabled();
+        StartHidden = AutoStart ? AutoStartService.IsStartHidden() : previousHidden;
         return false;
     }
 
@@ -118,7 +167,7 @@ public sealed class DesktopPreferences
             return true;
         }
 
-        StartHidden = previous;
+        StartHidden = AutoStart ? AutoStartService.IsStartHidden() : previous;
         return false;
     }
 

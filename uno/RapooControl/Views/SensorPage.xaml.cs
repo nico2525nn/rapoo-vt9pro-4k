@@ -64,7 +64,7 @@ public sealed partial class SensorPage : Page, IConfigPageActions
             if (service.CachedSnapshot is { Sensor: not null } snapshot)
             {
                 await LoadDebounceStepsAsync(service);
-                LoadSnapshot(snapshot);
+                LoadSnapshot(snapshot, ViewModel.DeviceRevision);
             }
             else if (ViewModel.CanConfigureDevice)
             {
@@ -89,8 +89,20 @@ public sealed partial class SensorPage : Page, IConfigPageActions
 
     private async Task LoadAsync(RealRapooService service)
     {
+        var revision = ViewModel.DeviceRevision;
         await LoadDebounceStepsAsync(service);
-        LoadSnapshot(await service.RefreshSnapshotAsync());
+        var snapshot = await service.RefreshSnapshotAsync();
+        EnsureRevision(revision);
+        LoadSnapshot(snapshot, revision);
+    }
+
+    private void EnsureRevision(int revision)
+    {
+        if (revision != ViewModel.DeviceRevision)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
     }
 
     private async Task LoadDebounceStepsAsync(RealRapooService service)
@@ -99,7 +111,7 @@ public sealed partial class SensorPage : Page, IConfigPageActions
             ?? throw new InvalidOperationException("デバウンスの選択肢を読み取れませんでした。");
     }
 
-    private void LoadSnapshot(BridgeSnapshot snapshot)
+    private void LoadSnapshot(BridgeSnapshot snapshot, int revision)
     {
         var sensor = snapshot.Sensor ?? throw new InvalidOperationException("センサー設定を読み取れませんでした。");
         _debounceUsesMilliseconds = snapshot.Model?.ProtocolGen == 2;
@@ -118,7 +130,7 @@ public sealed partial class SensorPage : Page, IConfigPageActions
         GlassMode.IsOn = sensor.GlassMode;
         LedLowPower.IsOn = sensor.LedLowPowerMode != 0;
         _sensor = sensor;
-        _deviceRevision = ViewModel.DeviceRevision;
+        _deviceRevision = revision;
         UpdateControls();
     }
 
@@ -142,7 +154,13 @@ public sealed partial class SensorPage : Page, IConfigPageActions
             return;
         }
 
-        await Feedback.RunAsync(async () => LoadSnapshot(await service.ApplySensorAsync(patch)), PageFeedback.Applied);
+        var revision = ViewModel.DeviceRevision;
+        await Feedback.RunAsync(async () =>
+        {
+            var snapshot = await service.ApplySensorAsync(patch);
+            EnsureRevision(revision);
+            LoadSnapshot(snapshot, revision);
+        }, PageFeedback.Applied);
     }
 
     private Dictionary<string, object> GetPatch(BridgeSensor sensor)

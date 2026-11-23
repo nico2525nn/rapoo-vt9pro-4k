@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Runtime.InteropServices;
 using H.NotifyIcon;
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,6 +18,7 @@ public sealed partial class DesktopIntegration
     public static DesktopIntegration Current { get; } = new();
 
     private Window? _window;
+    private DispatcherQueue? _dispatcher;
     private MainViewModel? _viewModel;
     private TaskbarIcon? _tray;
     private MenuFlyoutItem? _batteryItem;
@@ -29,6 +31,7 @@ public sealed partial class DesktopIntegration
     private ToggleMenuFlyoutItem? _demoItem;
     private ToggleMenuFlyoutItem? _autoStartItem;
     private bool _quitting;
+    private bool _shutdown;
     private bool _trayHintShown;
     private TrayIconSpec? _lastSpec;
 
@@ -37,6 +40,7 @@ public sealed partial class DesktopIntegration
     public void Initialize(Window window, MainViewModel viewModel)
     {
         _window = window;
+        _dispatcher = window.DispatcherQueue;
         _viewModel = viewModel;
 
         var loc = LocalizationService.Instance;
@@ -183,25 +187,50 @@ public sealed partial class DesktopIntegration
 
     public void Shutdown()
     {
+        if (_shutdown)
+        {
+            return;
+        }
+        _shutdown = true;
         _quitting = true;
         if (_viewModel is not null)
         {
             _viewModel.PropertyChanged -= OnViewModelChanged;
         }
         DesktopPreferences.Current.Changed -= OnPreferencesChanged;
-        if (_window is not null)
+
+        var onUiThread = _dispatcher?.HasThreadAccess == true;
+        if (onUiThread && _window is not null)
         {
-            _window.AppWindow.Closing -= OnClosing;
+            try
+            {
+                _window.AppWindow.Closing -= OnClosing;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"detach closing failed: {ex.Message}");
+            }
         }
-        try
-        {
-            _tray?.Dispose();
-        }
-        catch
-        {
-        }
+
+        var tray = _tray;
         _tray = null;
         _lastSpec = null;
+        if (tray is not null)
+        {
+            if (onUiThread)
+            {
+                try
+                {
+                    tray.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"tray dispose failed: {ex.Message}");
+                }
+            }
+            // On the ProcessExit thread the OS reclaims the icon; touching the
+            // WinRT window/dispatcher there can throw RPC_E_WRONG_THREAD.
+        }
     }
 
     private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) =>
@@ -212,18 +241,20 @@ public sealed partial class DesktopIntegration
 
     private void RunOnUiThread(Action action)
     {
-        if (_window is null || _window.DispatcherQueue.HasThreadAccess)
+        if (_dispatcher is null || _dispatcher.HasThreadAccess)
         {
             action();
             return;
         }
-        _window.DispatcherQueue.TryEnqueue(() => action());
+        _dispatcher.TryEnqueue(() => action());
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_quitting || !DesktopPreferences.Current.CloseToTray || !IsTrayReady)
         {
+            // Normal close: release the tray while the UI dispatcher is alive.
+            Shutdown();
             return;
         }
         args.Cancel = true;
@@ -250,14 +281,16 @@ public sealed partial class DesktopIntegration
     private void Quit()
     {
         _quitting = true;
+        var tray = _tray;
+        _tray = null;
+        _lastSpec = null;
         try
         {
-            _tray?.Dispose();
+            tray?.Dispose();
         }
         catch
         {
         }
-        _tray = null;
         _window?.Close();
     }
 

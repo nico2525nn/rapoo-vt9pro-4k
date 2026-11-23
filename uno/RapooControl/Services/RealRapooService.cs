@@ -5,6 +5,10 @@ namespace RapooControl.Services;
 /// <summary>
 /// Real device service backed by the Go sidecar. HID ownership and all protocol
 /// work stay in Go; this class only maps the bridge JSON to the UI models.
+///
+/// Every state/snapshot is tied to a device epoch. A reply that started before
+/// a disconnect, demo-mode switch, or device replacement is discarded instead
+/// of being published against the new device.
 /// </summary>
 public sealed partial class RealRapooService : IRapooService
 {
@@ -12,6 +16,8 @@ public sealed partial class RealRapooService : IRapooService
     private readonly object _stateGate = new();
     private BridgeState? _lastState;
     private BridgeSnapshot? _lastSnapshot;
+    private int _deviceEpoch;
+    private int _snapshotEpoch;
 
     public RealRapooService()
     {
@@ -31,6 +37,7 @@ public sealed partial class RealRapooService : IRapooService
     {
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
         PublishState(await _client.GetStateAsync(cancellationToken).ConfigureAwait(false));
+        var epoch = CurrentEpoch;
 
         try
         {
@@ -39,7 +46,8 @@ public sealed partial class RealRapooService : IRapooService
                 await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
             }
 
-            PublishSnapshot(await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false));
+            var snapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+            PublishSnapshot(snapshot, epoch);
         }
         catch (Exception ex) when (ex is RapooBridgeException or InvalidOperationException)
         {
@@ -57,8 +65,10 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
+        var epoch = CurrentEpoch;
         var snapshot = CachedSnapshot ??
             await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+        EnsureEpoch(epoch);
         return snapshot.Dpi is { } dpi
             ? MapDpiConfiguration(dpi)
             : throw new InvalidOperationException("DPI設定を読み取れませんでした。");
@@ -78,6 +88,7 @@ public sealed partial class RealRapooService : IRapooService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        var epoch = CurrentEpoch;
 
         var stages = configuration.Stages
             .OrderBy(stage => stage.Index)
@@ -103,21 +114,28 @@ public sealed partial class RealRapooService : IRapooService
             stages,
             cancellationToken).ConfigureAwait(false);
 
-        return PublishSnapshot(snapshot);
+        return PublishSnapshot(snapshot, epoch);
     }
 
     public async Task<DeviceStatus> SetPollingRateAsync(
         int hertz,
         CancellationToken cancellationToken = default)
     {
+        var epoch = CurrentEpoch;
         var snapshot = await _client.SetPollingRateAsync(hertz, cancellationToken).ConfigureAwait(false);
-        return PublishSnapshot(snapshot);
+        return PublishSnapshot(snapshot, epoch);
     }
 
-    public Task<BridgeSnapshot> SetDemoModeAsync(
+    public async Task<BridgeSnapshot> SetDemoModeAsync(
         bool enabled,
-        CancellationToken cancellationToken = default) =>
-        UpdateSnapshotAsync(_client.SetDemoModeAsync(enabled, cancellationToken));
+        CancellationToken cancellationToken = default)
+    {
+        var snapshot = await _client.SetDemoModeAsync(enabled, cancellationToken).ConfigureAwait(false);
+        // Demo mode intentionally changes the device identity. Publish the
+        // reply against the epoch it produced rather than the pre-request one.
+        PublishSnapshot(snapshot, CurrentEpoch);
+        return snapshot;
+    }
 
     public async Task<DeviceStatus> SetPollingModeAsync(
         string mode,
@@ -166,13 +184,11 @@ public sealed partial class RealRapooService : IRapooService
         DeviceStatus status;
         lock (_stateGate)
         {
-            if (_lastState is { } previous &&
-                (previous.Connected != state.Connected ||
-                 previous.DemoMode != state.DemoMode ||
-                 previous.Connection != state.Connection ||
-                 previous.ProductId != state.ProductId))
+            if (_lastState is { } previous && DeviceChanged(previous, state))
             {
+                _deviceEpoch++;
                 _lastSnapshot = null;
+                _snapshotEpoch = 0;
             }
             _lastState = state;
             status = MapStatus(state, _lastSnapshot);
@@ -182,12 +198,14 @@ public sealed partial class RealRapooService : IRapooService
         return status;
     }
 
-    private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot)
+    private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot, int epoch)
     {
         DeviceStatus status;
         lock (_stateGate)
         {
+            EnsureEpochLocked(epoch);
             _lastSnapshot = snapshot;
+            _snapshotEpoch = epoch;
             var state = _lastState ?? CreateState(snapshot);
             _lastState = state;
             status = MapStatus(state, snapshot);
@@ -202,7 +220,9 @@ public sealed partial class RealRapooService : IRapooService
         DeviceStatus status;
         lock (_stateGate)
         {
+            _deviceEpoch++;
             _lastSnapshot = null;
+            _snapshotEpoch = 0;
             _lastState = new BridgeState
             {
                 Connected = false,
@@ -215,6 +235,41 @@ public sealed partial class RealRapooService : IRapooService
         StatusChanged?.Invoke(this, status);
         Faulted?.Invoke(this, message);
     }
+
+    private int CurrentEpoch
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _deviceEpoch;
+            }
+        }
+    }
+
+    private void EnsureEpoch(int epoch)
+    {
+        lock (_stateGate)
+        {
+            EnsureEpochLocked(epoch);
+        }
+    }
+
+    private void EnsureEpochLocked(int epoch)
+    {
+        if (epoch != _deviceEpoch)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
+    }
+
+    private static bool DeviceChanged(BridgeState previous, BridgeState current) =>
+        previous.Connected != current.Connected ||
+        previous.DemoMode != current.DemoMode ||
+        previous.Connection != current.Connection ||
+        previous.ProductId != current.ProductId ||
+        previous.DeviceName != current.DeviceName;
 
     private static BridgeState CreateState(BridgeSnapshot snapshot) =>
         new()

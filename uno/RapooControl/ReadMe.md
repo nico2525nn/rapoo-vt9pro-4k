@@ -33,9 +33,15 @@ or `build/bin/rapoo-bridge.exe`. Build both sidecars with:
 ./uno/build-sidecars.sh
 ```
 
-Publishing fails deliberately if the sidecar is missing. The Windows publish
-profile disables trimming because the bridge protocol uses reflection-based
-`System.Text.Json`.
+Publishing fails deliberately if the sidecar is missing or the release RID is
+not explicit. Release publish therefore uses:
+
+```bash
+dotnet publish uno/RapooControl/RapooControl.csproj -f net10.0-desktop -c Release -r linux-x64
+```
+
+Both app heads disable trimming because the bridge protocol uses
+reflection-based `System.Text.Json`.
 
 ## Run
 

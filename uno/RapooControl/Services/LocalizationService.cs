@@ -77,12 +77,18 @@ public sealed class LocalizationService
         ["デバウンスの選択肢を読み取れませんでした。"] = "Could not read the debounce choices.",
         ["デバイス設定がまだ準備できていません。"] = "The device settings are not ready yet.",
         ["デバイス設定を読み取れませんでした。"] = "Could not read the device settings.",
-        ["rapoo-bridge.exe が見つかりません。RapooControl.exe と同じフォルダに配置してください。"] =
-            "rapoo-bridge.exe was not found. Place it next to RapooControl.exe.",
-        ["rapoo-bridge.exe が応答しませんでした。"] = "rapoo-bridge.exe did not respond.",
-        ["rapoo-bridge.exe が起動していません。"] = "rapoo-bridge.exe is not running.",
-        ["rapoo-bridge.exe が終了しました。"] = "rapoo-bridge.exe exited.",
-        ["rapoo-bridge.exe が終了しました (code {0})."] = "rapoo-bridge.exe exited (code {0}).",
+        ["rapoo-bridge が見つかりません。アプリと同じフォルダに配置してください。"] =
+            "rapoo-bridge was not found. Place it next to the app.",
+        ["rapoo-bridge が応答しませんでした。"] = "rapoo-bridge did not respond.",
+        ["rapoo-bridge が起動していません。"] = "rapoo-bridge is not running.",
+        ["rapoo-bridge が終了しました。"] = "rapoo-bridge exited.",
+        ["rapoo-bridge が終了しました (code {0})."] = "rapoo-bridge exited (code {0}).",
+        ["rapoo-bridge が出力を閉じました。"] = "rapoo-bridge closed its output.",
+        ["rapoo-bridge のプロセスを終了できませんでした。"] = "Could not stop the rapoo-bridge process.",
+        ["rapoo-bridge: {0} が15秒以内に応答しませんでした。"] =
+            "rapoo-bridge: {0} did not respond within 15 seconds.",
+        ["rapoo-bridge のプロトコルバージョンが一致しません。アプリを再インストールしてください。"] =
+            "rapoo-bridge protocol version mismatch. Reinstall the app.",
         ["rapoo-bridge: {0} の応答を解釈できません: {1}"] =
             "rapoo-bridge: could not parse the {0} response: {1}",
         ["サービスの初期化に失敗しました: {0}: {1}"] =

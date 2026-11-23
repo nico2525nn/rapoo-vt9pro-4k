@@ -86,10 +86,22 @@ public sealed partial class DpiPage : Page, IConfigPageActions
             return;
         }
 
+        var revision = ViewModel.DeviceRevision;
         var snapshot = (refresh ? null : service.CachedSnapshot) ?? await service.RefreshSnapshotAsync();
+        EnsureRevision(revision);
         ViewModel.Dpi.SetMaxRate(snapshot.Model?.MaxRateHz ?? 4000);
         var dpi = snapshot.Dpi ?? throw new InvalidOperationException("DPI設定を読み取れませんでした。");
         var rate = snapshot.Sensor?.PollingRateHz ?? (await service.GetStatusAsync()).PollingRateHz;
+        EnsureRevision(revision);
         ViewModel.Dpi.LoadConfiguration(RealRapooService.MapDpiConfiguration(dpi), rate);
+    }
+
+    private void EnsureRevision(int revision)
+    {
+        if (revision != ViewModel.DeviceRevision)
+        {
+            throw new InvalidOperationException(
+                LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+        }
     }
 }

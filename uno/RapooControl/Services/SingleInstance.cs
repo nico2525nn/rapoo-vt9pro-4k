@@ -1,19 +1,20 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace RapooControl.Services;
 
 /// <summary>
 /// Cross-platform single-instance bridge. The first process holds an exclusive
-/// lock file and listens on a loopback port. Later launches send "show", wait
-/// for an acknowledgement, and exit. The port file carries the owner token so
-/// a shutting-down instance cannot delete its successor's endpoint.
+/// lock file and listens on a loopback port. Later launches ask the owner to
+/// show or ping, validate the owner PID in the acknowledgement, and exit only
+/// after the owner has accepted the request.
 /// </summary>
 public sealed class SingleInstance : IDisposable
 {
-    private const int ActivationTimeoutMs = 5000;
-    private const int ClientTimeoutMs = 3000;
+    private const int ActivationTimeoutMs = 15000;
+    private const int ClientTimeoutMs = 1500;
 
     private readonly string _lockPath;
     private readonly string _portPath;
@@ -21,7 +22,7 @@ public sealed class SingleInstance : IDisposable
     private FileStream? _lock;
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
-    private Action? _show;
+    private Func<bool>? _show;
     private bool _pendingShow;
     private string _ownerToken = string.Empty;
 
@@ -38,105 +39,120 @@ public sealed class SingleInstance : IDisposable
     public static SingleInstance Current { get; } = new();
 
     /// <summary>
-    /// Takes ownership. Returns false when another live instance accepted the
-    /// activation request. Throws <see cref="IOException"/> when the lock is
-    /// held but the endpoint cannot be reached, which must not be confused
-    /// with a filesystem failure.
+    /// Takes ownership. Returns false when an existing live instance accepted
+    /// the activation request. Retries while a previous owner is shutting down.
     /// </summary>
     public bool TryAcquire(bool requestShow)
     {
-        try
+        var deadline = Environment.TickCount64 + ActivationTimeoutMs;
+        while (true)
         {
-            _lock = new FileStream(
-                _lockPath,
-                FileMode.OpenOrCreate,
-                FileAccess.ReadWrite,
-                FileShare.None);
-        }
-        catch (IOException ex)
-        {
-            if (NotifyExisting(requestShow))
+            try
             {
-                return false;
+                _lock = new FileStream(
+                    _lockPath,
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None);
+                break;
             }
-            throw new IOException(
-                "別の Rapoo Control が起動していますが、応答しません。タスクマネージャーで終了してから再試行してください。",
-                ex);
+            catch (IOException ex)
+            {
+                switch (TryNotifyExisting(requestShow))
+                {
+                    case ActivationResult.Accepted:
+                        return false;
+                    case ActivationResult.Retry:
+                    case ActivationResult.Unreachable:
+                        if (Environment.TickCount64 >= deadline)
+                        {
+                            throw new IOException(
+                                "別の Rapoo Control が起動していますが、応答しません。タスクマネージャーで終了してから再試行してください。",
+                                ex);
+                        }
+                        Thread.Sleep(150);
+                        continue;
+                }
+            }
         }
 
-        _listener = new TcpListener(IPAddress.Loopback, 0);
-        _listener.Start();
-        var port = ((IPEndPoint)_listener.LocalEndpoint).Port;
-        _ownerToken = $"{Environment.ProcessId}:{port}";
-        WritePortFile(_ownerToken);
-        _cts = new CancellationTokenSource();
-        _ = Task.Run(() => AcceptLoopAsync(_listener, _cts.Token));
-        return true;
+        try
+        {
+            _listener = new TcpListener(IPAddress.Loopback, 0);
+            _listener.Start();
+            var port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+            _ownerToken = $"{Environment.ProcessId}:{port}";
+            WritePortFile(_ownerToken);
+            _cts = new CancellationTokenSource();
+            _ = Task.Run(() => AcceptLoopAsync(_listener, _cts.Token), CancellationToken.None);
+            return true;
+        }
+        catch
+        {
+            _listener?.Stop();
+            _listener = null;
+            _lock?.Dispose();
+            _lock = null;
+            throw;
+        }
     }
 
     /// <summary>
-    /// Registers the UI activation callback. A request that arrived before the
-    /// window existed is replayed exactly once, under the same lock.
+    /// Registers the UI activation callback. The callback returns true only
+    /// after the activation was queued, so the caller can acknowledge the
+    /// duplicate launch without silently dropping it.
     /// </summary>
-    public void SetShowHandler(Action show)
+    public void SetShowHandler(Func<bool> show)
     {
         ArgumentNullException.ThrowIfNull(show);
-        var invoke = false;
+        var replay = false;
         lock (_showGate)
         {
             _show = show;
             if (_pendingShow)
             {
                 _pendingShow = false;
-                invoke = true;
+                replay = true;
             }
         }
 
-        if (invoke)
+        if (replay && !show())
         {
-            show();
+            lock (_showGate)
+            {
+                _pendingShow = true;
+            }
         }
     }
 
-    private bool NotifyExisting(bool requestShow)
+    private ActivationResult TryNotifyExisting(bool requestShow)
     {
-        var deadline = Environment.TickCount64 + ActivationTimeoutMs;
-        while (Environment.TickCount64 < deadline)
+        if (!TryReadPort(out var ownerPid, out var port))
         {
-            try
-            {
-                if (TryReadPort(out var ownerToken))
-                {
-                    var separator = ownerToken.IndexOf(':');
-                    if (separator > 0 &&
-                        int.TryParse(ownerToken[(separator + 1)..], out var port) &&
-                        TrySendActivation(port, requestShow))
-                    {
-                        return true;
-                    }
-                }
-            }
-            catch
-            {
-                // The first instance is still starting.
-            }
-            Thread.Sleep(100);
+            return ActivationResult.Unreachable;
         }
 
-        return false;
+        return TrySendActivation(port, requestShow, ownerPid);
     }
 
-    private bool TryReadPort(out string ownerToken)
+    private bool TryReadPort(out int ownerPid, out int port)
     {
-        ownerToken = string.Empty;
+        ownerPid = 0;
+        port = 0;
         try
         {
             if (!File.Exists(_portPath))
             {
                 return false;
             }
-            ownerToken = File.ReadAllText(_portPath).Trim();
-            return ownerToken.Length > 0;
+
+            var token = File.ReadAllText(_portPath).Trim();
+            var separator = token.IndexOf(':');
+            return separator > 0 &&
+                int.TryParse(token[..separator], out ownerPid) &&
+                int.TryParse(token[(separator + 1)..], out port) &&
+                ownerPid > 0 &&
+                port is > 0 and <= 65535;
         }
         catch
         {
@@ -144,37 +160,56 @@ public sealed class SingleInstance : IDisposable
         }
     }
 
-    private static bool TrySendActivation(int port, bool requestShow)
+    private static ActivationResult TrySendActivation(int port, bool requestShow, int expectedPid)
     {
-        if (!requestShow)
+        try
         {
-            // A duplicate --hidden launch must not pop an existing window.
-            return true;
-        }
-
-        using var client = new TcpClient
-        {
-            ReceiveTimeout = ClientTimeoutMs,
-            SendTimeout = ClientTimeoutMs,
-        };
+            using var client = new TcpClient
+            {
+                ReceiveTimeout = ClientTimeoutMs,
+                SendTimeout = ClientTimeoutMs,
+            };
 #if WINDOWS
-        var connectTask = client.ConnectAsync(IPAddress.Loopback, port);
+            var connectTask = client.ConnectAsync(IPAddress.Loopback, port);
 #else
-        var connectTask = client.ConnectAsync(IPAddress.Loopback, port).AsTask();
+            var connectTask = client.ConnectAsync(IPAddress.Loopback, port).AsTask();
 #endif
-        if (!connectTask.Wait(ClientTimeoutMs))
-        {
-            return false;
-        }
+            if (!connectTask.Wait(ClientTimeoutMs))
+            {
+                return ActivationResult.Unreachable;
+            }
 
-        using var stream = client.GetStream();
-        stream.ReadTimeout = ClientTimeoutMs;
-        stream.WriteTimeout = ClientTimeoutMs;
-        using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
-        using var reader = new StreamReader(stream, Encoding.UTF8);
-        writer.WriteLine("show");
-        var response = reader.ReadLine();
-        return response is not null && response.StartsWith("ok", StringComparison.Ordinal);
+#if WINDOWS
+            if (requestShow)
+            {
+                _ = AllowSetForegroundWindow(expectedPid);
+            }
+#endif
+
+            using var stream = client.GetStream();
+            stream.ReadTimeout = ClientTimeoutMs;
+            stream.WriteTimeout = ClientTimeoutMs;
+            using var writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = true };
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            writer.WriteLine(requestShow ? "show" : "ping");
+            var response = reader.ReadLine();
+            if (response is null)
+            {
+                return ActivationResult.Unreachable;
+            }
+            if (response == "retry")
+            {
+                return ActivationResult.Retry;
+            }
+
+            return response == $"ok {expectedPid}"
+                ? ActivationResult.Accepted
+                : ActivationResult.Retry;
+        }
+        catch
+        {
+            return ActivationResult.Unreachable;
+        }
     }
 
     private async Task AcceptLoopAsync(TcpListener listener, CancellationToken cancellationToken)
@@ -216,24 +251,48 @@ public sealed class SingleInstance : IDisposable
                     AutoFlush = true,
                 };
                 var line = await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false);
+                if (string.Equals(line, "ping", StringComparison.Ordinal))
+                {
+                    await writer.WriteLineAsync($"ok {Environment.ProcessId}").ConfigureAwait(false);
+                    return;
+                }
                 if (!string.Equals(line, "show", StringComparison.Ordinal))
                 {
                     await writer.WriteLineAsync("no").ConfigureAwait(false);
                     return;
                 }
 
-                Action? action;
+                Func<bool>? handler;
+                var accepted = false;
                 lock (_showGate)
                 {
-                    action = _show;
-                    if (action is null)
+                    handler = _show;
+                    if (handler is null)
                     {
                         _pendingShow = true;
+                        accepted = true;
                     }
                 }
 
+                if (handler is not null)
+                {
+                    try
+                    {
+                        accepted = handler();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"single-instance activation: {ex}");
+                    }
+                }
+
+                if (!accepted)
+                {
+                    await writer.WriteLineAsync("retry").ConfigureAwait(false);
+                    return;
+                }
+
                 await writer.WriteLineAsync($"ok {Environment.ProcessId}").ConfigureAwait(false);
-                action?.Invoke();
             }
             catch (OperationCanceledException)
             {
@@ -275,8 +334,8 @@ public sealed class SingleInstance : IDisposable
         // successor cannot have its port file removed by this process.
         try
         {
-            if (TryReadPort(out var ownerToken) &&
-                string.Equals(ownerToken, _ownerToken, StringComparison.Ordinal))
+            if (TryReadPort(out _, out _) &&
+                string.Equals(File.ReadAllText(_portPath).Trim(), _ownerToken, StringComparison.Ordinal))
             {
                 File.Delete(_portPath);
             }
@@ -287,5 +346,17 @@ public sealed class SingleInstance : IDisposable
 
         _lock?.Dispose();
         _lock = null;
+    }
+
+#if WINDOWS
+    [DllImport("user32.dll")]
+    private static extern bool AllowSetForegroundWindow(int processId);
+#endif
+
+    private enum ActivationResult
+    {
+        Accepted,
+        Retry,
+        Unreachable,
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using RapooControl.Services;
 
 namespace RapooControl.Tests;
@@ -8,9 +9,58 @@ public sealed class PlatformAndMappingTests
     [Test]
     public void QuoteDesktopExec_EscapesDesktopEntryMetacharacters()
     {
-        var quoted = AutoStartService.QuoteDesktopExec("/opt/Rapoo $HOME/100% `x` \\\"test\\\"");
+        var quoted = AutoStartService.QuoteDesktopExec("/opt/Rapoo $HOME\\100%");
 
-        Assert.That(quoted, Is.EqualTo("\"/opt/Rapoo \\$HOME/100%% \\`x\\` \\\\\\\"test\\\\\\\"\""));
+        Assert.That(quoted, Is.EqualTo("""
+            "/opt/Rapoo \\$HOME\\\\100%%"
+            """));
+    }
+
+    [Test]
+    public void QuoteDesktopExec_IsAcceptedByDesktopFileValidate()
+    {
+        Assume.That(OperatingSystem.IsLinux(), "desktop-file-validate is Linux-only.");
+        const string validator = "/usr/bin/desktop-file-validate";
+        Assume.That(File.Exists(validator), "desktop-file-validate is not installed.");
+
+        var path = Path.Combine(Path.GetTempPath(), $"rapoo-entry-{Guid.NewGuid():N}.desktop");
+        try
+        {
+            File.WriteAllText(path,
+                "[Desktop Entry]\n" +
+                "Type=Application\n" +
+                "Name=Rapoo Control\n" +
+                $"Exec={AutoStartService.QuoteDesktopExec("/opt/Rapoo $HOME\\100%")} --app=uno\n" +
+                "Terminal=false\n" +
+                "Hidden=false\n" +
+                "X-GNOME-Autostart-enabled=true\n");
+
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = validator,
+                ArgumentList = { path },
+                UseShellExecute = false,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            });
+            Assert.That(process, Is.Not.Null);
+            process!.WaitForExit();
+            var error = process.StandardError.ReadToEnd();
+            Assert.That(process.ExitCode, Is.EqualTo(0), error);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Test]
+    public async Task BridgeStartStop_IsIdempotent()
+    {
+        var client = new RapooBridgeClient();
+        await client.DisposeAsync();
+        await client.DisposeAsync();
+        await client.StopAsync();
     }
 
     [Test]

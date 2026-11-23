@@ -26,16 +26,25 @@ public static partial class AutoStartService
     /// </summary>
     public static void MigrateLegacy() => MigrateLegacyCore();
 
-    /// <summary>Escapes an executable path for a desktop-entry Exec value.</summary>
+    /// <summary>
+    /// Escapes an executable path for a desktop-entry Exec value. The Exec
+    /// command line is escaped first, then the whole value is escaped for the
+    /// desktop-entry string parser. This is deliberately two layers.
+    /// </summary>
     internal static string QuoteDesktopExec(string executable)
     {
-        var escaped = executable
+        var commandLine = "\"" + executable
             .Replace("\\", "\\\\", StringComparison.Ordinal)
             .Replace("\"", "\\\"", StringComparison.Ordinal)
             .Replace("`", "\\`", StringComparison.Ordinal)
             .Replace("$", "\\$", StringComparison.Ordinal)
-            .Replace("%", "%%", StringComparison.Ordinal);
-        return $"\"{escaped}\"";
+            .Replace("%", "%%", StringComparison.Ordinal) + "\"";
+
+        return commandLine
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal)
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\t", "\\t", StringComparison.Ordinal);
     }
 
     private static partial bool IsEnabledCore();

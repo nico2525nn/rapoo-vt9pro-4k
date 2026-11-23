@@ -11,7 +11,7 @@ public sealed class MainViewModel : ObservableObject
     private DeviceStatus _status;
     private Task? _initialization;
     private bool _hasError;
-    private string _errorMessage = string.Empty;
+    private string _errorSource = string.Empty;
 
     public MainViewModel(IRapooService service)
     {
@@ -82,7 +82,9 @@ public sealed class MainViewModel : ObservableObject
     public string ConnectionMessage => _status switch
     {
         { PermissionDenied: true } => LocalizationService.Instance.T("hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"),
-        { LastError.Length: > 0 } => LocalizationService.Instance.Format("デバイスエラー: {0}", _status.LastError),
+        { LastError.Length: > 0 } => LocalizationService.Instance.Format(
+            "デバイスエラー: {0}",
+            LocalizationService.Instance.Error(_status.LastError)),
         _ when !IsConnected => LocalizationService.Instance.T("マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。"),
         { Sleeping: true } => LocalizationService.Instance.T("マウスがスリープ中です。マウスを動かして復帰させてください。"),
         { MouseOnline: false } => LocalizationService.Instance.T("マウスからの応答を待っています。マウスを動かしてください。"),
@@ -104,7 +106,9 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasError => _hasError;
 
-    public string ErrorMessage => _errorMessage;
+    public string ErrorMessage => _hasError
+        ? LocalizationService.Instance.Error(_errorSource)
+        : string.Empty;
 
     public Task InitializeAsync()
     {
@@ -160,13 +164,14 @@ public sealed class MainViewModel : ObservableObject
     public void RefreshLocalization()
     {
         NotifyStatusProperties();
+        OnPropertyChanged(nameof(ErrorMessage));
         Dpi.RefreshLocalization();
     }
 
     public void SetError(string message)
     {
         _hasError = true;
-        _errorMessage = LocalizationService.Instance.Error(message);
+        _errorSource = message;
         OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(ErrorMessage));
     }
@@ -178,7 +183,7 @@ public sealed class MainViewModel : ObservableObject
             return;
         }
         _hasError = false;
-        _errorMessage = string.Empty;
+        _errorSource = string.Empty;
         OnPropertyChanged(nameof(HasError));
         OnPropertyChanged(nameof(ErrorMessage));
     }

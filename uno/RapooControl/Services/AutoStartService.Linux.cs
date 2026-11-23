@@ -3,7 +3,16 @@ namespace RapooControl.Services;
 
 public static partial class AutoStartService
 {
-    private static partial bool IsEnabledCore() => File.Exists(LinuxAutoStartPath());
+    private static partial bool IsEnabledCore()
+    {
+        var userEntry = LinuxAutoStartPath();
+        if (File.Exists(userEntry))
+        {
+            return IsEntryEnabled(userEntry);
+        }
+
+        return SystemAutoStartPaths().Any(IsEntryEnabled);
+    }
 
     private static partial bool IsStartHiddenCore() => false;
 
@@ -18,7 +27,8 @@ public static partial class AutoStartService
                 {
                     File.Delete(path);
                 }
-                return !File.Exists(path);
+                // A system-wide entry may still be effective; report the real state.
+                return !IsEnabledCore();
             }
 
             var executable = Environment.ProcessPath;
@@ -26,6 +36,7 @@ public static partial class AutoStartService
             {
                 return false;
             }
+
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var contents =
                 "[Desktop Entry]\n" +
@@ -33,9 +44,13 @@ public static partial class AutoStartService
                 "Name=Rapoo Control\n" +
                 $"Exec={QuoteDesktopExec(executable)} --app=uno\n" +
                 "Terminal=false\n" +
+                "Hidden=false\n" +
                 "X-GNOME-Autostart-enabled=true\n";
-            File.WriteAllText(path, contents);
-            return File.Exists(path);
+
+            var temporary = path + ".tmp";
+            File.WriteAllText(temporary, contents);
+            File.Move(temporary, path, overwrite: true);
+            return IsEntryEnabled(path);
         }
         catch
         {
@@ -69,5 +84,59 @@ public static partial class AutoStartService
 
     private static string LinuxAutoStartPath() =>
         Path.Combine(LinuxConfigHome(), "autostart", "rapoo-control.desktop");
+
+    private static IEnumerable<string> SystemAutoStartPaths()
+    {
+        var dirs = Environment.GetEnvironmentVariable("XDG_CONFIG_DIRS");
+        var roots = string.IsNullOrWhiteSpace(dirs)
+            ? new[] { "/etc/xdg" }
+            : dirs.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        foreach (var root in roots.Where(Path.IsPathRooted))
+        {
+            yield return Path.Combine(root, "autostart", "rapoo-control.desktop");
+        }
+    }
+
+    private static bool IsEntryEnabled(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            var hidden = false;
+            var disabled = false;
+            foreach (var line in File.ReadLines(path))
+            {
+                var separator = line.IndexOf('=');
+                if (separator <= 0)
+                {
+                    continue;
+                }
+
+                var key = line[..separator].Trim();
+                var value = line[(separator + 1)..].Trim();
+                if (string.Equals(key, "Hidden", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(value, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    hidden = true;
+                }
+                if (string.Equals(key, "X-GNOME-Autostart-enabled", StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(value, "false", StringComparison.OrdinalIgnoreCase))
+                {
+                    disabled = true;
+                }
+            }
+
+            return !hidden && !disabled;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
 #endif
