@@ -74,6 +74,15 @@ public partial class App : Application
                   MainWindow is { } window &&
                   window.DispatcherQueue.TryEnqueue(ShowWindow));
         DesktopIntegration.Current.Initialize(MainWindow, ViewModel);
+        MainWindow.AppWindow.Closing += (_, _) =>
+        {
+            if (!DesktopPreferences.Current.CloseToTray ||
+                !DesktopIntegration.Current.IsTrayReady)
+            {
+                _closing = true;
+                SingleInstance.Current.BeginShutdown();
+            }
+        };
         if (_startHidden && DesktopIntegration.Current.IsTrayReady)
         {
             DesktopIntegration.Current.HideWindow();
