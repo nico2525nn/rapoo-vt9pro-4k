@@ -466,6 +466,12 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	if (!sameClient) {
 		return snap, errors.New("接続先が変わりました。設定を再読み込みしてください。")
 	}
+	// Stamp before updateFromSnapshot caches the snapshot, otherwise the
+	// cached copy would carry generation 0 and later be mistaken for current.
+	snap.StateRevision = readRevision
+	if snap.Generation == 0 {
+		snap.Generation = readGeneration
+	}
 	s.updateFromSnapshot(snap)
 	return snap, nil
 }

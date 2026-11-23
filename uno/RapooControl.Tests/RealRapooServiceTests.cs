@@ -94,7 +94,8 @@ public sealed class RealRapooServiceTests
                     "productId": 4625, "connection": "wireless_4k",
                     "hasBattery": True, "percentage": 82, "mouseOnline": True,
                     "sleeping": False, "maxRateHz": 4000,
-                    "revision": 2 if demo else 1
+                    "revision": 2 if demo else 1,
+                    "generation": 2 if demo else 1
                 }
 
             def snapshot(demo):
@@ -103,6 +104,7 @@ public sealed class RealRapooServiceTests
                               "connection": "wireless_4k", "maxRateHz": 4000},
                     "demoMode": demo,
                     "stateRevision": 2,
+                    "generation": 2 if demo else 1,
                     "battery": {"percentage": 82, "charging": False, "online": True},
                     "sensor": {"pollingRateHz": 1000},
                     "dpi": {"currentStage": 1, "stageCount": 1,

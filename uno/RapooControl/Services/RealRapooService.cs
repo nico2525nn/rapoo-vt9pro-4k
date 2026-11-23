@@ -192,7 +192,7 @@ public sealed partial class RealRapooService : IRapooService
             // Demo mode legitimately changes the display name. Accept the reply
             // only for the same product in the new demo state; the identity and
             // epoch check happen in one critical section.
-            PublishSnapshotForDemoChange(snapshot, sessionId);
+            PublishSnapshotForDemoChange(snapshot, sessionId, enabled);
         }
         return snapshot;
     }
@@ -331,17 +331,53 @@ public sealed partial class RealRapooService : IRapooService
         return status;
     }
 
-    private DeviceStatus PublishSnapshotForDemoChange(BridgeSnapshot snapshot, long sessionId)
+    private DeviceStatus PublishSnapshotForDemoChange(
+        BridgeSnapshot snapshot,
+        long sessionId,
+        bool enabled)
     {
         lock (_stateGate)
         {
             if (sessionId != _activeSessionId ||
                 !_client.IsSessionCurrent(sessionId) ||
-                !MatchesCurrentDeviceLocked(snapshot))
+                snapshot.DemoMode != enabled)
             {
                 throw new InvalidOperationException(
                     LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
             }
+
+            var state = _lastState;
+            if (state is not null)
+            {
+                var productId = snapshot.Model?.ProductId ?? 0;
+                if (productId > 0 && state.ProductId > 0 && productId != state.ProductId)
+                {
+                    throw new InvalidOperationException(
+                        LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+                }
+                if (snapshot.Generation > 0 && state.Generation > snapshot.Generation)
+                {
+                    throw new InvalidOperationException(
+                        LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+                }
+                if (state.Generation == snapshot.Generation &&
+                    state.DemoMode != snapshot.DemoMode)
+                {
+                    throw new InvalidOperationException(
+                        LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
+                }
+
+                if (snapshot.Generation > state.Generation)
+                {
+                    // The demo transition event may still be queued; adopt the
+                    // snapshot's new generation so the successful reply is usable.
+                    _lastState = CreateState(snapshot);
+                    _lastSnapshot = null;
+                    _snapshotEpoch = 0;
+                    _snapshotSessionId = 0;
+                }
+            }
+
             return PublishSnapshotLocked(snapshot, _deviceEpoch, sessionId);
         }
     }
@@ -410,23 +446,6 @@ public sealed partial class RealRapooService : IRapooService
             throw new InvalidOperationException(
                 LocalizationService.Instance.T("接続先が変わりました。設定を再読み込みしてください。"));
         }
-    }
-
-    private bool MatchesCurrentDeviceLocked(BridgeSnapshot snapshot)
-    {
-        if (_lastState is not { } state || state.DemoMode != snapshot.DemoMode)
-        {
-            return false;
-        }
-        if (snapshot.Generation > 0 && state.Generation > 0)
-        {
-            return snapshot.Generation == state.Generation;
-        }
-
-        var productId = snapshot.Model?.ProductId ?? 0;
-        return productId > 0
-            ? state.ProductId == productId
-            : state.DeviceName == snapshot.Model?.Name;
     }
 
     private static bool DeviceChanged(BridgeState previous, BridgeState current) =>
