@@ -416,15 +416,12 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		b.svc.SetPollingMode(service.ModePassiveOnly)
 		self, selfErr := os.Executable()
 		if selfErr != nil {
-			b.svc.EndUpdater()
 			b.svc.RestorePollingMode(previous)
+			b.svc.EndUpdater()
+			b.svc.RefreshNow()
 			return "", selfErr
 		}
-		state := b.svc.GetState()
-		productIDs := []uint16{state.ProductID}
-		if state.ProductID == 0 {
-			productIDs = rapoo.SupportedProductIDs()
-		}
+		productIDs := rapoo.SupportedProductIDs()
 		productArgs := make([]string, len(productIDs))
 		for i, id := range productIDs {
 			productArgs[i] = strconv.Itoa(int(id))
@@ -435,13 +432,15 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		updaterguard.ConfigureCommand(cmd)
 		stdout, pipeErr := cmd.StdoutPipe()
 		if pipeErr != nil {
-			b.svc.EndUpdater()
 			b.svc.RestorePollingMode(previous)
+			b.svc.EndUpdater()
+			b.svc.RefreshNow()
 			return "", pipeErr
 		}
 		if err := cmd.Start(); err != nil {
-			b.svc.EndUpdater()
 			b.svc.RestorePollingMode(previous)
+			b.svc.EndUpdater()
+			b.svc.RefreshNow()
 			return "", err
 		}
 		ready := make(chan error, 1)
@@ -457,8 +456,9 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		case err := <-ready:
 			if err != nil {
 				_ = cmd.Wait()
-				b.svc.EndUpdater()
 				b.svc.RestorePollingMode(previous)
+				b.svc.EndUpdater()
+				b.svc.RefreshNow()
 				return "", err
 			}
 		case <-time.After(15 * time.Second):
@@ -466,15 +466,17 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 			// before the deadline. Let it finish and release the locks.
 			go func() {
 				_ = cmd.Wait()
-				b.svc.EndUpdater()
 				b.svc.RestorePollingMode(previous)
+				b.svc.EndUpdater()
+				b.svc.RefreshNow()
 			}()
 			return "", errors.New("timed out waiting for the official updater")
 		}
 		go func() {
 			_ = cmd.Wait()
-			b.svc.EndUpdater()
 			b.svc.RestorePollingMode(previous)
+			b.svc.EndUpdater()
+			b.svc.RefreshNow()
 		}()
 		return path, nil
 	}

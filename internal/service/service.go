@@ -378,7 +378,6 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 	s.mu.Unlock()
 	s.connectMu.Unlock()
 	s.publish(snap)
-	s.RefreshNow()
 }
 
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
