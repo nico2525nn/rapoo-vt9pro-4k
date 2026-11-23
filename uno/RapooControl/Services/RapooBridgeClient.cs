@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -30,11 +29,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private readonly object _startGate = new();
     private Process? _process;
-    private Task? _readTask;
-    private Task? _stderrTask;
     private Task? _startTask;
     private int _nextId;
     private int _faulted;
+    private int _disposed;
     private volatile bool _started;
 
     public event EventHandler<BridgeState>? StateChanged;
@@ -45,6 +43,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         lock (_startGate)
         {
             if (_startTask is { IsCompleted: false })
@@ -65,6 +64,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
             if (IsRunning && _ready.Task.IsCompletedSuccessfully)
             {
                 return;
@@ -81,8 +81,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     {
         if (_process is not null)
         {
-            _process.Dispose();
-            _process = null;
+            // Never replace a live sidecar without stopping it first: the old
+            // process still owns HID handles until it exits.
+            await StopCoreAsync().ConfigureAwait(false);
         }
 
         _cts?.Dispose();
@@ -136,8 +137,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         _process = process;
         _started = true;
-        _readTask = Task.Run(() => ReadLoopAsync(process, cts.Token));
-        _stderrTask = Task.Run(() => ReadStderrAsync(process, cts.Token));
+        _ = Task.Run(() => ReadLoopAsync(process, cts.Token), CancellationToken.None);
+        _ = Task.Run(() => ReadStderrAsync(process, cts.Token), CancellationToken.None);
 
         var readyTask = _ready.Task;
         var ready = await Task.WhenAny(
@@ -161,7 +162,16 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    public async Task StopAsync()
+    public Task StopAsync()
+    {
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            return Task.CompletedTask;
+        }
+        return StopSerializedAsync();
+    }
+
+    private async Task StopSerializedAsync()
     {
         await _lifecycle.WaitAsync().ConfigureAwait(false);
         try
@@ -174,7 +184,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private async Task StopCoreAsync()
+    private Task StopCoreAsync()
     {
         var process = _process;
         var cts = _cts;
@@ -184,7 +194,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             cts?.Cancel();
             cts?.Dispose();
-            return;
+            return Task.CompletedTask;
         }
 
         try
@@ -225,7 +235,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             pending.TrySetException(new InvalidOperationException("rapoo-bridge.exe が終了しました。"));
         }
         _pending.Clear();
-        await Task.CompletedTask;
+        return Task.CompletedTask;
     }
 
     public Task<BridgeState> GetStateAsync(CancellationToken cancellationToken = default) =>
@@ -304,7 +314,12 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync().ConfigureAwait(false);
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        await StopSerializedAsync().ConfigureAwait(false);
         _cts?.Dispose();
         _writeLock.Dispose();
         _lifecycle.Dispose();
@@ -339,6 +354,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         object? parameters,
         CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         var process = _process;
         if (process is null || process.HasExited)
         {
@@ -417,33 +433,40 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     continue;
                 }
 
-                using var document = JsonDocument.Parse(line);
-                var root = document.RootElement;
+                try
+                {
+                    using var document = JsonDocument.Parse(line);
+                    var root = document.RootElement;
 
-                if (root.TryGetProperty("event", out var eventName))
-                {
-                    HandleEvent(process, eventName.GetString(), root);
-                    continue;
-                }
+                    if (root.TryGetProperty("event", out var eventName))
+                    {
+                        HandleEvent(process, eventName.GetString(), root);
+                        continue;
+                    }
 
-                if (!root.TryGetProperty("id", out var idElement) ||
-                    !idElement.TryGetInt32(out var id) ||
-                    !_pending.TryRemove(id, out var completion))
-                {
-                    continue;
-                }
+                    if (!root.TryGetProperty("id", out var idElement) ||
+                        !idElement.TryGetInt32(out var id) ||
+                        !_pending.TryRemove(id, out var completion))
+                    {
+                        continue;
+                    }
 
-                if (root.TryGetProperty("error", out var errorElement))
-                {
-                    completion.TrySetException(new RapooBridgeException(errorElement.GetString() ?? "unknown error"));
+                    if (root.TryGetProperty("error", out var errorElement))
+                    {
+                        completion.TrySetException(new RapooBridgeException(errorElement.GetString() ?? "unknown error"));
+                    }
+                    else if (root.TryGetProperty("result", out var resultElement))
+                    {
+                        completion.TrySetResult(resultElement.Clone());
+                    }
+                    else
+                    {
+                        completion.TrySetResult(default);
+                    }
                 }
-                else if (root.TryGetProperty("result", out var resultElement))
+                catch (JsonException ex)
                 {
-                    completion.TrySetResult(resultElement.Clone());
-                }
-                else
-                {
-                    completion.TrySetResult(default);
+                    Log($"ignoring malformed bridge message: {ex.Message}");
                 }
             }
         }
@@ -498,7 +521,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
     }
 
-    private async Task ReadStderrAsync(Process process, CancellationToken cancellationToken)
+    private static async Task ReadStderrAsync(Process process, CancellationToken cancellationToken)
     {
         try
         {
@@ -586,105 +609,6 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 #endif
 
         return null;
-    }
-
-    /// <summary>
-    /// Single-file distribution embeds the sidecar. Extract it to a stable
-    /// per-hash path so an upgrade never reuses a running, older binary.
-    /// </summary>
-    private static bool HasEmbeddedSidecar()
-    {
-        try
-        {
-            return typeof(RapooBridgeClient).Assembly
-                .GetManifestResourceInfo("RapooControl.rapoo-bridge.exe") is not null;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static string? ExtractEmbeddedSidecar()
-    {
-        try
-        {
-            var assembly = typeof(RapooBridgeClient).Assembly;
-            using var stream = assembly.GetManifestResourceStream("RapooControl.rapoo-bridge.exe");
-            if (stream is null)
-            {
-                return null;
-            }
-
-            var hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant()[..12];
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "rapoo-vt9pro-4k",
-                "bin");
-            Directory.CreateDirectory(directory);
-            var path = Path.Combine(directory, $"rapoo-bridge-{hash}.exe");
-            if (File.Exists(path))
-            {
-                string existingHash;
-                using (var existing = File.OpenRead(path))
-                {
-                    existingHash = Convert.ToHexString(SHA256.HashData(existing)).ToLowerInvariant()[..12];
-                }
-                if (!string.Equals(existingHash, hash, StringComparison.Ordinal))
-                {
-                    try
-                    {
-                        File.Delete(path);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"stale embedded sidecar is locked: {ex.Message}");
-                        return null;
-                    }
-                }
-            }
-            if (!File.Exists(path))
-            {
-                stream.Position = 0;
-                var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                using (var file = File.Create(temporary))
-                {
-                    stream.CopyTo(file);
-                }
-                using (var extracted = File.OpenRead(temporary))
-                {
-                    var extractedHash = Convert.ToHexString(SHA256.HashData(extracted)).ToLowerInvariant()[..12];
-                    if (!string.Equals(extractedHash, hash, StringComparison.Ordinal))
-                    {
-                        File.Delete(temporary);
-                        return null;
-                    }
-                }
-                File.Move(temporary, path, overwrite: true);
-            }
-
-            foreach (var old in Directory.EnumerateFiles(directory, "rapoo-bridge-*.exe"))
-            {
-                if (!string.Equals(old, path, StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        File.Delete(old);
-                    }
-                    catch
-                    {
-                        // The old sidecar may still be running.
-                    }
-                }
-            }
-
-            return path;
-        }
-        catch (Exception ex)
-        {
-            Log($"embedded sidecar extraction failed: {ex}");
-            return null;
-        }
     }
 
     private static readonly object LogGate = new();

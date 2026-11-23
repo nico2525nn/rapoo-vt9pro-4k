@@ -1,10 +1,6 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-#if WINDOWS
-using Windows.Storage.Pickers;
-using WinRT.Interop;
-#endif
 using RapooControl.Services;
 using RapooControl.ViewModels;
 
@@ -132,7 +128,13 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             return;
         }
-        DesktopPreferences.Current.SetCloseToTray(CloseToTraySwitch.IsOn);
+        if (!DesktopPreferences.Current.SetCloseToTray(CloseToTraySwitch.IsOn))
+        {
+            _trayPrefsReady = false;
+            CloseToTraySwitch.IsOn = DesktopPreferences.Current.CloseToTray;
+            _trayPrefsReady = true;
+            Feedback.Message = LocalizationService.Instance.T("トレイ設定を保存できませんでした。");
+        }
     }
 
     private void AutoStart_Toggled(object sender, RoutedEventArgs e)
@@ -173,21 +175,6 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             return;
         }
-        try
-        {
-            var logDir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "rapoo-vt9pro-4k");
-            Directory.CreateDirectory(logDir);
-            File.AppendAllText(
-                Path.Combine(logDir, "winui-language.log"),
-                $"{DateTimeOffset.Now:O} selected={language}{Environment.NewLine}");
-        }
-        catch
-        {
-            // Diagnostics only.
-        }
-
         var localization = LocalizationService.Instance;
         if (localization.Language == language)
         {
@@ -278,44 +265,6 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             await Feedback.RunAsync(() => service.OpenFirmwareUpdaterAsync(), "公式ソフトを起動しました。");
         }
     }
-
-#if WINDOWS
-    private async void BrowseUpdater_Click(object sender, RoutedEventArgs e)
-    {
-        if (ViewModel.DeviceService is not { } service || App.Instance.MainWindow is not { } window)
-        {
-            return;
-        }
-
-        try
-        {
-            var picker = new FileOpenPicker { FileTypeFilter = { ".exe" } };
-            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(window));
-            var file = await picker.PickSingleFileAsync();
-            if (file is null)
-            {
-                return;
-            }
-
-            if (!Path.IsPathFullyQualified(file.Path) ||
-                !(string.Equals(file.Name, "RapooGameDev.exe", StringComparison.OrdinalIgnoreCase) ||
-                  string.Equals(file.Name, "FirmwareExe.exe", StringComparison.OrdinalIgnoreCase)))
-            {
-                Feedback.Message = LocalizationService.Instance.T("RapooGameDev.exe または FirmwareExe.exe を選択してください。");
-                return;
-            }
-
-            await Feedback.RunAsync(() => service.OpenFirmwareUpdaterAsync(file.Path), "公式ソフトを起動しました。");
-        }
-        catch (Exception ex)
-        {
-            Feedback.Message = ex.Message;
-        }
-    }
-
-#else
-    private void BrowseUpdater_Click(object sender, RoutedEventArgs e) { }
-#endif
 
     private async void FactoryReset_Click(object sender, RoutedEventArgs e)
     {

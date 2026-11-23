@@ -3,17 +3,12 @@ using RapooControl.Models;
 namespace RapooControl.Services;
 
 /// <summary>
-/// Minimal contract between the WinUI shell and the device engine.
-///
-/// The prototype ships with <see cref="MockRapooService"/>. A later implementation
-/// can forward these calls to the existing Go engine (local HTTP/JSON or a named
-/// pipe) without changing the pages or view models.
+/// Contract between the UI and the device engine. The real implementation
+/// forwards to the Go sidecar; the mock implementation keeps the UI usable
+/// without hardware.
 /// </summary>
-public interface IRapooService
+public interface IRapooService : IAsyncDisposable
 {
-    /// <summary>Human-readable implementation name shown in the settings page.</summary>
-    string Name { get; }
-
     /// <summary>True when no real hardware is involved.</summary>
     bool IsMock { get; }
 

@@ -8,7 +8,7 @@
     <!-- Display name -->
     <ApplicationTitle>RapooControl</ApplicationTitle>
     <!-- App Identifier -->
-    <ApplicationId>com.companyname.rapoocontrol</ApplicationId>
+    <ApplicationId>io.github.nico2525nn.rapoocontrol</ApplicationId>
     <!-- Versions -->
     <Version>1.4.0</Version>
     <InformationalVersion>1.4.0</InformationalVersion>
@@ -34,11 +34,7 @@
       UnoFeatures are used to quickly add and manage features enabled for your app.
       https://aka.platform.uno/singleproject-features
     -->
-    <UnoFeatures>
-      Hosting;
-      Mvvm;
-      Skia;
-    </UnoFeatures>
+    <UnoFeatures>Skia</UnoFeatures>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">

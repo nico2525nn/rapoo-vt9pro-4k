@@ -55,37 +55,11 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsDeviceConnected => IsConnected;
 
-    public string ConnectionLabel => _status.ConnectionLabel;
-
-    public int ActiveDpi => _status.ActiveDpi;
-
-    public int PollingRateHz => _status.PollingRateHz;
-
-    public string PollingRateText => _status.PollingRateHz > 0
-        ? $"{_status.PollingRateHz:N0} Hz"
-        : "—";
-
-    public string DpiText => _status.ActiveDpi > 0 ? $"{_status.ActiveDpi:N0}" : "—";
-
-    public double BatteryProgress => Math.Clamp(_status.BatteryPercent, 0, 100);
-
-    public string ModeLabel => _status.Mode switch
-    {
-        "low_freq" => LocalizationService.Instance.T("省電力"),
-        "passive_only" => LocalizationService.Instance.T("0-TX"),
-        _ => LocalizationService.Instance.T("通常"),
-    };
-
-    public string UpdatedText => LocalizationService.Instance.Format(
-        "更新 {0:HH:mm:ss}", _status.UpdatedAt.LocalDateTime);
-
     public bool HasBattery => _status.BatteryPercent >= 0;
 
     public bool IsSleeping => IsConnected && _status.Sleeping;
 
     public string Mode => _status.Mode;
-
-    public string BatteryPercentText => _status.BatteryPercent < 0 ? "—" : $"{_status.BatteryPercent}%";
 
     public string BatteryText => _status.BatteryPercent < 0
         ? LocalizationService.Instance.T("未取得")
@@ -185,18 +159,7 @@ public sealed class MainViewModel : ObservableObject
 
     public void RefreshLocalization()
     {
-        OnPropertyChanged(nameof(DeviceName));
-        OnPropertyChanged(nameof(BatteryPercentText));
-        OnPropertyChanged(nameof(BatteryText));
-        OnPropertyChanged(nameof(ConnectionLabel));
-        OnPropertyChanged(nameof(ModeLabel));
-        OnPropertyChanged(nameof(BatteryProgress));
-        OnPropertyChanged(nameof(TrayTooltip));
-        OnPropertyChanged(nameof(ConnectionMessage));
-        OnPropertyChanged(nameof(HasConnectionMessage));
-        OnPropertyChanged(nameof(SettingsNotice));
-        OnPropertyChanged(nameof(DpiNotice));
-        OnPropertyChanged(nameof(HasDpiNotice));
+        NotifyStatusProperties();
         Dpi.RefreshLocalization();
     }
 
@@ -275,30 +238,24 @@ public sealed class MainViewModel : ObservableObject
         }
         Dpi.DeviceWritable = CanConfigureDevice;
 
+        NotifyStatusProperties();
+    }
+
+    private void NotifyStatusProperties()
+    {
         OnPropertyChanged(nameof(DeviceName));
         OnPropertyChanged(nameof(FirmwareText));
         OnPropertyChanged(nameof(BatteryPercent));
         OnPropertyChanged(nameof(IsCharging));
         OnPropertyChanged(nameof(IsDeviceConnected));
-        OnPropertyChanged(nameof(ConnectionLabel));
-        OnPropertyChanged(nameof(ActiveDpi));
-        OnPropertyChanged(nameof(PollingRateHz));
-        OnPropertyChanged(nameof(PollingRateText));
-        OnPropertyChanged(nameof(DpiText));
-        OnPropertyChanged(nameof(BatteryProgress));
-        OnPropertyChanged(nameof(ModeLabel));
-        OnPropertyChanged(nameof(UpdatedText));
         OnPropertyChanged(nameof(HasBattery));
         OnPropertyChanged(nameof(IsSleeping));
         OnPropertyChanged(nameof(Mode));
-        OnPropertyChanged(nameof(BatteryPercentText));
         OnPropertyChanged(nameof(BatteryText));
-        OnPropertyChanged(nameof(ConnectionLabel));
-        OnPropertyChanged(nameof(ModeLabel));
-        OnPropertyChanged(nameof(BatteryProgress));
         OnPropertyChanged(nameof(TrayTooltip));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));
+        OnPropertyChanged(nameof(SettingsNotice));
         OnPropertyChanged(nameof(DpiNotice));
         OnPropertyChanged(nameof(HasDpiNotice));
         OnPropertyChanged(nameof(IsDemoMode));

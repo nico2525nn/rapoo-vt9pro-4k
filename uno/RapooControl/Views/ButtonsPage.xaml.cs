@@ -357,11 +357,13 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
     }
 
     private static bool SameAction(BridgeButtonAction a, BridgeButtonAction b) =>
-        a.Type == b.Type && (a.Type != "keyboard" || a.KeyCode == b.KeyCode &&
-            (a.Modifiers?.Ctrl ?? false) == (b.Modifiers?.Ctrl ?? false) &&
-            (a.Modifiers?.Shift ?? false) == (b.Modifiers?.Shift ?? false) &&
-            (a.Modifiers?.Alt ?? false) == (b.Modifiers?.Alt ?? false) &&
-            (a.Modifiers?.Meta ?? false) == (b.Modifiers?.Meta ?? false));
+        a.Type == b.Type &&
+        (a.Type != "keyboard" ||
+         (a.KeyCode == b.KeyCode &&
+          (a.Modifiers?.Ctrl ?? false) == (b.Modifiers?.Ctrl ?? false) &&
+          (a.Modifiers?.Shift ?? false) == (b.Modifiers?.Shift ?? false) &&
+          (a.Modifiers?.Alt ?? false) == (b.Modifiers?.Alt ?? false) &&
+          (a.Modifiers?.Meta ?? false) == (b.Modifiers?.Meta ?? false)));
 
     private void UpdateControls()
     {

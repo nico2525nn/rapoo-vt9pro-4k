@@ -1,3 +1,4 @@
+<!-- The shipped WinUI UI is dark; keep Fluent resources and caption buttons in sync. -->
 <Application
     x:Class="RapooControl.App"
     RequestedTheme="Dark"

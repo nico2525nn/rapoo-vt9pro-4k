@@ -2,7 +2,16 @@ namespace RapooControl.Services;
 
 public sealed partial class RealRapooService
 {
-    internal BridgeSnapshot? CachedSnapshot => _lastSnapshot;
+    internal BridgeSnapshot? CachedSnapshot
+    {
+        get
+        {
+            lock (_stateGate)
+            {
+                return _lastSnapshot;
+            }
+        }
+    }
 
     public Task<BridgeState> SetLanguageAsync(string language) => _client.SetLanguageAsync(language);
 
@@ -34,8 +43,7 @@ public sealed partial class RealRapooService
     private async Task<BridgeSnapshot> UpdateSnapshotAsync(Task<BridgeSnapshot> request)
     {
         var snapshot = await request.ConfigureAwait(false);
-        _lastSnapshot = snapshot;
-        PublishStatus(snapshot);
+        PublishSnapshot(snapshot);
         return snapshot;
     }
 }

@@ -39,7 +39,6 @@ public sealed class DpiPageViewModel : ObservableObject
 
         UpdateVisibility();
         UpdateCurrentStageOptions();
-        UpdateCurrentStage();
     }
 
     public ObservableCollection<DpiStageViewModel> Stages { get; } = [];
@@ -97,7 +96,6 @@ public sealed class DpiPageViewModel : ObservableObject
             var stage = Math.Clamp(value + 1, 1, _stageCount);
             if (SetProperty(ref _currentStage, stage))
             {
-                UpdateCurrentStage();
                 OnPropertyChanged(nameof(CurrentStageIndex));
                 OnPropertyChanged(nameof(IsDirty));
             }
@@ -272,7 +270,6 @@ public sealed class DpiPageViewModel : ObservableObject
 
         UpdateVisibility();
         UpdateCurrentStageOptions();
-        UpdateCurrentStage();
         OnPropertyChanged(nameof(IsDirty));
     }
 
@@ -280,17 +277,8 @@ public sealed class DpiPageViewModel : ObservableObject
     {
         var clamped = Math.Clamp(stage, 1, _stageCount);
         _currentStage = clamped;
-        UpdateCurrentStage();
         OnPropertyChanged(nameof(CurrentStage));
         OnPropertyChanged(nameof(CurrentStageIndex));
-    }
-
-    private void UpdateCurrentStage()
-    {
-        foreach (var stage in Stages)
-        {
-            stage.IsCurrent = stage.Index == _currentStage && stage.Index <= _stageCount;
-        }
     }
 
     private void SetPollingRate(int hertz)

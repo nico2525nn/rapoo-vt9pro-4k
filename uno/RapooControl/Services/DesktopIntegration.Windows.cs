@@ -29,6 +29,7 @@ public sealed partial class DesktopIntegration
     private ToggleMenuFlyoutItem? _demoItem;
     private ToggleMenuFlyoutItem? _autoStartItem;
     private bool _quitting;
+    private bool _trayHintShown;
     private TrayIconSpec? _lastSpec;
 
     public bool IsTrayReady => _tray?.IsCreated == true;
@@ -172,7 +173,7 @@ public sealed partial class DesktopIntegration
             var handle = WindowNative.GetWindowHandle(_window);
             if (handle != IntPtr.Zero)
             {
-                SetForegroundWindow(handle);
+                ForceForeground(handle);
             }
         }
         catch
@@ -204,9 +205,20 @@ public sealed partial class DesktopIntegration
     }
 
     private void OnViewModelChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) =>
-        UpdateTray();
+        RunOnUiThread(() => UpdateTray());
 
-    private void OnPreferencesChanged(object? sender, EventArgs e) => UpdateTray(force: true);
+    private void OnPreferencesChanged(object? sender, EventArgs e) =>
+        RunOnUiThread(() => UpdateTray(force: true));
+
+    private void RunOnUiThread(Action action)
+    {
+        if (_window is null || _window.DispatcherQueue.HasThreadAccess)
+        {
+            action();
+            return;
+        }
+        _window.DispatcherQueue.TryEnqueue(() => action());
+    }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
@@ -216,6 +228,23 @@ public sealed partial class DesktopIntegration
         }
         args.Cancel = true;
         sender.Hide();
+        if (_trayHintShown)
+        {
+            return;
+        }
+
+        _trayHintShown = true;
+        try
+        {
+            _tray?.ShowNotification(
+                "Rapoo Control",
+                LocalizationService.Instance.T("通知領域で実行中です。トレイアイコンをクリックすると再表示します。"),
+                H.NotifyIcon.Core.NotificationIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"tray notification failed: {ex.Message}");
+        }
     }
 
     private void Quit()
@@ -338,7 +367,44 @@ public sealed partial class DesktopIntegration
         _ = TrayVisibility.Promote(Environment.ProcessPath);
     }
 
+    private static void ForceForeground(IntPtr hwnd)
+    {
+        var foreground = GetForegroundWindow();
+        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        var currentThread = GetCurrentThreadId();
+        var attached = foregroundThread != 0 &&
+            foregroundThread != currentThread &&
+            AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+    }
+
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
 }
 #endif

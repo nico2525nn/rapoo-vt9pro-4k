@@ -10,8 +10,13 @@ public sealed class PageFeedback : ObservableObject
     public const string NoChanges = "変更はありません。";
 
     private string _message = string.Empty;
+    private bool _isBusy;
 
-    public bool IsBusy { get; private set; }
+    public bool IsBusy
+    {
+        get => _isBusy;
+        private set => SetProperty(ref _isBusy, value);
+    }
 
     public string Message
     {
@@ -37,7 +42,6 @@ public sealed class PageFeedback : ObservableObject
 
         IsBusy = true;
         Message = LocalizationService.Instance.T("処理中…");
-        OnPropertyChanged(nameof(IsBusy));
         try
         {
             await operation();
@@ -50,7 +54,6 @@ public sealed class PageFeedback : ObservableObject
         finally
         {
             IsBusy = false;
-            OnPropertyChanged(nameof(IsBusy));
         }
     }
 }

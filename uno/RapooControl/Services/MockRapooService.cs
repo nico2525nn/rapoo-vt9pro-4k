@@ -17,13 +17,13 @@ public sealed class MockRapooService : IRapooService
         _dpi = new DpiConfiguration(
             StageCount: 4,
             CurrentStage: 2,
-            Stages:
-            [
+            Stages: new[]
+            {
                 new DpiStage(1, 800, 800),
                 new DpiStage(2, 1600, 1600),
                 new DpiStage(3, 3200, 3200),
                 new DpiStage(4, 6400, 6400),
-            ]);
+            });
 
         _status = new DeviceStatus(
             DeviceName: "Rapoo VT9 Pro 4K",
@@ -39,8 +39,6 @@ public sealed class MockRapooService : IRapooService
             IsMock: true);
     }
 
-    public string Name => "MockRapooService";
-
     public bool IsMock => true;
 
     public event EventHandler<DeviceStatus>? StatusChanged;
@@ -50,10 +48,9 @@ public sealed class MockRapooService : IRapooService
         return Task.CompletedTask;
     }
 
-    public Task StopAsync()
-    {
-        return Task.CompletedTask;
-    }
+    public Task StopAsync() => Task.CompletedTask;
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     public Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {

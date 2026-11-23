@@ -98,17 +98,6 @@ public sealed class SingleInstance : IDisposable
         }
     }
 
-    /// <summary>True when a second launch asked to show this instance.</summary>
-    public bool ConsumePendingShow()
-    {
-        lock (_showGate)
-        {
-            var pending = _pendingShow;
-            _pendingShow = false;
-            return pending;
-        }
-    }
-
     private bool NotifyExisting(bool requestShow)
     {
         var deadline = Environment.TickCount64 + ActivationTimeoutMs;

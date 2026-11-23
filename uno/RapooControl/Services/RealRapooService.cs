@@ -6,41 +6,18 @@ namespace RapooControl.Services;
 /// Real device service backed by the Go sidecar. HID ownership and all protocol
 /// work stay in Go; this class only maps the bridge JSON to the UI models.
 /// </summary>
-public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
+public sealed partial class RealRapooService : IRapooService
 {
     private readonly RapooBridgeClient _client = new();
+    private readonly object _stateGate = new();
     private BridgeState? _lastState;
     private BridgeSnapshot? _lastSnapshot;
 
     public RealRapooService()
     {
-        _client.StateChanged += (_, state) =>
-        {
-            if (_lastState is { } previous &&
-                (previous.Connected != state.Connected || previous.DemoMode != state.DemoMode ||
-                 previous.Connection != state.Connection || previous.ProductId != state.ProductId))
-            {
-                _lastSnapshot = null;
-            }
-            _lastState = state;
-            StatusChanged?.Invoke(this, MapStatus(state));
-        };
-        _client.Faulted += (_, message) =>
-        {
-            _lastSnapshot = null;
-            _lastState = new BridgeState
-            {
-                Connected = false,
-                Connection = null,
-                LastError = message,
-                UpdatedAt = DateTimeOffset.Now,
-            };
-            StatusChanged?.Invoke(this, MapStatus(_lastState));
-            Faulted?.Invoke(this, message);
-        };
+        _client.StateChanged += (_, state) => PublishState(state);
+        _client.Faulted += (_, message) => PublishFault(message);
     }
-
-    public string Name => "RapooBridge";
 
     public bool IsMock => false;
 
@@ -53,8 +30,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
-        _lastState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        StatusChanged?.Invoke(this, MapStatus(_lastState));
+        PublishState(await _client.GetStateAsync(cancellationToken).ConfigureAwait(false));
 
         try
         {
@@ -63,11 +39,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
                 await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
             }
 
-            _lastSnapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
-            if (_lastState is not null)
-            {
-                StatusChanged?.Invoke(this, MapStatus(_lastState));
-            }
+            PublishSnapshot(await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is RapooBridgeException or InvalidOperationException)
         {
@@ -79,13 +51,14 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
 
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        _lastState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        return MapStatus(_lastState);
+        var state = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        return PublishState(state);
     }
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
-        var snapshot = _lastSnapshot ?? await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+        var snapshot = CachedSnapshot ??
+            await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
         return snapshot.Dpi is { } dpi
             ? MapDpiConfiguration(dpi)
             : throw new InvalidOperationException("DPI設定を読み取れませんでした。");
@@ -130,8 +103,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             stages,
             cancellationToken).ConfigureAwait(false);
 
-        _lastSnapshot = snapshot;
-        return PublishStatus(snapshot);
+        return PublishSnapshot(snapshot);
     }
 
     public async Task<DeviceStatus> SetPollingRateAsync(
@@ -139,8 +111,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var snapshot = await _client.SetPollingRateAsync(hertz, cancellationToken).ConfigureAwait(false);
-        _lastSnapshot = snapshot;
-        return PublishStatus(snapshot);
+        return PublishSnapshot(snapshot);
     }
 
     public Task<BridgeSnapshot> SetDemoModeAsync(
@@ -152,16 +123,12 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         string mode,
         CancellationToken cancellationToken = default)
     {
-        _lastState = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
-        var status = MapStatus(_lastState);
-        StatusChanged?.Invoke(this, status);
-        return status;
+        var state = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        return PublishState(state);
     }
 
-    public async ValueTask DisposeAsync()
-    {
+    public async ValueTask DisposeAsync() =>
         await _client.DisposeAsync().ConfigureAwait(false);
-    }
 
     private async Task<BridgeSnapshot> ReadSnapshotWithRetryAsync(CancellationToken cancellationToken)
     {
@@ -184,16 +151,73 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
                 last = ex;
             }
 
-            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-            delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 1.5, 800));
+            if (attempt < 5)
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                delay = TimeSpan.FromMilliseconds(Math.Min(delay.TotalMilliseconds * 1.5, 800));
+            }
         }
 
         throw last ?? new RapooBridgeException("デバイス設定を読み取れませんでした。");
     }
 
-    private DeviceStatus PublishStatus(BridgeSnapshot snapshot)
+    private DeviceStatus PublishState(BridgeState state)
     {
-        var state = _lastState ?? new BridgeState
+        DeviceStatus status;
+        lock (_stateGate)
+        {
+            if (_lastState is { } previous &&
+                (previous.Connected != state.Connected ||
+                 previous.DemoMode != state.DemoMode ||
+                 previous.Connection != state.Connection ||
+                 previous.ProductId != state.ProductId))
+            {
+                _lastSnapshot = null;
+            }
+            _lastState = state;
+            status = MapStatus(state, _lastSnapshot);
+        }
+
+        StatusChanged?.Invoke(this, status);
+        return status;
+    }
+
+    private DeviceStatus PublishSnapshot(BridgeSnapshot snapshot)
+    {
+        DeviceStatus status;
+        lock (_stateGate)
+        {
+            _lastSnapshot = snapshot;
+            var state = _lastState ?? CreateState(snapshot);
+            _lastState = state;
+            status = MapStatus(state, snapshot);
+        }
+
+        StatusChanged?.Invoke(this, status);
+        return status;
+    }
+
+    private void PublishFault(string message)
+    {
+        DeviceStatus status;
+        lock (_stateGate)
+        {
+            _lastSnapshot = null;
+            _lastState = new BridgeState
+            {
+                Connected = false,
+                LastError = message,
+                UpdatedAt = DateTimeOffset.Now,
+            };
+            status = MapStatus(_lastState, null);
+        }
+
+        StatusChanged?.Invoke(this, status);
+        Faulted?.Invoke(this, message);
+    }
+
+    private static BridgeState CreateState(BridgeSnapshot snapshot) =>
+        new()
         {
             Connected = true,
             Connection = snapshot.Model?.Connection,
@@ -204,17 +228,13 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             Percentage = snapshot.Battery?.Percentage ?? -1,
             Charging = snapshot.Battery?.Charging ?? false,
             MouseOnline = snapshot.Battery?.Online ?? false,
-            ActiveDpi = snapshot.Dpi?.Stages?.FirstOrDefault(stage => stage.Index == snapshot.Dpi.CurrentStage)?.X ?? 0,
+            ActiveDpi = snapshot.Dpi?.Stages?
+                .FirstOrDefault(stage => stage.Index == snapshot.Dpi.CurrentStage)?.X ?? 0,
             PollingRateHz = snapshot.Sensor?.PollingRateHz ?? 0,
             UpdatedAt = DateTimeOffset.Now,
         };
 
-        var status = MapStatus(state);
-        StatusChanged?.Invoke(this, status);
-        return status;
-    }
-
-    private DeviceStatus MapStatus(BridgeState state)
+    private static DeviceStatus MapStatus(BridgeState state, BridgeSnapshot? snapshot)
     {
         var connection = state.Connection switch
         {
@@ -227,7 +247,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             connection = ConnectionKind.Disconnected;
         }
 
-        var firmware = _lastSnapshot?.Firmware;
+        var firmware = snapshot?.Firmware;
         var firmwareText = firmware is null
             ? "—"
             : string.Join(

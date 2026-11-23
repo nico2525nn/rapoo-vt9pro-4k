@@ -1,5 +1,3 @@
-using RapooControl.Services;
-
 namespace RapooControl.Models;
 
 /// <summary>Hardware limits shared by the UI and any service implementation.</summary>
@@ -43,35 +41,10 @@ public sealed record DeviceStatus(
     string Mode = "normal",
     int MaxRateHz = 4000,
     bool PermissionDenied = false,
-    string? LastError = null)
-{
-    public string ConnectionLabel => !MouseOnline
-        ? LocalizationService.Instance.T("スリープ中")
-        : Connection switch
-        {
-            ConnectionKind.Wired => LocalizationService.Instance.T("USB-C 有線"),
-            ConnectionKind.Wireless4K => LocalizationService.Instance.T("4K ワイヤレス"),
-            _ => LocalizationService.Instance.T("未接続"),
-        };
-
-    public string BatteryText => BatteryPercent < 0 ? "--%" : $"{BatteryPercent}%";
-
-    public string ChargingLabel => !MouseOnline
-        ? LocalizationService.Instance.T("オフライン")
-        : Charging
-            ? LocalizationService.Instance.T("充電中")
-            : LocalizationService.Instance.T("バッテリー駆動");
-
-    public string ActiveDpiText => ActiveDpi > 0 ? $"{ActiveDpi:N0} DPI" : "—";
-
-    public string PollingRateText => PollingRateHz > 0 ? $"{PollingRateHz:N0} Hz" : "—";
-}
+    string? LastError = null);
 
 /// <summary>One onboard DPI stage (1-based, matching the Rapoo protocol).</summary>
-public sealed record DpiStage(int Index, int X, int Y)
-{
-    public string Label => LocalizationService.Instance.IsJapanese ? $"ステージ {Index}" : $"Stage {Index}";
-}
+public sealed record DpiStage(int Index, int X, int Y);
 
 /// <summary>Full DPI configuration: 1..7 stages plus the active stage.</summary>
 public sealed record DpiConfiguration(int StageCount, int CurrentStage, IReadOnlyList<DpiStage> Stages);

@@ -8,16 +8,20 @@ using Microsoft.UI.Xaml.Media;
 namespace RapooControl.Services;
 
 /// <summary>
-/// English is the default UI language. The XAML stays Japanese-readable and
-/// this service translates the visual tree (and dynamic messages) at runtime.
+/// The XAML is authored in Japanese and translated at runtime. The saved
+/// language wins over the OS default; RAPOO_LANG seeds fresh profiles.
 /// The choice is persisted in winui-prefs.json and published as RAPOO_LANG.
 /// </summary>
 public sealed class LocalizationService
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     public static LocalizationService Instance { get; } = new();
 
 #if WINDOWS
-    // Unpackaged WinUI can resolve its automatic UI font to Meiryo UI.
+    // Unpackaged WinUI can resolve its automatic UI font to Meiryo UI, which
+    // changes the Japanese metrics. Keep the WinUI text font and let DirectWrite
+    // fall back to Yu Gothic UI for Japanese glyphs, matching the shipped app.
     private static readonly FontFamily WindowsUiFont = new("Segoe UI Variable Text, Yu Gothic UI");
 #endif
 
@@ -40,10 +44,7 @@ public sealed class LocalizationService
         ["RapooGameDev.exe または FirmwareExe.exe を選択してください。"] = "Choose RapooGameDev.exe or FirmwareExe.exe.",
         ["マウスの初期化"] = "Reset mouse",
         ["工場出荷時設定に戻す"] = "Restore factory defaults",
-        ["デバイス情報"] = "Device information",
         ["再読み込み"] = "Reload",
-        ["読み取り間隔と設定ロック"] = "Read interval and configuration lock",
-        ["バックグラウンド取得"] = "Background polling",
         ["通常"] = "Normal",
         ["省電力"] = "Power saving",
         ["ゲーム優先モード（0-TX）"] = "In-game lock (0-TX)",
@@ -52,14 +53,10 @@ public sealed class LocalizationService
         ["0-TX に切り替え"] = "Switch to 0-TX",
         ["通常に戻す"] = "Return to Normal",
         ["デモモード"] = "Demo mode",
-        ["実機を使わずに設定を試す"] = "Try settings without hardware",
         ["開始"] = "Start",
         ["終了"] = "Exit",
         ["オン"] = "On",
         ["オフ"] = "Off",
-        ["外観"] = "Appearance",
-        ["ダーク"] = "Dark",
-        ["ライト"] = "Light",
         ["言語"] = "Language",
         ["接続と動作"] = "Connection & behavior",
         ["接続先が変わりました。設定を再読み込みしてください。"] =
@@ -121,8 +118,6 @@ public sealed class LocalizationService
         ["デモモードを終了しました。"] = "Demo mode ended.",
         ["工場出荷時設定に戻しました。"] = "Restored factory defaults.",
         ["公式ソフトを起動しました。"] = "Launched the official software.",
-        ["RapooGameDev.exe または FirmwareExe.exe を選択してください。"] =
-            "Select RapooGameDev.exe or FirmwareExe.exe.",
         ["操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"] =
             "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first.",
         ["既定の割り当てに戻す"] = "Restore defaults",
@@ -172,17 +167,11 @@ public sealed class LocalizationService
         ["ステージ"] = "Stage",
         ["ステージ数"] = "Stage count",
         ["使用ステージ"] = "Active stage",
-        ["未接続"] = "Not connected",
         ["スリープ中"] = "Sleeping",
         ["スリープ"] = "Sleeping",
-        ["4K ワイヤレス"] = "4K wireless",
-        ["USB-C 有線"] = "USB-C wired",
-        ["バッテリー駆動"] = "Battery",
         ["充電中"] = "Charging",
-        ["オフライン"] = "Offline",
         ["{0}を変更"] = "Change {0}",
         ["ボタン {0}"] = "Button {0}",
-        ["キー: {0}"] = "Key: {0}",
         ["Rapoo VT9 Pro 4K (デモ)"] = "Rapoo VT9 Pro 4K (Demo)",
         ["バッテリー"] = "Battery",
         ["未取得"] = "Not available",
@@ -191,9 +180,9 @@ public sealed class LocalizationService
         ["サインイン時に起動"] = "Start at sign-in",
         ["スタートアップ時にトレイへ格納"] = "Start in the notification area",
         ["スタートアップ設定を保存できませんでした。"] = "Could not save the startup setting.",
+        ["トレイ設定を保存できませんでした。"] = "Could not save the tray setting.",
         ["マウスからの応答を待っています。マウスを動かしてください。"] = "Waiting for the mouse to respond. Move it to wake it.",
         ["言語設定を保存できませんでした。"] = "Could not save the language setting.",
-        ["開く"] = "Open Rapoo Control",
         ["Rapoo Control を開く"] = "Open Rapoo Control",
         ["hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"] =
             "No permission to access hidraw. Check the udev setup in Settings.",
@@ -205,97 +194,16 @@ public sealed class LocalizationService
         ["デバイスエラー: {0}"] = "Device error: {0}",
         ["通常モード"] = "Normal mode",
         ["低頻度モード"] = "Low frequency",
-        ["省電力モード"] = "Power saving",
-        ["省電力モードに切り替えました。"] = "Switched to power-saving mode.",
-        ["通常モードに戻しました。"] = "Returned to Normal mode.",
-        ["0-TX モードに切り替えました。"] = "Switched to 0-TX mode.",
         ["0-TX (完全受動)"] = "0-TX (passive)",
         ["通知領域で実行中です。トレイアイコンをクリックすると再表示します。"] = "Still running in the notification area. Click the tray icon to reopen.",
-        ["通知領域に残量を表示しています。"] = "Battery status is shown in the notification area.",
         ["デモ"] = "Demo",
         ["言語を日本語に変更しました。"] = "Language changed to Japanese.",
-        ["設定を適用しました。"] = "Settings applied.",
-        ["保存中…"] = "Saving...",
-        ["割り当てを保存しました。"] = "Assignment saved.",
-        ["既定の割り当てに戻しました。"] = "Restored the default assignments.",
-        ["適用に失敗しました: {0}"] = "Apply failed: {0}",
-        ["デバイスの状態とクイック統計"] = "Device status and quick stats",
-        ["ステージとポーリングレート"] = "Stages and polling rate",
-        ["トラッキング、表面、電源"] = "Tracking, surface and power",
-        ["10 個のボタン割り当て"] = "10 programmable buttons",
-        ["設定の保存と切り替え"] = "Save and switch configurations",
-        ["アプリ、自動起動、Linux 権限"] = "App, startup and Linux permissions",
-        ["アプリ情報"] = "App information",
-        ["ビルドと診断ログ"] = "Build and diagnostic logs",
         ["バージョン"] = "Version",
-        ["デバイス バックエンド"] = "Device backend",
-        ["ログ フォルダーを開く"] = "Open log folder",
-        ["接続とファームウェアの現在値"] = "Current connection and firmware",
-        ["デバイス詳細"] = "Device details",
-        ["クイック操作"] = "Quick actions",
-        ["状態の更新とデバイスの動作モード"] = "Refresh state and device behavior",
-        ["状態を再読み込み"] = "Refresh status",
-        ["設定を開く"] = "Open settings",
         ["デモモードを開始"] = "Start demo mode",
         ["デモモードを終了"] = "Stop demo mode",
         ["接続"] = "Connection",
-        ["動作モード"] = "Operating mode",
-        ["更新 {0:HH:mm:ss}"] = "Updated {0:HH:mm:ss}",
-        ["ファームウェアとメンテナンス"] = "Firmware and maintenance",
-        ["公式の Rapoo ソフトを開きます"] = "Open the official Rapoo software",
-        ["DPI、センサー、ボタンを工場出荷時に戻します"] = "Restore DPI, sensor and buttons to factory defaults",
-        ["言語とスタートアップ"] = "Language and startup",
-        ["サインイン時に自動起動"] = "Launch automatically at sign-in",
-        ["バックグラウンドで動作を続けます"] = "Keep running in the background",
-        ["ウィンドウを表示せず通知領域で開始"] = "Start in the notification area without showing the window",
-        ["バックグラウンド取得とデモモード"] = "Background polling and demo mode",
-        ["実機なしで画面と操作を確認"] = "Try the interface without hardware",
-        ["0-TX 中はマウスへの読み書きを停止します。変更するには通常に戻してください。"] =
-            "0-TX stops all reads and writes to the mouse. Return to Normal to change settings.",
-        ["ポーリングレート"] = "Polling rate",
-        ["マウスが位置を報告する間隔。高いほど滑らかで、消費電力も増えます。"] =
-            "How often the mouse reports its position. Higher is smoother and uses more power.",
         ["レート"] = "Rate",
-        ["ステージ構成"] = "Stage configuration",
-        ["DPI ボタンで切り替える段数を決めます。"] = "Choose how many stages the DPI button cycles through.",
-        ["DPI ステージ"] = "DPI stages",
-        ["X と Y を個別に設定できます。値は 50 DPI 刻みです。"] =
-            "X and Y can be set independently. Values snap to 50 DPI.",
-        ["既定に戻す"] = "Restore defaults",
-        ["リフトオフとセンサーの向き"] = "Lift-off and sensor orientation",
-        ["リフトオフディスタンス"] = "Lift-off distance",
-        ["マウスを持ち上げて反応を止める高さ"] = "Height at which tracking stops when the mouse is lifted",
-        ["センサー角度"] = "Sensor angle",
-        ["センサーの回転補正（-30°〜30°）"] = "Sensor rotation correction (-30° to 30°)",
-        ["ポーリング周期に合わせて読み取りを同期"] = "Synchronize reads with the polling interval",
-        ["表面と補正"] = "Surface and correction",
-        ["マウスパッドやガラス面での挙動"] = "Behavior on mouse pads and glass",
-        ["透明な表面でもトラッキングを維持"] = "Keep tracking on transparent surfaces",
-        ["低 DPI での微細な揺れを抑制"] = "Reduce jitter at low DPI",
-        ["ゆっくり動かした時の直線性を補正"] = "Correct straight-line accuracy at slow speeds",
-        ["クリック応答とバッテリー持ち"] = "Click response and battery life",
-        ["押下デバウンス"] = "Press debounce",
-        ["押した瞬間のチャタリング防止"] = "Prevent chatter when the button is pressed",
-        ["解放デバウンス"] = "Release debounce",
-        ["離した瞬間のチャタリング防止"] = "Prevent chatter when the button is released",
         ["スリープ時間"] = "Sleep time",
-        ["無操作でスリープするまでの分数"] = "Minutes of inactivity before sleeping",
-        ["照明を抑えてバッテリーを節約"] = "Dim the lighting to save battery",
-        ["デバイスマップ"] = "Device map",
-        ["VT9 Pro 4K の 10 個の割り当て可能ボタン"] = "The 10 programmable buttons on the VT9 Pro 4K",
-        ["左クリックを割り当てたボタンを最低 1 つ残してください。"] =
-            "Keep at least one button assigned to Left Click.",
-        ["ボタン割り当て"] = "Button assignments",
-        ["各ボタンをクリックしてアクションを変更"] = "Click a button to change its action",
-        ["設定の保存"] = "Save configuration",
-        ["現在の DPI、センサー、ボタン割り当てをまとめて保存します。"] =
-            "Save the current DPI, sensor and button assignments together.",
-        ["プロファイルについて"] = "About profiles",
-        ["保存したプロファイルは一覧から選んで「適用」すると、マウス本体へ書き込まれます。プロファイルはこの PC に保存されます。"] =
-            "Select a saved profile and apply it to write the settings to the mouse. Profiles are stored on this PC.",
-        ["設定を調整して保存"] = "Adjust the settings and save",
-        ["一覧から選択して適用"] = "Select a profile and apply",
-        ["上の「現在の設定を保存」から作成できます。"] = "Create one with Save current settings above.",
     };
 
     private static readonly Dictionary<string, string> ActionEnglish = new()
@@ -392,8 +300,7 @@ public sealed class LocalizationService
         try
         {
             var temporary = _prefsPath + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(new { language = next },
-                new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new { language = next }, JsonOptions));
             File.Move(temporary, _prefsPath, overwrite: true);
         }
         catch

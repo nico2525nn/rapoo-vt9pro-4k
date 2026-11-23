@@ -8,6 +8,8 @@ namespace RapooControl.Services;
 /// </summary>
 public sealed class DesktopPreferences
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     private readonly string _path;
 
     private DesktopPreferences()
@@ -130,7 +132,7 @@ public sealed class DesktopPreferences
                 closeToTray = CloseToTray,
                 autoStart = AutoStart,
                 startHidden = StartHidden,
-            }, new JsonSerializerOptions { WriteIndented = true }));
+            }, JsonOptions));
             File.Move(temporary, _path, overwrite: true);
             return true;
         }

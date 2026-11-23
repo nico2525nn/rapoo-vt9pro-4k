@@ -17,6 +17,8 @@ public partial class App : Application
 
     public Window? MainWindow { get; private set; }
 
+    private readonly bool _startHidden;
+
     public App()
     {
         InitializeComponent();
@@ -27,11 +29,10 @@ public partial class App : Application
         RapooService = useMock ? new MockRapooService() : new RealRapooService();
         ViewModel = new MainViewModel(RapooService);
 
-        var startHidden = Environment.GetCommandLineArgs()
-            .Any(argument => argument is "--hidden" or "--tray");
+        _startHidden = ShouldStartHidden();
         try
         {
-            if (!SingleInstance.Current.TryAcquire(requestShow: !startHidden))
+            if (!SingleInstance.Current.TryAcquire(requestShow: !_startHidden))
             {
                 Environment.Exit(0);
             }
@@ -64,12 +65,8 @@ public partial class App : Application
             MainWindow.DispatcherQueue.TryEnqueue(() => action()));
         SingleInstance.Current.SetShowHandler(
             () => MainWindow?.DispatcherQueue.TryEnqueue(ShowWindow));
-        if (SingleInstance.Current.ConsumePendingShow())
-        {
-            MainWindow.DispatcherQueue.TryEnqueue(ShowWindow);
-        }
         DesktopIntegration.Current.Initialize(MainWindow, ViewModel);
-        if (ShouldStartHidden() && DesktopIntegration.Current.IsTrayReady)
+        if (_startHidden && DesktopIntegration.Current.IsTrayReady)
         {
             DesktopIntegration.Current.HideWindow();
         }
@@ -137,16 +134,18 @@ public partial class App : Application
 
     private static void StopService()
     {
-        if (Current is App app && app.RapooService is IAsyncDisposable disposable)
+        if (Current is not App app)
         {
-            try
-            {
-                disposable.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            }
-            catch
-            {
-                // Shutdown best effort.
-            }
+            return;
+        }
+
+        try
+        {
+            app.RapooService.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Shutdown is best effort; never delay process exit.
         }
     }
 

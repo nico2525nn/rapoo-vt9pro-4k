@@ -36,24 +36,7 @@ public sealed partial class MainPage : Page
             }
             NavigateTo("overview");
             UpdateActionButtons();
-            if (Environment.GetEnvironmentVariable("RAPOO_UI_CAPTURE") == "1")
-            {
-                _ = CaptureDiagnosticsAsync();
-            }
         };
-    }
-
-    private void OpenPage(string tag)
-    {
-        foreach (var item in NavView.MenuItems)
-        {
-            if (item is NavigationViewItem { Tag: string itemTag } && itemTag == tag)
-            {
-                NavView.SelectedItem = item;
-                NavigateTo(tag);
-                return;
-            }
-        }
     }
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -103,17 +86,6 @@ public sealed partial class MainPage : Page
 
     private void PageActionsChanged(object? sender, EventArgs e) => UpdateActionButtons();
 
-    private async Task CaptureDiagnosticsAsync()
-    {
-        var page = Environment.GetEnvironmentVariable("RAPOO_UI_CAPTURE_PAGE");
-        if (!string.IsNullOrWhiteSpace(page) && page != "overview")
-        {
-            OpenPage(page);
-            await Task.Delay(1500);
-        }
-        await UiCapture.CaptureAsync(this);
-    }
-
     private void UpdateActionButtons()
     {
         ReloadButton.IsEnabled = !_runningAction && (CanRecoverBridge || _activeActions?.CanReload == true);
@@ -159,6 +131,10 @@ public sealed partial class MainPage : Page
         try
         {
             await action();
+        }
+        catch (Exception ex)
+        {
+            ViewModel.SetError(ex.Message);
         }
         finally
         {
