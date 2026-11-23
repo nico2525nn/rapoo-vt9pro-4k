@@ -541,7 +541,12 @@ func (a *trayApp) showPopupMenu() {
 	case cmdModePassive:
 		a.svc.SetPollingMode(service.ModePassiveOnly)
 	case cmdAutoStart:
-		_ = SetAutoStartEnabled(a.opts.RegistryValueName, !IsAutoStartEnabled(a.opts.RegistryValueName))
+		enabled := !IsAutoStartEnabled(a.opts.RegistryValueName)
+		args := []string(nil)
+		if enabled && a.opts.StartHiddenFn != nil && a.opts.StartHiddenFn() {
+			args = append(args, "--hidden")
+		}
+		_ = SetAutoStartEnabledWithArgs(a.opts.RegistryValueName, enabled, args...)
 	case cmdQuit:
 		a.userQuit = true
 		procPostMessageW.Call(uintptr(a.hwnd), wmClose, 0, 0)
@@ -699,6 +704,30 @@ func copyUTF16Tip(dst []uint16, s string) {
 	dst[len(enc)] = 0
 }
 
+// AutoStartCommand returns the current HKCU\...\Run command for valueName.
+func AutoStartCommand(valueName string) string {
+	key, err := registry.OpenKey(registry.CURRENT_USER, runRegistryPath, registry.READ)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue(valueName)
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+// DeleteAutoStart removes valueName from HKCU\...\Run.
+func DeleteAutoStart(valueName string) error {
+	key, err := registry.OpenKey(registry.CURRENT_USER, runRegistryPath, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer key.Close()
+	return key.DeleteValue(valueName)
+}
+
 // promoteNotificationIcon marks this executable as always visible in the
 // Windows 11 notification area. New icons are hidden in the overflow by
 // default, which makes a battery indicator look like it never appeared.
@@ -728,7 +757,9 @@ func promoteNotificationIcon() {
 		}
 		path, _, pathErr := sub.GetStringValue("ExecutablePath")
 		if pathErr == nil && strings.EqualFold(path, exe) {
-			_ = sub.SetDWordValue("IsPromoted", 1)
+			if _, _, valueErr := sub.GetIntegerValue("IsPromoted"); valueErr == registry.ErrNotExist {
+				_ = sub.SetDWordValue("IsPromoted", 1)
+			}
 		}
 		sub.Close()
 	}
@@ -768,6 +799,12 @@ func IsAutoStartEnabled(valueName string) bool {
 
 // SetAutoStartEnabled writes or deletes the current executable path in HKCU\...\Run under valueName.
 func SetAutoStartEnabled(valueName string, enable bool) error {
+	return SetAutoStartEnabledWithArgs(valueName, enable)
+}
+
+// SetAutoStartEnabledWithArgs is SetAutoStartEnabled with extra command-line
+// arguments, such as "--hidden" for a tray-only launch.
+func SetAutoStartEnabledWithArgs(valueName string, enable bool, args ...string) error {
 	if valueName == "" {
 		valueName = defaultRunRegistryValue
 	}
@@ -796,6 +833,9 @@ func SetAutoStartEnabled(valueName string, enable bool) error {
 		return err
 	}
 	cmdLine := fmt.Sprintf(`"%s"`, exePath)
+	for _, arg := range args {
+		cmdLine += " " + arg
+	}
 	u16, err := syscall.UTF16FromString(cmdLine)
 	if err != nil {
 		return err

@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"os"
+	"runtime"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -16,18 +18,37 @@ var assets embed.FS
 //go:embed build/appicon.png
 var appIconPNG []byte
 
+func containsHiddenArg(args []string) bool {
+	for _, argument := range args {
+		if argument == "--hidden" || argument == "--tray" {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
 	app := NewApp()
+	startHidden := false
+	if runtime.GOOS == "windows" {
+		for _, argument := range os.Args[1:] {
+			if argument == "--hidden" || argument == "--tray" {
+				startHidden = true
+			}
+		}
+	}
+	app.startHidden = startHidden
 
 	err := wails.Run(&options.App{
-		Title:     "Rapoo Control — VT9 Pro 4K",
-		Width:     1140,
-		Height:    760,
-		MinWidth:  880,
-		MinHeight: 620,
-		MaxWidth:  1600,
-		MaxHeight: 1000,
-		Frameless: true,
+		Title:       "Rapoo Control — VT9 Pro 4K",
+		Width:       1140,
+		Height:      760,
+		MinWidth:    880,
+		MinHeight:   620,
+		MaxWidth:    1600,
+		MaxHeight:   1000,
+		Frameless:   true,
+		StartHidden: startHidden,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
@@ -37,7 +58,10 @@ func main() {
 		OnShutdown:       app.shutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "rapoo-vt9pro-4k-control-hub-v1",
-			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(data options.SecondInstanceData) {
+				if containsHiddenArg(data.Args) {
+					return
+				}
 				app.ShowWindow()
 			},
 		},

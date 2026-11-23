@@ -56,12 +56,20 @@
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="閉じたらトレイに格納" />
                         <ToggleSwitch x:Name="CloseToTraySwitch" Grid.Column="1" VerticalAlignment="Center"
+                            AutomationProperties.Name="閉じたらトレイに格納"
                             Toggled="CloseToTray_Toggled" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="Windows スタートアップ" />
                         <ToggleSwitch x:Name="AutoStartSwitch" Grid.Column="1" VerticalAlignment="Center"
+                            AutomationProperties.Name="Windows スタートアップ"
                             Toggled="AutoStart_Toggled" />
+                    </Grid>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="スタートアップ時にトレイへ格納" />
+                        <ToggleSwitch x:Name="StartHiddenSwitch" Grid.Column="1" VerticalAlignment="Center"
+                            AutomationProperties.Name="スタートアップ時にトレイへ格納"
+                            Toggled="StartHidden_Toggled" />
                     </Grid>
                 </StackPanel>
             </Border>

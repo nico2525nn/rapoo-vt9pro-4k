@@ -42,6 +42,7 @@ interface WailsAppBindings {
   SetLanguage(language: string): Promise<AppPreferences>;
   SetCloseToTray(enabled: boolean): Promise<AppPreferences>;
   SetAutoStart(enabled: boolean): Promise<AppPreferences>;
+  SetStartHidden(enabled: boolean): Promise<AppPreferences>;
   SetWindowTheme(dark: boolean): Promise<void>;
   CloseWindow(): Promise<void>;
   OpenFirmwareUpdater(): Promise<string>;
@@ -295,6 +296,7 @@ class FallbackSimulator {
   private prefs: AppPreferences = {
     closeToTray: true,
     autoStart: false,
+    startHidden: false,
     platform: "windows",
     language: "en",
   };
@@ -305,7 +307,7 @@ class FallbackSimulator {
     this.mode = "normal";
     this.snap = makeDefaultSnapshot();
     this.presets = [];
-    this.prefs = { closeToTray: true, autoStart: false, platform: "windows", language: "en" };
+    this.prefs = { closeToTray: true, autoStart: false, startHidden: false, platform: "windows", language: "en" };
     this.listeners.clear();
   }
 
@@ -638,6 +640,11 @@ class FallbackSimulator {
     this.prefs.autoStart = enabled;
     return { ...this.prefs };
   }
+
+  setStartHidden(enabled: boolean): AppPreferences {
+    this.prefs.startHidden = enabled;
+    return { ...this.prefs };
+  }
 }
 
 export const fallbackSim = new FallbackSimulator();
@@ -833,6 +840,14 @@ export const rapooApi = {
     const app = getWailsApp();
     try {
       return app ? await app.SetAutoStart(enabled) : fallbackSim.setAutoStart(enabled);
+    } catch (e) {
+      throw unwrapError(e);
+    }
+  },
+  async setStartHidden(enabled: boolean): Promise<AppPreferences> {
+    const app = getWailsApp();
+    try {
+      return app ? await app.SetStartHidden(enabled) : fallbackSim.setStartHidden(enabled);
     } catch (e) {
       throw unwrapError(e);
     }

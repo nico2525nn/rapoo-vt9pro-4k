@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf16"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 var (
@@ -266,6 +268,14 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 		flags = 0
 	}
 
+	var mutex windows.Handle
+	if writeAccess {
+		mutex, err = acquireDeviceMutex(info)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	h, err := syscall.CreateFile(
 		pathPtr,
 		access,
@@ -276,12 +286,20 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 		0,
 	)
 	if err != nil {
+		if mutex != 0 {
+			_ = windows.ReleaseMutex(mutex)
+			_ = windows.CloseHandle(mutex)
+		}
 		return nil, fmt.Errorf("CreateFile(%s): %w", info.Path, err)
 	}
 
 	closeEvt, err := createManualResetEvent(false)
 	if err != nil {
 		syscall.CloseHandle(h)
+		if mutex != 0 {
+			_ = windows.ReleaseMutex(mutex)
+			_ = windows.CloseHandle(mutex)
+		}
 		return nil, err
 	}
 
@@ -289,14 +307,38 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 		info:       info,
 		handle:     h,
 		closeEvt:   closeEvt,
+		mutex:      mutex,
 		overlapped: flags&syscall.FILE_FLAG_OVERLAPPED != 0,
 	}, nil
+}
+
+// acquireDeviceMutex gives one process ownership of the writable command
+// endpoint. The report endpoint remains shareable, and 0-TX releases this
+// mutex when the command handle closes.
+func acquireDeviceMutex(info DeviceInfo) (windows.Handle, error) {
+	name := fmt.Sprintf(`Local\RapooVT9Pro4K_%04X_%04X`, info.VendorID, info.ProductID)
+	namePtr, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, err
+	}
+	handle, err := windows.CreateMutex(nil, true, namePtr)
+	if err != nil {
+		if handle != 0 {
+			_ = windows.CloseHandle(handle)
+		}
+		if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
+			return 0, fmt.Errorf("HID device %04X:%04X is already in use by another process", info.VendorID, info.ProductID)
+		}
+		return 0, fmt.Errorf("CreateMutex(%s): %w", name, err)
+	}
+	return handle, nil
 }
 
 type windowsDevice struct {
 	info       DeviceInfo
 	handle     syscall.Handle
 	closeEvt   syscall.Handle
+	mutex      windows.Handle
 	overlapped bool
 	closeOnce  sync.Once
 	mu         sync.RWMutex
@@ -440,6 +482,11 @@ func (d *windowsDevice) Close() error {
 
 		closeErr = syscall.CloseHandle(h)
 		syscall.CloseHandle(d.closeEvt)
+		if d.mutex != 0 {
+			_ = windows.ReleaseMutex(d.mutex)
+			_ = windows.CloseHandle(d.mutex)
+			d.mutex = 0
+		}
 	})
 	return closeErr
 }

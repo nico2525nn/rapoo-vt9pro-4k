@@ -12,4 +12,5 @@ type Options struct {
 	OnOpenWindow      func()        // Invoked on left-click or OpenMenuLabel when set
 	OnQuit            func()        // Invoked after tray exits via Quit menu item
 	OnReady           func()        // Invoked after the notification icon has been created
+	StartHiddenFn     func() bool   // Whether auto-start should pass --hidden
 }

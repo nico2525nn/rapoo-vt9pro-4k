@@ -180,6 +180,10 @@ public sealed class LocalizationService
         ["未取得"] = "Not available",
         ["閉じたらトレイに格納"] = "Minimize to tray on close",
         ["Windows スタートアップ"] = "Start with Windows",
+        ["スタートアップ時にトレイへ格納"] = "Start in the notification area",
+        ["スタートアップ設定を保存できませんでした。"] = "Could not save the startup setting.",
+        ["マウスからの応答を待っています。マウスを動かしてください。"] = "Waiting for the mouse to respond. Move it to wake it.",
+        ["言語設定を保存できませんでした。"] = "Could not save the language setting.",
         ["開く"] = "Open Rapoo Control",
         ["通常モード"] = "Normal mode",
         ["低頻度モード"] = "Low frequency",
@@ -272,27 +276,31 @@ public sealed class LocalizationService
         Environment.SetEnvironmentVariable("RAPOO_LANG", language);
     }
 
-    public void SetLanguage(string language)
+    public bool SetLanguage(string language)
     {
         var next = Normalize(language);
         if (next == Language)
         {
-            return;
+            return true;
         }
 
         Language = next;
         Environment.SetEnvironmentVariable("RAPOO_LANG", next);
+        var saved = true;
         try
         {
-            File.WriteAllText(_prefsPath, JsonSerializer.Serialize(new { language = next },
+            var temporary = _prefsPath + ".tmp";
+            File.WriteAllText(temporary, JsonSerializer.Serialize(new { language = next },
                 new JsonSerializerOptions { WriteIndented = true }));
+            File.Move(temporary, _prefsPath, overwrite: true);
         }
         catch
         {
-            // The setting still applies to this session.
+            saved = false;
         }
 
         LanguageChanged?.Invoke(this, EventArgs.Empty);
+        return saved;
     }
 
     public string T(string source)

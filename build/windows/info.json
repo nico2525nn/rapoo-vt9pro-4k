@@ -1,10 +1,10 @@
 {
   "fixed": {
-    "file_version": "1.1.0.0"
+    "file_version": "1.3.0.0"
   },
   "info": {
     "0000": {
-      "ProductVersion": "1.1.0",
+      "ProductVersion": "1.3.0",
       "CompanyName": "Rapoo Open Tools",
       "FileDescription": "Rapoo Control — VT9 Pro 4K Utility",
       "LegalCopyright": "MIT License",

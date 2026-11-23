@@ -26,6 +26,7 @@ type Preset struct {
 	UpdatedAt   time.Time             `json:"updatedAt"`
 	DPI         rapoo.DPIConfig       `json:"dpi"`
 	PollingHz   int                   `json:"pollingHz"`
+	ProtocolGen int                   `json:"protocolGen,omitempty"` // 1=Gen-A, 2=Rev B
 	Sensor      rapoo.SensorPatch     `json:"sensor"`
 	Buttons     []rapoo.ButtonMapping `json:"buttons,omitempty"`
 }
@@ -34,6 +35,7 @@ type Preset struct {
 type Store struct {
 	mu       sync.RWMutex
 	filePath string
+	lockPath string
 	user     map[string]Preset
 }
 
@@ -51,12 +53,27 @@ func NewStore(configDir string) (*Store, error) {
 	}
 	s := &Store{
 		filePath: filepath.Join(configDir, "presets.json"),
+		lockPath: filepath.Join(configDir, "presets.json.lock"),
 		user:     make(map[string]Preset),
 	}
-	if err := s.load(); err != nil {
+	if err := s.withFileLock(s.load); err != nil {
 		return nil, fmt.Errorf("presets.json: %w", err)
 	}
 	return s, nil
+}
+
+func (s *Store) withFileLock(fn func() error) error {
+	lock, err := lockFile(s.lockPath)
+	if err != nil {
+		return err
+	}
+	defer unlockFile(lock)
+	return fn()
+}
+
+func (s *Store) reloadLocked() error {
+	s.user = make(map[string]Preset)
+	return s.load()
 }
 
 func (s *Store) load() error {
@@ -113,8 +130,9 @@ func (s *Store) saveLocked() error {
 
 // List returns user-saved presets.
 func (s *Store) List() []Preset {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.withFileLock(s.reloadLocked)
 
 	userList := make([]Preset, 0, len(s.user))
 	for _, p := range s.user {
@@ -128,8 +146,9 @@ func (s *Store) List() []Preset {
 
 // Get returns a user preset by ID.
 func (s *Store) Get(id string) (Preset, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.withFileLock(s.reloadLocked)
 	p, ok := s.user[id]
 	return p, ok
 }
@@ -170,6 +189,7 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 		UpdatedAt:   now,
 		DPI:         *snap.DPI,
 		PollingHz:   sc.PollingRateHz,
+		ProtocolGen: snap.Model.ProtocolGen,
 		Sensor: rapoo.SensorPatch{
 			LiftOffLevel:        &lod,
 			MotionSync:          &ms,
@@ -189,34 +209,43 @@ func (s *Store) SaveSnapshot(id, name, description string, snap rapoo.DeviceSnap
 	}
 
 	s.mu.Lock()
-	old, existed := s.user[id]
-	if existed {
-		preset.CreatedAt = old.CreatedAt
-	}
-	s.user[id] = preset
-	err := s.saveLocked()
-	if err != nil {
-		if existed {
-			s.user[id] = old
-		} else {
-			delete(s.user, id)
+	defer s.mu.Unlock()
+	err := s.withFileLock(func() error {
+		if err := s.reloadLocked(); err != nil {
+			return err
 		}
-	}
-	s.mu.Unlock()
+		old, existed := s.user[id]
+		if existed {
+			preset.CreatedAt = old.CreatedAt
+		}
+		s.user[id] = preset
+		if err := s.saveLocked(); err != nil {
+			_ = s.reloadLocked()
+			return err
+		}
+		return nil
+	})
 	return preset, err
 }
 
 // Delete removes a user preset by ID.
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
-	old, existed := s.user[id]
-	delete(s.user, id)
-	err := s.saveLocked()
-	if err != nil && existed {
-		s.user[id] = old
-	}
-	s.mu.Unlock()
-	return err
+	defer s.mu.Unlock()
+	return s.withFileLock(func() error {
+		if err := s.reloadLocked(); err != nil {
+			return err
+		}
+		if _, existed := s.user[id]; !existed {
+			return nil
+		}
+		delete(s.user, id)
+		if err := s.saveLocked(); err != nil {
+			_ = s.reloadLocked()
+			return err
+		}
+		return nil
+	})
 }
 
 // ExportJSON serializes a preset to formatted JSON for sharing or backup.
@@ -252,12 +281,18 @@ func (s *Store) ImportJSON(rawJSON string) (Preset, error) {
 	p.UpdatedAt = now
 
 	s.mu.Lock()
-	s.user[p.ID] = p
-	err := s.saveLocked()
-	if err != nil {
-		delete(s.user, p.ID)
-	}
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	err := s.withFileLock(func() error {
+		if err := s.reloadLocked(); err != nil {
+			return err
+		}
+		s.user[p.ID] = p
+		if err := s.saveLocked(); err != nil {
+			_ = s.reloadLocked()
+			return err
+		}
+		return nil
+	})
 	return p, err
 }
 
@@ -295,10 +330,16 @@ func ValidatePreset(p Preset) error {
 	if p.Sensor.SensorAngleDeg != nil && (*p.Sensor.SensorAngleDeg < -30 || *p.Sensor.SensorAngleDeg > 30) {
 		return errors.New("センサー角度が範囲外です")
 	}
-	if p.Sensor.PressDebounceStep != nil && (*p.Sensor.PressDebounceStep < 0 || *p.Sensor.PressDebounceStep > 6) {
+	// Gen-A stores a 0..6 step index. Rev B stores milliseconds (0..32).
+	// Old presets had no protocolGen, so allow both ranges for them.
+	maxDebounce := 32
+	if p.ProtocolGen == 1 {
+		maxDebounce = 6
+	}
+	if p.Sensor.PressDebounceStep != nil && (*p.Sensor.PressDebounceStep < 0 || *p.Sensor.PressDebounceStep > maxDebounce) {
 		return errors.New("押下デバウンスが範囲外です")
 	}
-	if p.Sensor.ReleaseDebounceStep != nil && (*p.Sensor.ReleaseDebounceStep < 0 || *p.Sensor.ReleaseDebounceStep > 6) {
+	if p.Sensor.ReleaseDebounceStep != nil && (*p.Sensor.ReleaseDebounceStep < 0 || *p.Sensor.ReleaseDebounceStep > maxDebounce) {
 		return errors.New("解放デバウンスが範囲外です")
 	}
 	if p.Sensor.LEDLowPowerMode != nil && *p.Sensor.LEDLowPowerMode > 1 {

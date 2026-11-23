@@ -24,6 +24,7 @@ public sealed class MainViewModel : ObservableObject
             MouseOnline: false,
             BatteryPercent: -1,
             Charging: false,
+            Sleeping: false,
             ActiveDpi: 0,
             PollingRateHz: 0,
             Firmware: "—",
@@ -49,7 +50,7 @@ public sealed class MainViewModel : ObservableObject
 
     public bool HasBattery => _status.BatteryPercent >= 0;
 
-    public bool IsSleeping => IsConnected && !_status.MouseOnline;
+    public bool IsSleeping => IsConnected && _status.Sleeping;
 
     public string Mode => _status.Mode;
 
@@ -74,7 +75,8 @@ public sealed class MainViewModel : ObservableObject
     public string ConnectionMessage => _status switch
     {
         _ when !IsConnected => LocalizationService.Instance.T("マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。"),
-        { MouseOnline: false } => LocalizationService.Instance.T("マウスがスリープ中です。マウスを動かして復帰させてください。"),
+        { Sleeping: true } => LocalizationService.Instance.T("マウスがスリープ中です。マウスを動かして復帰させてください。"),
+        { MouseOnline: false } => LocalizationService.Instance.T("マウスからの応答を待っています。マウスを動かしてください。"),
         { IsMock: true } => LocalizationService.Instance.T("モックデータを表示しています。"),
         _ => string.Empty,
     };

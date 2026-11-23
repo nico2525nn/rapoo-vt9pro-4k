@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -22,14 +24,19 @@ import (
 )
 
 const (
-	wailsRegistryAutoStartKey = "RapooControl"
-	appPrefsVersion           = 2
+	// Keep the Wails value distinct from the WinUI app's "RapooControl"
+	// value so enabling auto-start in one app cannot overwrite the other.
+	wailsRegistryAutoStartKey = "RapooControlWails"
+	legacyAutoStartKey        = "RapooControl"
+	closeToTrayPrefsVersion   = 2
+	appPrefsVersion           = 3
 )
 
 // AppPreferences holds desktop shell preferences (tray behavior, startup).
 type AppPreferences struct {
 	CloseToTray bool   `json:"closeToTray"`
 	AutoStart   bool   `json:"autoStart"`
+	StartHidden bool   `json:"startHidden"`
 	Platform    string `json:"platform"`
 	Mode        string `json:"mode"`
 	Language    string `json:"language"`
@@ -37,11 +44,14 @@ type AppPreferences struct {
 
 // App binds MouseService and desktop shell controls to the Wails v2 frontend.
 type App struct {
-	ctx        context.Context
-	svc        *service.MouseService
-	trayCancel context.CancelFunc
-	trayReady  atomic.Bool
-	quitting   atomic.Bool
+	ctx         context.Context
+	svc         *service.MouseService
+	trayCancel  context.CancelFunc
+	trayReady   atomic.Bool
+	startHidden bool
+	showMu      sync.Mutex
+	showPending bool
+	quitting    atomic.Bool
 
 	prefsMu   sync.RWMutex
 	prefsPath string
@@ -63,6 +73,7 @@ func NewApp() *App {
 			// Version 1 defaulted to hiding on close. Only opt in after the
 			// notification icon is known to be available.
 			CloseToTray: false,
+			StartHidden: false,
 			Platform:    runtime.GOOS,
 			Mode:        string(service.ModeNormal),
 			Language:    initialLanguage(),
@@ -92,11 +103,14 @@ func NewApp() *App {
 func (a *App) loadPrefs() {
 	raw, err := os.ReadFile(a.prefsPath)
 	if err != nil {
+		a.migrateLegacyAutoStart()
 		return
 	}
+	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
 	var disk struct {
 		Version     int     `json:"version"`
 		CloseToTray *bool   `json:"closeToTray"`
+		StartHidden *bool   `json:"startHidden"`
 		Mode        *string `json:"mode"`
 		Language    *string `json:"language"`
 	}
@@ -105,10 +119,16 @@ func (a *App) loadPrefs() {
 		// Version 1 had no version field and defaulted close-to-tray to true,
 		// which could strand the window when the icon was hidden. Require an
 		// explicit opt-in after the upgrade, matching the WinUI shell.
-		if disk.Version < appPrefsVersion {
+		if disk.Version < closeToTrayPrefsVersion {
 			migrated = true
 		} else if disk.CloseToTray != nil {
 			a.prefs.CloseToTray = *disk.CloseToTray
+		}
+		if disk.StartHidden != nil {
+			a.prefs.StartHidden = *disk.StartHidden
+		}
+		if disk.Version < appPrefsVersion {
+			migrated = true
 		}
 		if disk.Mode != nil {
 			switch service.PollingMode(*disk.Mode) {
@@ -120,9 +140,92 @@ func (a *App) loadPrefs() {
 			a.prefs.Language = normalizeLanguage(*disk.Language)
 		}
 	}
+	a.migrateLegacyAutoStart()
 	if migrated {
-		a.savePrefsLocked()
+		if err := a.savePrefsLocked(); err != nil {
+			log.Printf("save prefs: %v", err)
+		}
 	}
+}
+
+func (a *App) migrateLegacyAutoStart() {
+	if tray.IsAutoStartEnabled(wailsRegistryAutoStartKey) {
+		return
+	}
+	legacy := tray.AutoStartCommand(legacyAutoStartKey)
+	executable, err := os.Executable()
+	if legacy == "" || err != nil || !commandOwnedByWails(legacy, executable) {
+		return
+	}
+	if err := tray.SetAutoStartEnabledWithArgs(wailsRegistryAutoStartKey, true, a.autoStartArgs()...); err == nil {
+		_ = tray.DeleteAutoStart(legacyAutoStartKey)
+	}
+}
+
+func commandOwnedByWails(command, executable string) bool {
+	if strings.Contains(command, "--app=winui") {
+		return false
+	}
+	if strings.Contains(command, "--app=wails") {
+		return true
+	}
+	if commandMatchesExecutable(command, executable) {
+		return true
+	}
+	name := strings.ToLower(filepath.Base(commandExecutablePath(command)))
+	if strings.Contains(name, "winui") || name == "rapoocontrol.exe" {
+		return false
+	}
+	return strings.Contains(name, "rapoo-control")
+}
+
+func commandExecutablePath(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	if strings.HasPrefix(command, `"`) {
+		if end := strings.Index(command[1:], `"`); end >= 0 {
+			return command[1 : 1+end]
+		}
+		return ""
+	}
+	if space := strings.IndexAny(command, " \t"); space >= 0 {
+		return command[:space]
+	}
+	return command
+}
+
+func (a *App) autoStartArgs() []string {
+	args := []string{"--app=wails"}
+	if a.prefs.StartHidden {
+		args = append(args, "--hidden")
+	}
+	return args
+}
+
+func commandMatchesExecutable(command, executable string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	candidate := command
+	if strings.HasPrefix(candidate, `"`) {
+		if end := strings.Index(candidate[1:], `"`); end >= 0 {
+			candidate = candidate[1 : 1+end]
+		}
+	} else if space := strings.IndexAny(candidate, " \t"); space >= 0 {
+		candidate = candidate[:space]
+	}
+	got, err := filepath.Abs(candidate)
+	if err != nil {
+		return false
+	}
+	want, err := filepath.Abs(executable)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(filepath.Clean(got), filepath.Clean(want))
 }
 
 func initialLanguage() string {
@@ -141,21 +244,35 @@ func normalizeLanguage(value string) string {
 	}
 }
 
-func (a *App) savePrefsLocked() {
+func (a *App) savePrefsLocked() error {
 	raw, err := json.MarshalIndent(map[string]any{
 		"version":     appPrefsVersion,
 		"closeToTray": a.prefs.CloseToTray,
+		"startHidden": a.prefs.StartHidden,
 		"mode":        a.prefs.Mode,
 		"language":    a.prefs.Language,
 	}, "", "  ")
-	if err == nil {
-		_ = os.WriteFile(a.prefsPath, raw, 0o644)
+	if err != nil {
+		return err
 	}
+	temporary := a.prefsPath + ".tmp"
+	if err := os.WriteFile(temporary, raw, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(temporary, a.prefsPath)
 }
 
 func (a *App) startup(ctx context.Context) {
+	a.showMu.Lock()
 	a.ctx = ctx
+	pending := a.showPending
+	a.showPending = false
+	a.showMu.Unlock()
+
 	a.svc.Startup(ctx)
+	if pending {
+		a.ShowWindow()
+	}
 
 	if runtime.GOOS == "windows" {
 		trayCtx, cancel := context.WithCancel(ctx)
@@ -176,6 +293,11 @@ func (a *App) startup(ctx context.Context) {
 				OnReady: func() {
 					a.trayReady.Store(true)
 				},
+				StartHiddenFn: func() bool {
+					a.prefsMu.RLock()
+					defer a.prefsMu.RUnlock()
+					return a.prefs.StartHidden
+				},
 			}); err != nil {
 				a.trayReady.Store(false)
 				log.Printf("rapoo: tray unavailable: %v", err)
@@ -183,8 +305,23 @@ func (a *App) startup(ctx context.Context) {
 					wailsRuntime.EventsEmit(a.ctx, "rapoo:error",
 						a.text("Could not initialize the system tray", "タスクトレイを初期化できませんでした"))
 				}
+				if a.startHidden {
+					a.ShowWindow()
+				}
 			}
 		}()
+
+		if a.startHidden {
+			go func() {
+				select {
+				case <-time.After(5 * time.Second):
+					if !a.trayReady.Load() {
+						a.ShowWindow()
+					}
+				case <-trayCtx.Done():
+				}
+			}()
+		}
 	}
 }
 
@@ -214,11 +351,18 @@ func (a *App) shutdown(_ context.Context) {
 
 // ShowWindow restores and focuses the main Wails window.
 func (a *App) ShowWindow() {
-	if a.ctx == nil {
+	a.showMu.Lock()
+	ctx := a.ctx
+	if ctx == nil {
+		a.showPending = true
+		a.showMu.Unlock()
 		return
 	}
-	wailsRuntime.WindowShow(a.ctx)
-	wailsRuntime.WindowUnminimise(a.ctx)
+	a.showPending = false
+	a.showMu.Unlock()
+
+	wailsRuntime.WindowShow(ctx)
+	wailsRuntime.WindowUnminimise(ctx)
 }
 
 // QuitApp terminates the entire application (bypassing close-to-tray).
@@ -260,7 +404,9 @@ func (a *App) SetLanguage(language string) AppPreferences {
 	a.prefsMu.Lock()
 	a.prefs.Language = language
 	_ = os.Setenv("RAPOO_LANG", language)
-	a.savePrefsLocked()
+	if err := a.savePrefsLocked(); err != nil {
+		log.Printf("save prefs: %v", err)
+	}
 	a.prefsMu.Unlock()
 	if a.svc != nil {
 		a.svc.SetLanguage(language)
@@ -272,14 +418,44 @@ func (a *App) SetLanguage(language string) AppPreferences {
 func (a *App) SetCloseToTray(enabled bool) AppPreferences {
 	a.prefsMu.Lock()
 	a.prefs.CloseToTray = enabled
-	a.savePrefsLocked()
+	if err := a.savePrefsLocked(); err != nil {
+		log.Printf("save prefs: %v", err)
+	}
 	a.prefsMu.Unlock()
 	return a.GetAppPreferences()
 }
 
+// SetStartHidden controls whether an auto-start launch stays in the notification area.
+func (a *App) SetStartHidden(enabled bool) (AppPreferences, error) {
+	a.prefsMu.Lock()
+	a.prefs.StartHidden = enabled
+	saveErr := a.savePrefsLocked()
+	autoStart := tray.IsAutoStartEnabled(wailsRegistryAutoStartKey)
+	a.prefsMu.Unlock()
+
+	if autoStart {
+		prefs, registryErr := a.SetAutoStart(true)
+		if registryErr != nil {
+			return prefs, registryErr
+		}
+		return prefs, saveErr
+	}
+	return a.GetAppPreferences(), saveErr
+}
+
 // SetAutoStart toggles Windows login auto-start in HKCU\...\Run.
 func (a *App) SetAutoStart(enabled bool) (AppPreferences, error) {
-	err := tray.SetAutoStartEnabled(wailsRegistryAutoStartKey, enabled)
+	a.prefsMu.RLock()
+	args := a.autoStartArgs()
+	a.prefsMu.RUnlock()
+
+	err := tray.SetAutoStartEnabledWithArgs(wailsRegistryAutoStartKey, enabled, args...)
+	if err == nil && !enabled {
+		legacy := tray.AutoStartCommand(legacyAutoStartKey)
+		if executable, exeErr := os.Executable(); exeErr == nil && commandOwnedByWails(legacy, executable) {
+			_ = tray.DeleteAutoStart(legacyAutoStartKey)
+		}
+	}
 	return a.GetAppPreferences(), err
 }
 
@@ -385,16 +561,21 @@ func (a *App) OpenFirmwareUpdater() (string, error) {
 func (a *App) launchOfficialUpdater(path string) (string, error) {
 	previousMode := a.svc.GetState().Mode
 	// Release the vendor HID handle before the official updater takes over.
+	if err := a.svc.BeginUpdater(); err != nil {
+		return "", err
+	}
 	a.svc.SetPollingMode(service.ModePassiveOnly)
 
 	cmd := exec.Command(path)
 	cmd.Dir = filepath.Dir(path)
 	if err := cmd.Start(); err != nil {
+		a.svc.EndUpdater()
 		a.svc.SetPollingMode(previousMode)
 		return "", err
 	}
 	go func() {
 		_ = cmd.Wait()
+		a.svc.EndUpdater()
 		a.svc.SetPollingMode(previousMode)
 	}()
 	return path, nil
@@ -478,10 +659,15 @@ func (a *App) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 func (a *App) SetPollingMode(mode string) service.State {
 	switch service.PollingMode(mode) {
 	case service.ModeNormal, service.ModeLowFrequency, service.ModePassiveOnly:
+		if a.svc.UpdaterActive() && service.PollingMode(mode) != service.ModePassiveOnly {
+			return a.svc.GetState()
+		}
 		a.svc.SetPollingMode(service.PollingMode(mode))
 		a.prefsMu.Lock()
 		a.prefs.Mode = mode
-		a.savePrefsLocked()
+		if err := a.savePrefsLocked(); err != nil {
+			log.Printf("save prefs: %v", err)
+		}
 		a.prefsMu.Unlock()
 	}
 	return a.svc.GetState()

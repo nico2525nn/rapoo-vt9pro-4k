@@ -28,6 +28,21 @@ func IsAutoStartEnabled(_ string) bool {
 }
 
 // SetAutoStartEnabled is a no-op on non-Windows platforms.
-func SetAutoStartEnabled(_ string, _ bool) error {
+func SetAutoStartEnabled(valueName string, enable bool) error {
+	return SetAutoStartEnabledWithArgs(valueName, enable)
+}
+
+// SetAutoStartEnabledWithArgs is a no-op on non-Windows platforms.
+func SetAutoStartEnabledWithArgs(_ string, _ bool, _ ...string) error {
+	return errors.New("Windows startup registry requires GOOS=windows")
+}
+
+// AutoStartCommand returns an empty command on non-Windows platforms.
+func AutoStartCommand(_ string) string {
+	return ""
+}
+
+// DeleteAutoStart is a no-op on non-Windows platforms.
+func DeleteAutoStart(_ string) error {
 	return errors.New("Windows startup registry requires GOOS=windows")
 }

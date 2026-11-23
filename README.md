@@ -6,11 +6,11 @@ Windows tools and a HID protocol implementation for the Rapoo VT9 Pro 4K.
 
 [Releases](https://github.com/nico2525nn/rapoo-vt9pro-4k/releases)
 
-- `rapoo-control-winui-v1.2.0-windows-amd64.exe` — native WinUI 3 app (Windows, single file)
-- `rapoo-control-v1.2.0-windows-amd64.exe` — Wails app (Windows)
-- `rapoo-control-v1.2.0-linux-amd64` — Wails app (Linux)
-- `vt9tray-v1.2.0-windows-amd64.exe` — battery tray app
-- `vt9ctl-v1.2.0-windows-amd64.exe` / `vt9ctl-v1.2.0-linux-amd64` — CLI
+- `rapoo-control-winui-v1.3.0-windows-amd64.exe` — native WinUI 3 app (Windows, single file)
+- `rapoo-control-v1.3.0-windows-amd64.exe` — Wails app (Windows)
+- `rapoo-control-v1.3.0-linux-amd64` — Wails app (Linux)
+- `vt9tray-v1.3.0-windows-amd64.exe` — battery tray app
+- `vt9ctl-v1.3.0-windows-amd64.exe` / `vt9ctl-v1.3.0-linux-amd64` — CLI
 - `checksums.txt` — SHA256 checksums
 
 ## Usage
@@ -23,13 +23,15 @@ Features: DPI, polling rate, lift-off distance, Motion Sync, debounce, 10 button
 
 ### WinUI 3 app
 
-Run `rapoo-control-winui-v1.2.0-windows-amd64.exe`. It is a single file; the Go HID sidecar is embedded and extracted to `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` on first launch.
+Run `rapoo-control-winui-v1.3.0-windows-amd64.exe`. It is a single file; the Go HID sidecar is embedded and extracted to `%LOCALAPPDATA%\rapoo-vt9pro-4k\bin` on first launch.
 
 - All pages read and write the device: DPI, sensor, 10 buttons, profiles, settings.
 - Firmware update is read-only in this app. It launches the official Rapoo software and never flashes firmware itself.
 - Use the icon-only Reload and Apply buttons at the bottom-right of the sidebar to apply staged changes.
 - The notification area shows the live battery percentage as a transparent 7-segment icon with a level bar. Right-click for modes, demo, startup, and quit.
 - Closing the window exits by default. Enable close-to-tray in Settings to keep it in the notification area; old close-to-tray preferences are migrated to off so a hidden window can always be recovered.
+- Enable "Start in the notification area" alongside Windows startup to launch into the tray. WinUI and Wails use separate Run entries, so enabling one does not overwrite the other. v1.2.0 auto-start entries migrate when the new app starts; if you renamed the executable, enable auto-start once again.
+- The Wails app and the WinUI app can both be installed, but only one can own the HID command handle at a time.
 - Only one process can own the HID handle. Do not run the WinUI app and the Wails app/tray at the same time.
 
 ## Language

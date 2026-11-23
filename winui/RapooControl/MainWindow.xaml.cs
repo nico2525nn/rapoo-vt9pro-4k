@@ -49,6 +49,8 @@ public sealed partial class MainWindow : Window
     private TrayIconSpec _lastTraySpec;
     private bool _hasTraySpec;
 
+    public bool IsTrayReady => _trayReady;
+
     private MainViewModel ViewModel => App.Instance.ViewModel;
 
     public ICommand ShowWindowCommand { get; }
@@ -74,8 +76,11 @@ public sealed partial class MainWindow : Window
         TrayAutoStartItem.Command = new RelayCommand(() =>
         {
             var next = !TrayPreferences.Current.AutoStart;
-            TrayPreferences.Current.SetAutoStart(next);
-            TrayAutoStartItem.IsChecked = next;
+            if (!TrayPreferences.Current.SetAutoStart(next))
+            {
+                LogTray("auto-start update failed");
+            }
+            TrayAutoStartItem.IsChecked = TrayPreferences.Current.AutoStart;
             UpdateTray();
         });
         TrayQuitItem.Command = new RelayCommand(QuitFromTray);

@@ -32,6 +32,7 @@ public sealed record DeviceStatus(
     bool MouseOnline,
     int BatteryPercent,
     bool Charging,
+    bool Sleeping,
     int ActiveDpi,
     int PollingRateHz,
     string Firmware,

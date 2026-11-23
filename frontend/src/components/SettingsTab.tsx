@@ -34,6 +34,7 @@ interface SettingsTabProps {
   onToggleDemoMode: (enabled: boolean) => void;
   onUpdateCloseToTray: (enabled: boolean) => Promise<void>;
   onUpdateAutoStart: (enabled: boolean) => Promise<void>;
+  onUpdateStartHidden: (enabled: boolean) => Promise<void>;
   onFactoryReset: () => Promise<boolean>;
   onOpenFirmwareUpdater: () => Promise<void>;
   onRefresh: () => void;
@@ -54,6 +55,7 @@ export function SettingsTab({
   onToggleDemoMode,
   onUpdateCloseToTray,
   onUpdateAutoStart,
+  onUpdateStartHidden,
   onFactoryReset,
   onOpenFirmwareUpdater,
   onRefresh,
@@ -168,6 +170,16 @@ export function SettingsTab({
                   checked={prefs.autoStart}
                   onCheckedChange={(value) => void onUpdateAutoStart(value)}
                   aria-label={t("Windows startup")}
+                />
+              </SettingRow>
+              <SettingRow
+                label={t("Start in the notification area")}
+                description={t("Start hidden when Windows signs in")}
+              >
+                <Switch
+                  checked={prefs.startHidden}
+                  onCheckedChange={(value) => void onUpdateStartHidden(value)}
+                  aria-label={t("Start in the notification area")}
                 />
               </SettingRow>
             </>

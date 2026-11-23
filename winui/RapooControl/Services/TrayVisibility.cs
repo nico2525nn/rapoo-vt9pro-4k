@@ -41,10 +41,13 @@ public static class TrayVisibility
                     continue;
                 }
 
-                // Windows may keep more than one entry for the same executable
-                // after an upgrade or a taskbar restart. Promote every match.
-                item.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
-                promoted = true;
+                // Only set the default when Windows has no preference yet.
+                // If the user explicitly hid the icon (0), keep that choice.
+                if (item.GetValue("IsPromoted") is null)
+                {
+                    item.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                    promoted = true;
+                }
             }
         }
         catch

@@ -31,6 +31,7 @@ public sealed class MockRapooService : IRapooService
             MouseOnline: true,
             BatteryPercent: 78,
             Charging: false,
+            Sleeping: false,
             ActiveDpi: 1600,
             PollingRateHz: 4000,
             Firmware: "1.25 / 1.08",

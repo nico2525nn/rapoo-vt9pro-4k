@@ -417,6 +417,19 @@ export default function App() {
                     toast.error(error instanceof Error ? error.message : t("Failed to change auto-start"));
                   }
                 }}
+                onUpdateStartHidden={async (enabled) => {
+                  try {
+                    const next = await rapooApi.setStartHidden(enabled);
+                    setPrefs(next);
+                    toast.success(
+                      enabled
+                        ? t("Startup will open in the notification area")
+                        : t("Startup will open the window"),
+                    );
+                  } catch (error) {
+                    toast.error(error instanceof Error ? error.message : t("Failed to change startup mode"));
+                  }
+                }}
                 onFactoryReset={() =>
                   runMutation(() => rapooApi.factoryReset(), t("Restored factory defaults"))
                 }

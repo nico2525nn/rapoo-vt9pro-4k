@@ -1,5 +1,36 @@
 # Changelog
 
+## v1.3.0 — 2026-11-23
+
+### Added
+
+- WinUI and Wails "Start in the notification area" setting
+- Auto-start registry commands now carry `--hidden` when that setting is enabled
+- Wails uses its own `RapooControlWails` Run entry so it cannot overwrite the WinUI auto-start
+- Wails can read UTF-8 BOM preference files written by Windows PowerShell
+
+### Changed
+
+- Version bumped to 1.3.0
+
+### Fixed
+
+- Closing WinUI no longer kills an in-flight official firmware updater child process
+- Hidden startup falls back to a visible window when the notification icon cannot be created
+- WinUI and Wails use separate auto-start Run values and migrate legacy values only when they belong to that app
+- Wails tray auto-start includes `--hidden`; startup-setting failures are reported instead of silently ignored
+- Single-instance show requests are queued until the window is ready; hidden second launches do not force a show
+- 0-TX reconnects and polls are serialized under one owner; the official updater locks out normal mode changes
+- The writable HID command endpoint is owned by one process through a named mutex
+- The sidecar restarts with per-process state, timeout-aware writes, embedded-sidecar hash/protocol checks, and publish-time validation
+- Presets record the hardware generation, validate Gen-A steps vs. Rev B milliseconds, and use a cross-process lock file
+- WinUI waits for a valid sidecar handshake before the first RPC and isolates restarts from old read loops
+- Auto-start migration recognizes the documented v1.2.0 filenames and new per-app markers
+- Early second-launch requests use a manual-reset event and synchronized Wails state
+- Firmware updates claim exclusive ownership; demo/mode changes are rejected until the updater exits
+- WinUI uses an explicit sleeping state, respects an explicit `IsPromoted=0`, writes preferences atomically, and clamps wired DPI rates
+- Wails preference files with a UTF-8 BOM are accepted
+
 ## v1.2.0 — 2026-11-22
 
 ### Added

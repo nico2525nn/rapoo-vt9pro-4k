@@ -230,6 +230,7 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             MouseOnline: state.MouseOnline,
             BatteryPercent: state.HasBattery ? state.Percentage : -1,
             Charging: state.Charging,
+            Sleeping: state.Sleeping,
             ActiveDpi: state.ActiveDpi,
             PollingRateHz: state.PollingRateHz,
             Firmware: string.IsNullOrWhiteSpace(firmwareText) ? "—" : firmwareText,

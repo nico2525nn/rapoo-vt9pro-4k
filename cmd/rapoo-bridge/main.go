@@ -183,6 +183,9 @@ func (b *bridge) handle(req request) (any, error) {
 		default:
 			return nil, fmt.Errorf("unknown polling mode %q", p.Mode)
 		}
+		if b.svc.UpdaterActive() && mode != service.ModePassiveOnly {
+			return nil, errors.New("firmware update in progress")
+		}
 		b.svc.SetPollingMode(mode)
 		b.setMode(mode)
 		return b.svc.GetState(), nil
@@ -365,16 +368,21 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 			continue
 		}
 
+		if err := b.svc.BeginUpdater(); err != nil {
+			return "", err
+		}
 		previous := b.svc.GetState().Mode
 		b.svc.SetPollingMode(service.ModePassiveOnly)
 		cmd := exec.Command(path)
 		cmd.Dir = filepath.Dir(path)
 		if err := cmd.Start(); err != nil {
+			b.svc.EndUpdater()
 			b.svc.SetPollingMode(previous)
 			return "", err
 		}
 		go func() {
 			_ = cmd.Wait()
+			b.svc.EndUpdater()
 			b.svc.SetPollingMode(previous)
 		}()
 		return path, nil

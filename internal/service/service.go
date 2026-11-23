@@ -126,6 +126,7 @@ type MouseService struct {
 	cachedSnap    *rapoo.DeviceSnapshot
 	lastBatteryOK time.Time
 	lastWakeAt    time.Time
+	updaterActive bool
 	nextSubID     int
 	subscribers   map[int]Listener
 	language      atomic.Value // string: "en" or "ja"
@@ -194,7 +195,9 @@ func (s *MouseService) Shutdown() {
 		cancel()
 	}
 	s.wg.Wait()
+	s.connectMu.Lock()
 	s.closeClient()
+	s.connectMu.Unlock()
 }
 
 // Subscribe registers a state change callback and returns an unsubscribe function.
@@ -259,6 +262,10 @@ func (s *MouseService) NotifyDeviceChange() {
 // SetDemoMode toggles between real USB/4K hardware and the built-in VT9 Pro 4K simulator.
 func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 	s.mu.Lock()
+	if s.updaterActive {
+		s.mu.Unlock()
+		return rapoo.DeviceSnapshot{}, errors.New("ファームウェア更新中はデモモードを切り替えられません")
+	}
 	changed := s.demoMode != enabled
 	s.demoMode = enabled
 	s.state.DemoMode = enabled
@@ -287,6 +294,10 @@ func (s *MouseService) SetPollingMode(mode PollingMode) {
 	defer s.connectMu.Unlock()
 
 	s.mu.Lock()
+	if s.updaterActive && mode != ModePassiveOnly {
+		s.mu.Unlock()
+		return
+	}
 	changed := s.state.Mode != mode
 	wasPassive := s.state.Mode == ModePassiveOnly
 	isPassive := mode == ModePassiveOnly
@@ -323,6 +334,32 @@ func (s *MouseService) SetPollingMode(mode PollingMode) {
 	} else if !isPassive {
 		s.RefreshNow()
 	}
+}
+
+// BeginUpdater claims the exclusive firmware-update state. It fails if
+// another updater is already running.
+func (s *MouseService) BeginUpdater() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.updaterActive {
+		return errors.New("ファームウェア更新はすでに実行中です")
+	}
+	s.updaterActive = true
+	return nil
+}
+
+// EndUpdater releases the exclusive firmware-update state.
+func (s *MouseService) EndUpdater() {
+	s.mu.Lock()
+	s.updaterActive = false
+	s.mu.Unlock()
+}
+
+// UpdaterActive reports whether the official firmware updater is running.
+func (s *MouseService) UpdaterActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.updaterActive
 }
 
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
@@ -547,6 +584,17 @@ func (s *MouseService) ApplyPreset(id string) (rapoo.DeviceSnapshot, error) {
 		return rapoo.DeviceSnapshot{}, err
 	}
 
+	targetGen := c.Model().ProtocolGen
+	if preset.ProtocolGen != 0 && targetGen != 0 && preset.ProtocolGen != targetGen {
+		return rapoo.DeviceSnapshot{}, errors.New("プロファイルのハードウェア世代が接続中のマウスと一致しません")
+	}
+	if targetGen == 1 {
+		if (preset.Sensor.PressDebounceStep != nil && *preset.Sensor.PressDebounceStep > 6) ||
+			(preset.Sensor.ReleaseDebounceStep != nil && *preset.Sensor.ReleaseDebounceStep > 6) {
+			return rapoo.DeviceSnapshot{}, errors.New("Gen-A のデバウンスは 0..6 の段階値で指定してください")
+		}
+	}
+
 	// Clamp polling rate to connection capability (e.g. 1000Hz max when wired USB-C).
 	rate := preset.PollingHz
 	if rate > 0 {
@@ -555,20 +603,20 @@ func (s *MouseService) ApplyPreset(id string) (rapoo.DeviceSnapshot, error) {
 			rate = maxRate
 		}
 		if err := c.SetPollingRate(rate); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
+			return rapoo.DeviceSnapshot{}, fmt.Errorf("ポーリングレートの適用に失敗しました: %s", s.friendlyError(err))
 		}
 	}
 	if preset.DPI.StageCount >= 1 {
 		if err := c.SetDPIConfig(preset.DPI); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
+			return rapoo.DeviceSnapshot{}, fmt.Errorf("DPIの適用に失敗しました: %s", s.friendlyError(err))
 		}
 	}
 	if err := c.UpdateSensorConfig(preset.Sensor); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
+		return rapoo.DeviceSnapshot{}, fmt.Errorf("センサー設定の適用に失敗しました: %s", s.friendlyError(err))
 	}
 	if len(preset.Buttons) > 0 {
 		if err := c.SetAllButtonMappings(preset.Buttons); err != nil {
-			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
+			return rapoo.DeviceSnapshot{}, fmt.Errorf("ボタン割り当ての適用に失敗しました: %s", s.friendlyError(err))
 		}
 	}
 	return s.ReadSnapshot()
@@ -699,8 +747,10 @@ func (s *MouseService) higherPriorityEndpointAvailable() bool {
 }
 
 func (s *MouseService) reconnectAndPoll() {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
 	s.closeClient()
-	s.ensureConnectedAndPoll()
+	s.ensureConnectedAndPollLocked()
 }
 
 func (s *MouseService) closeClient() {
@@ -716,7 +766,10 @@ func (s *MouseService) closeClient() {
 func (s *MouseService) ensureConnectedAndPoll() {
 	s.connectMu.Lock()
 	defer s.connectMu.Unlock()
+	s.ensureConnectedAndPollLocked()
+}
 
+func (s *MouseService) ensureConnectedAndPollLocked() {
 	s.mu.RLock()
 	hasClient := s.client != nil
 	mode := s.state.Mode
@@ -757,11 +810,17 @@ func (s *MouseService) ensureConnectedAndPoll() {
 	}
 
 	if mode != ModePassiveOnly {
-		s.pollOnce()
+		s.pollOnceLocked()
 	}
 }
 
 func (s *MouseService) pollOnce() {
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+	s.pollOnceLocked()
+}
+
+func (s *MouseService) pollOnceLocked() {
 	s.mu.RLock()
 	c := s.client
 	mode := s.state.Mode

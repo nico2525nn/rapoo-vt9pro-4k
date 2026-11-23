@@ -102,14 +102,21 @@ public sealed class DpiPageViewModel : ObservableObject
         }
     }
 
-    public int PollingRateHz => _pollingRateHz;
+    public int PollingRateHz
+    {
+        get
+        {
+            var rates = CurrentRates;
+            return rates.Contains(_pollingRateHz) ? _pollingRateHz : rates[^1];
+        }
+    }
 
     public int PollingRateIndex
     {
         get
         {
             var rates = CurrentRates;
-            var index = Array.IndexOf(rates, _pollingRateHz);
+            var index = Array.IndexOf(rates, PollingRateHz);
             return index >= 0 ? index : Math.Max(0, rates.Length - 1);
         }
         set
@@ -220,10 +227,12 @@ public sealed class DpiPageViewModel : ObservableObject
             OnPropertyChanged(nameof(IsDirty));
         }
 
-        if (_pollingRateHz != _savedPollingRate)
+        var rate = PollingRateHz;
+        if (rate != _savedPollingRate)
         {
-            await _service.SetPollingRateAsync(_pollingRateHz);
-            _savedPollingRate = _pollingRateHz;
+            await _service.SetPollingRateAsync(rate);
+            _pollingRateHz = rate;
+            _savedPollingRate = rate;
             OnPropertyChanged(nameof(IsDirty));
         }
     }

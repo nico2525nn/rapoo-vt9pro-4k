@@ -214,6 +214,7 @@ export interface Preset {
 export interface AppPreferences {
   closeToTray: boolean;
   autoStart: boolean;
+  startHidden: boolean;
   platform: string;
   language?: string;
 }

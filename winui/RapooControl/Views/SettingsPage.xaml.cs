@@ -38,6 +38,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         TrayPreferences.Current.Load();
         CloseToTraySwitch.IsOn = TrayPreferences.Current.CloseToTray;
         AutoStartSwitch.IsOn = TrayPreferences.Current.AutoStart;
+        StartHiddenSwitch.IsOn = TrayPreferences.Current.StartHidden;
         _trayPrefsReady = true;
     }
 
@@ -48,6 +49,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         TrayPreferences.Current.Load();
         CloseToTraySwitch.IsOn = TrayPreferences.Current.CloseToTray;
         AutoStartSwitch.IsOn = TrayPreferences.Current.AutoStart;
+        StartHiddenSwitch.IsOn = TrayPreferences.Current.StartHidden;
         ViewModel.PropertyChanged += DeviceStatusChanged;
         UpdateControls();
         if (ViewModel.DeviceService is not { } service)
@@ -89,7 +91,24 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             return;
         }
-        TrayPreferences.Current.SetAutoStart(AutoStartSwitch.IsOn);
+        if (!TrayPreferences.Current.SetAutoStart(AutoStartSwitch.IsOn))
+        {
+            AutoStartSwitch.IsOn = TrayPreferences.Current.AutoStart;
+            Feedback.Message = LocalizationService.Instance.T("スタートアップ設定を保存できませんでした。");
+        }
+    }
+
+    private void StartHidden_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_trayPrefsReady)
+        {
+            return;
+        }
+        if (!TrayPreferences.Current.SetStartHidden(StartHiddenSwitch.IsOn))
+        {
+            StartHiddenSwitch.IsOn = TrayPreferences.Current.StartHidden;
+            Feedback.Message = LocalizationService.Instance.T("スタートアップ設定を保存できませんでした。");
+        }
     }
 
     private void LanguageCombo_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
@@ -124,7 +143,10 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             return;
         }
-        localization.SetLanguage(language);
+        if (!localization.SetLanguage(language))
+        {
+            Feedback.Message = localization.T("言語設定を保存できませんでした。");
+        }
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
         UpdateControls();
