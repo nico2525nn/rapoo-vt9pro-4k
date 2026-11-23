@@ -9,6 +9,7 @@ public sealed class DpiStageViewModel : ObservableObject
     private double _x;
     private double _y;
     private bool _isVisible = true;
+    private bool _isCurrent;
 
     public DpiStageViewModel(int index, double x, double y)
     {
@@ -56,6 +57,12 @@ public sealed class DpiStageViewModel : ObservableObject
     {
         get => _isVisible;
         set => SetProperty(ref _isVisible, value);
+    }
+
+    public bool IsCurrent
+    {
+        get => _isCurrent;
+        set => SetProperty(ref _isCurrent, value);
     }
 
     private static double Normalize(double value, double fallback)

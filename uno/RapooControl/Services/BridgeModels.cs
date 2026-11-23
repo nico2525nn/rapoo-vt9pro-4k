@@ -153,6 +153,8 @@ public sealed class BridgeCatalog
     [JsonPropertyName("buttons")] public List<BridgeButtonSlot>? Buttons { get; set; }
     [JsonPropertyName("supportedKeys")] public List<BridgeKey>? SupportedKeys { get; set; }
     [JsonPropertyName("debounceSteps")] public List<BridgeDebounceStep>? DebounceSteps { get; set; }
+    [JsonPropertyName("linuxUdevRule")] public string? LinuxUdevRule { get; set; }
+    [JsonPropertyName("linuxUdevInstallCmd")] public string? LinuxUdevInstallCmd { get; set; }
 }
 
 public sealed class BridgePreset

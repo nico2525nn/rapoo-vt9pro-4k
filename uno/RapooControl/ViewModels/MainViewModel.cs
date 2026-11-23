@@ -7,7 +7,7 @@ namespace RapooControl.ViewModels;
 public sealed class MainViewModel : ObservableObject
 {
     private readonly IRapooService _service;
-    private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
+    private Action<Action>? _post;
     private DeviceStatus _status;
     private Task? _initialization;
     private bool _hasError;
@@ -17,6 +17,10 @@ public sealed class MainViewModel : ObservableObject
     {
         _service = service;
         _service.StatusChanged += OnStatusChanged;
+        if (service is RealRapooService real)
+        {
+            real.Faulted += OnServiceFaulted;
+        }
 
         _status = new DeviceStatus(
             DeviceName: "Rapoo VT9 Pro 4K",
@@ -38,6 +42,9 @@ public sealed class MainViewModel : ObservableObject
 
     public RealRapooService? DeviceService => _service as RealRapooService;
 
+    /// <summary>Routes background bridge events onto the window dispatcher.</summary>
+    public void AttachDispatcher(Action<Action> post) => _post = post;
+
     public string DeviceName => LocalizationService.Instance.T(_status.DeviceName);
 
     public string FirmwareText => IsConnected ? _status.Firmware : "—";
@@ -48,11 +55,37 @@ public sealed class MainViewModel : ObservableObject
 
     public bool IsDeviceConnected => IsConnected;
 
+    public string ConnectionLabel => _status.ConnectionLabel;
+
+    public int ActiveDpi => _status.ActiveDpi;
+
+    public int PollingRateHz => _status.PollingRateHz;
+
+    public string PollingRateText => _status.PollingRateHz > 0
+        ? $"{_status.PollingRateHz:N0} Hz"
+        : "—";
+
+    public string DpiText => _status.ActiveDpi > 0 ? $"{_status.ActiveDpi:N0}" : "—";
+
+    public double BatteryProgress => Math.Clamp(_status.BatteryPercent, 0, 100);
+
+    public string ModeLabel => _status.Mode switch
+    {
+        "low_freq" => LocalizationService.Instance.T("省電力"),
+        "passive_only" => LocalizationService.Instance.T("0-TX"),
+        _ => LocalizationService.Instance.T("通常"),
+    };
+
+    public string UpdatedText => LocalizationService.Instance.Format(
+        "更新 {0:HH:mm:ss}", _status.UpdatedAt.LocalDateTime);
+
     public bool HasBattery => _status.BatteryPercent >= 0;
 
     public bool IsSleeping => IsConnected && _status.Sleeping;
 
     public string Mode => _status.Mode;
+
+    public string BatteryPercentText => _status.BatteryPercent < 0 ? "—" : $"{_status.BatteryPercent}%";
 
     public string BatteryText => _status.BatteryPercent < 0
         ? LocalizationService.Instance.T("未取得")
@@ -74,6 +107,8 @@ public sealed class MainViewModel : ObservableObject
 
     public string ConnectionMessage => _status switch
     {
+        { PermissionDenied: true } => LocalizationService.Instance.T("hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"),
+        { LastError.Length: > 0 } => LocalizationService.Instance.Format("デバイスエラー: {0}", _status.LastError),
         _ when !IsConnected => LocalizationService.Instance.T("マウスが接続されていません。レシーバーまたは USB ケーブルを確認してください。"),
         { Sleeping: true } => LocalizationService.Instance.T("マウスがスリープ中です。マウスを動かして復帰させてください。"),
         { MouseOnline: false } => LocalizationService.Instance.T("マウスからの応答を待っています。マウスを動かしてください。"),
@@ -112,6 +147,7 @@ public sealed class MainViewModel : ObservableObject
         await _service.StartAsync();
 
         var status = await _service.GetStatusAsync();
+        ClearError();
         ApplyStatus(status);
     }
 
@@ -119,22 +155,42 @@ public sealed class MainViewModel : ObservableObject
     {
         try
         {
-            ApplyStatus(await _service.GetStatusAsync());
+            if (DeviceService is { IsRunning: false })
+            {
+                // Reload after a bridge crash starts a fresh sidecar instead of
+                // sending another request to the dead process.
+                _initialization = null;
+                await InitializeAsync();
+            }
+            else
+            {
+                ApplyStatus(await _service.GetStatusAsync());
+            }
+
             if (DeviceService is not null && CanConfigureDevice)
             {
                 await Dpi.LoadAsync();
             }
+            ClearError();
         }
         catch (Exception ex)
         {
             SetError(ex.Message);
+            if (DeviceService is not null)
+            {
+                _initialization = null;
+            }
         }
     }
 
     public void RefreshLocalization()
     {
         OnPropertyChanged(nameof(DeviceName));
+        OnPropertyChanged(nameof(BatteryPercentText));
         OnPropertyChanged(nameof(BatteryText));
+        OnPropertyChanged(nameof(ConnectionLabel));
+        OnPropertyChanged(nameof(ModeLabel));
+        OnPropertyChanged(nameof(BatteryProgress));
         OnPropertyChanged(nameof(TrayTooltip));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));
@@ -152,15 +208,58 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(ErrorMessage));
     }
 
+    public void ClearError()
+    {
+        if (!_hasError)
+        {
+            return;
+        }
+        _hasError = false;
+        _errorMessage = string.Empty;
+        OnPropertyChanged(nameof(HasError));
+        OnPropertyChanged(nameof(ErrorMessage));
+    }
+
     private void OnStatusChanged(object? sender, DeviceStatus status)
     {
-        if (_uiContext is null || SynchronizationContext.Current == _uiContext)
+        if (_post is null)
         {
             ApplyStatus(status);
             return;
         }
 
-        _uiContext.Post(_ => ApplyStatus(status), null);
+        _post(() => ApplyStatus(status));
+    }
+
+    private void OnServiceFaulted(object? sender, string message)
+    {
+        void Apply()
+        {
+            _initialization = null;
+            Dpi.InvalidateConfiguration();
+            ApplyStatus(_status with
+            {
+                Connection = ConnectionKind.Disconnected,
+                Connected = false,
+                MouseOnline = false,
+                BatteryPercent = -1,
+                Charging = false,
+                Sleeping = false,
+                LastError = message,
+                PermissionDenied = false,
+                UpdatedAt = DateTimeOffset.Now,
+            });
+            SetError(message);
+        }
+
+        if (_post is null)
+        {
+            Apply();
+        }
+        else
+        {
+            _post(Apply);
+        }
     }
 
     private void ApplyStatus(DeviceStatus status)
@@ -181,10 +280,22 @@ public sealed class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(BatteryPercent));
         OnPropertyChanged(nameof(IsCharging));
         OnPropertyChanged(nameof(IsDeviceConnected));
+        OnPropertyChanged(nameof(ConnectionLabel));
+        OnPropertyChanged(nameof(ActiveDpi));
+        OnPropertyChanged(nameof(PollingRateHz));
+        OnPropertyChanged(nameof(PollingRateText));
+        OnPropertyChanged(nameof(DpiText));
+        OnPropertyChanged(nameof(BatteryProgress));
+        OnPropertyChanged(nameof(ModeLabel));
+        OnPropertyChanged(nameof(UpdatedText));
         OnPropertyChanged(nameof(HasBattery));
         OnPropertyChanged(nameof(IsSleeping));
         OnPropertyChanged(nameof(Mode));
+        OnPropertyChanged(nameof(BatteryPercentText));
         OnPropertyChanged(nameof(BatteryText));
+        OnPropertyChanged(nameof(ConnectionLabel));
+        OnPropertyChanged(nameof(ModeLabel));
+        OnPropertyChanged(nameof(BatteryProgress));
         OnPropertyChanged(nameof(TrayTooltip));
         OnPropertyChanged(nameof(ConnectionMessage));
         OnPropertyChanged(nameof(HasConnectionMessage));

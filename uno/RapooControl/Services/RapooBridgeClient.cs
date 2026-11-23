@@ -24,6 +24,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
     private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? _cts;
 
@@ -33,6 +34,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private Task? _stderrTask;
     private Task? _startTask;
     private int _nextId;
+    private int _faulted;
     private volatile bool _started;
 
     public event EventHandler<BridgeState>? StateChanged;
@@ -49,12 +51,29 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             {
                 return _startTask;
             }
-            if (_process is { HasExited: false } && _ready.Task.IsCompletedSuccessfully)
+            if (IsRunning && _ready.Task.IsCompletedSuccessfully)
             {
                 return Task.CompletedTask;
             }
-            _startTask = StartCoreAsync(cancellationToken);
+            _startTask = StartSerializedAsync(cancellationToken);
             return _startTask;
+        }
+    }
+
+    private async Task StartSerializedAsync(CancellationToken cancellationToken)
+    {
+        await _lifecycle.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (IsRunning && _ready.Task.IsCompletedSuccessfully)
+            {
+                return;
+            }
+            await StartCoreAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycle.Release();
         }
     }
 
@@ -69,6 +88,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         _cts?.Dispose();
         _cts = new CancellationTokenSource();
         _ready = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Interlocked.Exchange(ref _faulted, 0);
 
         var exe = FindSidecar() ?? throw new FileNotFoundException(
             "rapoo-bridge.exe が見つかりません。RapooControl.exe と同じフォルダに配置してください。");
@@ -125,7 +145,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             Task.Delay(TimeSpan.FromSeconds(10), cancellationToken)).ConfigureAwait(false);
         if (ready != readyTask)
         {
-            await StopAsync().ConfigureAwait(false);
+            await StopCoreAsync().ConfigureAwait(false);
             throw new TimeoutException("rapoo-bridge.exe が応答しませんでした。");
         }
         try
@@ -136,12 +156,25 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         }
         catch
         {
-            await StopAsync().ConfigureAwait(false);
+            await StopCoreAsync().ConfigureAwait(false);
             throw;
         }
     }
 
     public async Task StopAsync()
+    {
+        await _lifecycle.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await StopCoreAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lifecycle.Release();
+        }
+    }
+
+    private async Task StopCoreAsync()
     {
         var process = _process;
         var cts = _cts;
@@ -274,6 +307,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         await StopAsync().ConfigureAwait(false);
         _cts?.Dispose();
         _writeLock.Dispose();
+        _lifecycle.Dispose();
     }
 
     private async Task<T> RequestAsync<T>(string method, object? parameters, CancellationToken cancellationToken)
@@ -420,15 +454,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         catch (Exception ex)
         {
             Log($"read loop failed: {ex}");
-            if (ReferenceEquals(_process, process))
-            {
-                Faulted?.Invoke(this, ex.Message);
-                foreach (var pending in _pending.Values)
-                {
-                    pending.TrySetException(ex);
-                }
-                _pending.Clear();
-            }
+            FaultProcess(process, ex.Message);
         }
     }
 
@@ -505,12 +531,24 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         var message = "rapoo-bridge.exe が終了しました。";
         try
         {
-            message = LocalizationService.Instance.Format("rapoo-bridge.exe が終了しました (code {0}).", _process?.ExitCode ?? -1);
+            message = LocalizationService.Instance.Format("rapoo-bridge.exe が終了しました (code {0}).", process.ExitCode);
         }
         catch
         {
         }
         Log(message);
+        FaultProcess(process, message);
+    }
+
+    private void FaultProcess(Process process, string message)
+    {
+        if (!ReferenceEquals(_process, process) ||
+            Interlocked.Exchange(ref _faulted, 1) != 0)
+        {
+            return;
+        }
+
+        _started = false;
         Faulted?.Invoke(this, message);
         foreach (var pending in _pending.Values)
         {
@@ -534,6 +572,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             return local;
         }
 
+#if DEBUG
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var i = 0; i < 9 && directory is not null; i++)
         {
@@ -544,6 +583,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             }
             directory = directory.Parent;
         }
+#endif
 
         return null;
     }

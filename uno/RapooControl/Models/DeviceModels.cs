@@ -41,7 +41,9 @@ public sealed record DeviceStatus(
     bool Connected = false,
     bool DemoMode = false,
     string Mode = "normal",
-    int MaxRateHz = 4000)
+    int MaxRateHz = 4000,
+    bool PermissionDenied = false,
+    string? LastError = null)
 {
     public string ConnectionLabel => !MouseOnline
         ? LocalizationService.Instance.T("スリープ中")

@@ -11,11 +11,22 @@ public sealed partial class MainPage : Page
 {
     private IConfigPageActions? _activeActions;
     private bool _runningAction;
-    private MainViewModel ViewModel => App.Instance.ViewModel;
+    private bool CanRecoverBridge => ViewModel.HasError && ViewModel.DeviceService is { IsRunning: false };
+
+    public MainViewModel ViewModel => App.Instance.ViewModel;
+
+    public UIElement TitleBarDragRegion => WindowDragArea;
 
     public MainPage()
     {
         InitializeComponent();
+        ViewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(MainViewModel.HasError))
+            {
+                UpdateActionButtons();
+            }
+        };
         Loaded += (_, _) =>
         {
             LocalizationService.Instance.Apply(this);
@@ -25,7 +36,24 @@ public sealed partial class MainPage : Page
             }
             NavigateTo("overview");
             UpdateActionButtons();
+            if (Environment.GetEnvironmentVariable("RAPOO_UI_CAPTURE") == "1")
+            {
+                _ = CaptureDiagnosticsAsync();
+            }
         };
+    }
+
+    private void OpenPage(string tag)
+    {
+        foreach (var item in NavView.MenuItems)
+        {
+            if (item is NavigationViewItem { Tag: string itemTag } && itemTag == tag)
+            {
+                NavView.SelectedItem = item;
+                NavigateTo(tag);
+                return;
+            }
+        }
     }
 
     private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
@@ -61,7 +89,6 @@ public sealed partial class MainPage : Page
         }
         if (e.Content is FrameworkElement page)
         {
-            page.Loaded += (_, _) => LocalizationService.Instance.Apply(page);
             LocalizationService.Instance.Apply(page);
             // Uno realizes the page's visual tree after the Navigated event.
             DispatcherQueue.TryEnqueue(() => LocalizationService.Instance.Apply(page));
@@ -76,15 +103,37 @@ public sealed partial class MainPage : Page
 
     private void PageActionsChanged(object? sender, EventArgs e) => UpdateActionButtons();
 
+    private async Task CaptureDiagnosticsAsync()
+    {
+        var page = Environment.GetEnvironmentVariable("RAPOO_UI_CAPTURE_PAGE");
+        if (!string.IsNullOrWhiteSpace(page) && page != "overview")
+        {
+            OpenPage(page);
+            await Task.Delay(1500);
+        }
+        await UiCapture.CaptureAsync(this);
+    }
+
     private void UpdateActionButtons()
     {
-        ReloadButton.IsEnabled = !_runningAction && _activeActions?.CanReload == true;
+        ReloadButton.IsEnabled = !_runningAction && (CanRecoverBridge || _activeActions?.CanReload == true);
         ApplyButton.IsEnabled = !_runningAction && _activeActions?.CanApply == true;
     }
 
     private async void Reload_Click(object sender, RoutedEventArgs e)
     {
-        if (_activeActions is { CanReload: true } page)
+        if (CanRecoverBridge)
+        {
+            await RunActionAsync(async () =>
+            {
+                await ViewModel.RefreshAsync();
+                if (_activeActions is { CanReload: true } recoveredPage)
+                {
+                    await recoveredPage.ReloadAsync();
+                }
+            });
+        }
+        else if (_activeActions is { CanReload: true } page)
         {
             await RunActionAsync(page.ReloadAsync);
         }
@@ -100,6 +149,11 @@ public sealed partial class MainPage : Page
 
     private async Task RunActionAsync(Func<Task> action)
     {
+        if (_runningAction)
+        {
+            return;
+        }
+
         _runningAction = true;
         UpdateActionButtons();
         try

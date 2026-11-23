@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Windows.Graphics;
 using RapooControl.Services;
@@ -19,22 +21,30 @@ public partial class App : Application
     {
         InitializeComponent();
         LocalizationService.Instance.Initialize();
+        DesktopPreferences.Current.Load();
 
         var useMock = Environment.GetEnvironmentVariable("RAPOO_USE_MOCK") == "1";
         RapooService = useMock ? new MockRapooService() : new RealRapooService();
         ViewModel = new MainViewModel(RapooService);
 
-        if (!SingleInstance.Current.TryAcquire())
+        var startHidden = Environment.GetCommandLineArgs()
+            .Any(argument => argument is "--hidden" or "--tray");
+        try
         {
-            Environment.Exit(0);
+            if (!SingleInstance.Current.TryAcquire(requestShow: !startHidden))
+            {
+                Environment.Exit(0);
+            }
+        }
+        catch (IOException ex)
+        {
+            ShowStartupError(ex.Message);
+            Environment.Exit(1);
         }
 
-        AppDomain.CurrentDomain.ProcessExit += (_, _) =>
-        {
-            DesktopIntegration.Current.Shutdown();
-            SingleInstance.Current.Dispose();
-            StopService();
-        };
+        AutoStartService.MigrateLegacy();
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Shutdown();
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -43,25 +53,23 @@ public partial class App : Application
         {
             Title = "Rapoo Control",
         };
-        MainWindow.Content = new MainPage();
-        try
-        {
-            MainWindow.AppWindow.Resize(new SizeInt32(1180, 800));
-        }
-        catch
-        {
-            // The Skia head can use the platform default window size.
-        }
-        SingleInstance.Current.ShowRequested += (_, _) =>
-            MainWindow?.DispatcherQueue.TryEnqueue(ShowWindow);
+        var page = new MainPage();
+        MainWindow.Content = page;
+        MainWindow.Activated += OnFirstWindowActivation;
+#if WINDOWS
+        MainWindow.ExtendsContentIntoTitleBar = true;
+        MainWindow.SetTitleBar(page.TitleBarDragRegion);
+#endif
+        ViewModel.AttachDispatcher(action =>
+            MainWindow.DispatcherQueue.TryEnqueue(() => action()));
+        SingleInstance.Current.SetShowHandler(
+            () => MainWindow?.DispatcherQueue.TryEnqueue(ShowWindow));
         if (SingleInstance.Current.ConsumePendingShow())
         {
             MainWindow.DispatcherQueue.TryEnqueue(ShowWindow);
         }
         DesktopIntegration.Current.Initialize(MainWindow, ViewModel);
-        var startHidden = Environment.GetCommandLineArgs()
-            .Any(argument => argument is "--hidden" or "--tray");
-        if (startHidden && DesktopIntegration.Current.IsTrayReady)
+        if (ShouldStartHidden() && DesktopIntegration.Current.IsTrayReady)
         {
             DesktopIntegration.Current.HideWindow();
         }
@@ -72,7 +80,34 @@ public partial class App : Application
         InitializeService();
     }
 
-    private void ShowWindow()
+    private void OnFirstWindowActivation(object sender, WindowActivatedEventArgs args)
+    {
+        if (args.WindowActivationState == WindowActivationState.Deactivated || MainWindow is null)
+        {
+            return;
+        }
+
+        MainWindow.Activated -= OnFirstWindowActivation;
+        var window = MainWindow.AppWindow;
+        const int width = 1180;
+        const int height = 800;
+        window.Resize(new SizeInt32(width, height));
+#if WINDOWS
+        var display = DisplayArea.GetFromWindowId(window.Id, DisplayAreaFallback.Nearest);
+        if (display is not null)
+        {
+            var area = display.WorkArea;
+            window.Move(new PointInt32(
+                area.X + Math.Max(0, (area.Width - width) / 2),
+                area.Y + Math.Max(0, (area.Height - height) / 2)));
+        }
+#endif
+    }
+
+    private static bool ShouldStartHidden() => Environment.GetCommandLineArgs()
+        .Any(argument => argument is "--hidden" or "--tray");
+
+    internal void ShowWindow()
     {
         DesktopIntegration.Current.ShowWindow();
     }
@@ -91,6 +126,15 @@ public partial class App : Application
         }
     }
 
+    private void Shutdown()
+    {
+        // Release the single-instance lock only after the sidecar has stopped,
+        // so a successor never starts a second HID owner.
+        StopService();
+        DesktopIntegration.Current.Shutdown();
+        SingleInstance.Current.Dispose();
+    }
+
     private static void StopService()
     {
         if (Current is App app && app.RapooService is IAsyncDisposable disposable)
@@ -105,4 +149,18 @@ public partial class App : Application
             }
         }
     }
+
+    private static void ShowStartupError(string message)
+    {
+#if WINDOWS
+        MessageBoxW(IntPtr.Zero, message, "Rapoo Control", 0x00000010);
+#else
+        Console.Error.WriteLine(message);
+#endif
+    }
+
+#if WINDOWS
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+#endif
 }

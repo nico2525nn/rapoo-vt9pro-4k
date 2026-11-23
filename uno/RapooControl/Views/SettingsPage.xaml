@@ -29,8 +29,10 @@
                     </Grid>
                     <Grid x:Name="FirmwareUpdateRow" Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="ファームウェア更新" />
-                        <Button x:Name="UpdaterButton" Grid.Column="1" VerticalAlignment="Center"
-                            Click="OpenUpdater_Click" Content="公式ソフトを開く" />
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Spacing="8">
+                            <Button x:Name="UpdaterButton" Click="OpenUpdater_Click" Content="公式ソフトを開く" />
+                            <Button x:Name="BrowseButton" Click="BrowseUpdater_Click" Content="ファイルを選択" />
+                        </StackPanel>
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
                         <TextBlock Style="{StaticResource SettingsRowLabelStyle}" Text="マウスの初期化" />
@@ -58,7 +60,7 @@
                             Toggled="CloseToTray_Toggled" />
                     </Grid>
                     <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
-                        <TextBlock x:Name="AutoStartLabel" Style="{StaticResource SettingsRowLabelStyle}" Text="Windows スタートアップ" />
+                        <TextBlock x:Name="AutoStartLabel" Style="{StaticResource SettingsRowLabelStyle}" Text="Windows スタートアップ" Tag="loc-skip" />
                         <ToggleSwitch x:Name="AutoStartSwitch" Grid.Column="1" VerticalAlignment="Center"
                             AutomationProperties.Name="Windows スタートアップ"
                             Toggled="AutoStart_Toggled" />
@@ -90,6 +92,17 @@
                 </StackPanel>
             </Border>
 
+            <Border x:Name="UdevCard" Style="{StaticResource CardBorderStyle}" Visibility="Collapsed">
+                <StackPanel Style="{StaticResource SettingsSectionStyle}">
+                    <StackPanel Spacing="2">
+                        <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="udev 設定" />
+                        <TextBlock Style="{StaticResource PageSubtitleStyle}" Text="Linux の /dev/hidraw にアクセスするには、以下の udev ルールを適用してください。" />
+                    </StackPanel>
+                    <TextBox x:Name="UdevCommandBox" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="12" />
+                    <Button HorizontalAlignment="Left" Click="CopyUdev_Click" Content="コピー" />
+                    <TextBlock x:Name="UdevFeedback" Style="{StaticResource PageSubtitleStyle}" Visibility="Collapsed" Tag="loc-skip" />
+                </StackPanel>
+            </Border>
         </StackPanel>
     </ScrollViewer>
 </Page>

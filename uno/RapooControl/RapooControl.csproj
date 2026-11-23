@@ -10,7 +10,9 @@
     <!-- App Identifier -->
     <ApplicationId>com.companyname.rapoocontrol</ApplicationId>
     <!-- Versions -->
-    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <Version>1.4.0</Version>
+    <InformationalVersion>1.4.0</InformationalVersion>
+    <ApplicationDisplayVersion>1.4.0</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <!-- Package Publisher -->
     <ApplicationPublisher>RapooControl</ApplicationPublisher>
@@ -41,6 +43,9 @@
 
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+    <SidecarPath>..\..\build\bin\rapoo-bridge.exe</SidecarPath>
+    <SidecarFileName>rapoo-bridge.exe</SidecarFileName>
+    <PublishTrimmed>false</PublishTrimmed>
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
@@ -48,21 +53,28 @@
     <PlatformTarget>x64</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
-    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
+    <DefineConstants Condition="'$(RuntimeIdentifier)' == 'linux-x64' or ('$(RuntimeIdentifier)' == '' and $([MSBuild]::IsOSPlatform('Linux')))">$(DefineConstants);LINUX</DefineConstants>
+    <SidecarPath>..\..\build\bin\rapoo-bridge</SidecarPath>
+    <SidecarFileName>rapoo-bridge</SidecarFileName>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-desktop'">
-    <Content Include="..\..\build\bin\rapoo-bridge"
-             Condition="Exists('..\..\build\bin\rapoo-bridge')"
+  <Target Name="ValidateUnoSidecar" BeforeTargets="PrepareForPublish" Condition="'$(SidecarPath)' != ''">
+    <Error Condition="!Exists('$(SidecarPath)')"
+           Text="The Go sidecar is required for publishing: $(SidecarPath). Run uno/build-sidecars.sh first." />
+    <Error Condition="'$(TargetFramework)' == 'net10.0-desktop' and '$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != 'linux-x64'"
+           Text="Only linux-x64 is supported for the Uno desktop head." />
+    <Error Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100' and '$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != 'win-x64'"
+           Text="Only win-x64 is supported for the Uno Windows head." />
+  </Target>
+
+  <ItemGroup Condition="'$(SidecarPath)' != '' and Exists('$(SidecarPath)')">
+    <Content Include="$(SidecarPath)"
              CopyToOutputDirectory="PreserveNewest"
-             Link="rapoo-bridge" />
+             CopyToPublishDirectory="PreserveNewest"
+             Link="$(SidecarFileName)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
-    <Content Include="..\..\build\bin\rapoo-bridge.exe"
-             Condition="Exists('..\..\build\bin\rapoo-bridge.exe')"
-             CopyToOutputDirectory="PreserveNewest"
-             Link="rapoo-bridge.exe" />
     <PackageReference Include="H.NotifyIcon.WinUI" />
   </ItemGroup>
 

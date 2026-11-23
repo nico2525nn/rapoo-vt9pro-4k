@@ -1,6 +1,10 @@
 using System.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+#if WINDOWS
+using Windows.Storage.Pickers;
+using WinRT.Interop;
+#endif
 using RapooControl.Services;
 using RapooControl.ViewModels;
 
@@ -43,7 +47,8 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     private async void Page_Loaded(object sender, RoutedEventArgs e)
     {
         LocalizationService.Instance.Apply(this);
-        FirmwareUpdateRow.Visibility = AutoStartService.SupportsTray
+        // Firmware support is a Windows capability, independent of the tray.
+        FirmwareUpdateRow.Visibility = OperatingSystem.IsWindows()
             ? Visibility.Visible
             : Visibility.Collapsed;
         CloseToTrayRow.Visibility = AutoStartService.SupportsTray
@@ -52,10 +57,6 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         StartHiddenRow.Visibility = AutoStartService.SupportsStartHidden
             ? Visibility.Visible
             : Visibility.Collapsed;
-        if (!OperatingSystem.IsWindows())
-        {
-            AutoStartLabel.Text = LocalizationService.Instance.T("サインイン時に起動");
-        }
         LanguageCombo.SelectedIndex = LocalizationService.Instance.IsJapanese ? 1 : 0;
         DesktopPreferences.Current.Load();
         CloseToTraySwitch.IsOn = DesktopPreferences.Current.CloseToTray;
@@ -66,6 +67,10 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         if (ViewModel.DeviceService is not { } service)
         {
             return;
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            _ = LoadUdevAsync(service);
         }
         await Feedback.RunAsync(async () =>
         {
@@ -86,6 +91,40 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     }
 
     private void Page_Unloaded(object sender, RoutedEventArgs e) => ViewModel.PropertyChanged -= DeviceStatusChanged;
+
+    private async Task LoadUdevAsync(RealRapooService service)
+    {
+        try
+        {
+            var catalog = await service.GetCatalogAsync();
+            if (!string.IsNullOrWhiteSpace(catalog.LinuxUdevInstallCmd))
+            {
+                UdevCommandBox.Text = catalog.LinuxUdevInstallCmd;
+                UdevCard.Visibility = Visibility.Visible;
+            }
+        }
+        catch
+        {
+            // The udev card stays hidden when the catalog is unavailable.
+        }
+    }
+
+    private void CopyUdev_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(UdevCommandBox.Text);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            UdevFeedback.Text = LocalizationService.Instance.T("udev 設定コマンドをコピーしました。");
+            UdevFeedback.Visibility = Visibility.Visible;
+        }
+        catch
+        {
+            UdevFeedback.Text = UdevCommandBox.Text;
+            UdevFeedback.Visibility = Visibility.Visible;
+        }
+    }
 
     private void CloseToTray_Toggled(object sender, RoutedEventArgs e)
     {
@@ -154,10 +193,8 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             return;
         }
-        if (!localization.SetLanguage(language))
-        {
-            Feedback.Message = localization.T("言語設定を保存できませんでした。");
-        }
+        var saved = localization.SetLanguage(language);
+        UdevFeedback.Visibility = Visibility.Collapsed;
         localization.Apply(App.Instance.MainWindow?.Content);
         ViewModel.RefreshLocalization();
         UpdateControls();
@@ -165,7 +202,9 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         {
             LoadFirmware(snapshot);
         }
-        Feedback.Message = language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English.";
+        Feedback.Message = saved
+            ? language == "ja" ? "言語を日本語に変更しました。" : "Language changed to English."
+            : localization.T("言語設定を保存できませんでした。");
         if (ViewModel.DeviceService is { } service)
         {
             _ = SyncSidecarLanguageAsync(service, language);
@@ -240,6 +279,44 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         }
     }
 
+#if WINDOWS
+    private async void BrowseUpdater_Click(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel.DeviceService is not { } service || App.Instance.MainWindow is not { } window)
+        {
+            return;
+        }
+
+        try
+        {
+            var picker = new FileOpenPicker { FileTypeFilter = { ".exe" } };
+            InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(window));
+            var file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            if (!Path.IsPathFullyQualified(file.Path) ||
+                !(string.Equals(file.Name, "RapooGameDev.exe", StringComparison.OrdinalIgnoreCase) ||
+                  string.Equals(file.Name, "FirmwareExe.exe", StringComparison.OrdinalIgnoreCase)))
+            {
+                Feedback.Message = LocalizationService.Instance.T("RapooGameDev.exe または FirmwareExe.exe を選択してください。");
+                return;
+            }
+
+            await Feedback.RunAsync(() => service.OpenFirmwareUpdaterAsync(file.Path), "公式ソフトを起動しました。");
+        }
+        catch (Exception ex)
+        {
+            Feedback.Message = ex.Message;
+        }
+    }
+
+#else
+    private void BrowseUpdater_Click(object sender, RoutedEventArgs e) { }
+#endif
+
     private async void FactoryReset_Click(object sender, RoutedEventArgs e)
     {
         if (ViewModel.DeviceService is not { } service || !ViewModel.CanConfigureDevice)
@@ -272,11 +349,15 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
     private void UpdateControls()
     {
         var idle = ViewModel.DeviceService is not null && !Feedback.IsBusy;
+        var loc = LocalizationService.Instance;
+        var startupLabel = loc.T(OperatingSystem.IsWindows() ? "Windows スタートアップ" : "サインイン時に起動");
+        AutoStartLabel.Text = startupLabel;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(AutoStartSwitch, startupLabel);
         ModeButton.IsEnabled = idle;
-        ModeButton.Content = LocalizationService.Instance.T(ViewModel.IsPassive ? "通常に戻す" : "0-TX に切り替え");
+        ModeButton.Content = loc.T(ViewModel.IsPassive ? "通常に戻す" : "0-TX に切り替え");
         DemoButton.IsEnabled = idle;
         DemoButton.Content = LocalizationService.Instance.T(ViewModel.IsDemoMode ? "終了" : "開始");
-        UpdaterButton.IsEnabled = idle;
+        UpdaterButton.IsEnabled = BrowseButton.IsEnabled = idle;
         ResetButton.IsEnabled = idle && ViewModel.CanConfigureDevice;
         DeviceNotice.Text = ViewModel.DeviceService is null ? ViewModel.SettingsNotice : ViewModel.ConnectionMessage;
         DeviceNotice.Visibility = DeviceNotice.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;

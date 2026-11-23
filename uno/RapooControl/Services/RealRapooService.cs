@@ -27,6 +27,15 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         };
         _client.Faulted += (_, message) =>
         {
+            _lastSnapshot = null;
+            _lastState = new BridgeState
+            {
+                Connected = false,
+                Connection = null,
+                LastError = message,
+                UpdatedAt = DateTimeOffset.Now,
+            };
+            StatusChanged?.Invoke(this, MapStatus(_lastState));
             Faulted?.Invoke(this, message);
         };
     }
@@ -34,6 +43,8 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     public string Name => "RapooBridge";
 
     public bool IsMock => false;
+
+    public bool IsRunning => _client.IsRunning;
 
     public event EventHandler<DeviceStatus>? StatusChanged;
 
@@ -239,6 +250,8 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             Connected: state.Connected,
             DemoMode: state.DemoMode,
             Mode: state.Mode ?? "normal",
-            MaxRateHz: state.MaxRateHz);
+            MaxRateHz: state.MaxRateHz,
+            PermissionDenied: state.PermissionDenied,
+            LastError: state.LastError);
     }
 }
