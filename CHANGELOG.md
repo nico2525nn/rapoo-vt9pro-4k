@@ -6,7 +6,7 @@
 
 - Release bundles are split into **slim** (framework-dependent) and
   **portable** (self-contained) variants for Windows and Linux
-- Windows slim requires the .NET 10 Desktop Runtime and Windows App Runtime 2.5.1 (x64)
+- Windows slim requires the .NET 10 Desktop Runtime and Windows App Runtime 2.x (2.5.1 or later, x64)
 - Linux slim requires the .NET 10 Runtime
 - Windows portable and Linux portable need no runtime installation
 - Removed the unused Windows ML payload (ONNX Runtime and DirectML, ~40 MB)
@@ -19,8 +19,9 @@
 
 ### Fixed
 
-- Corrected the Windows slim prerequisite to Windows App Runtime 2.5.1 (x64);
-  the first draft documented 1.8, which the bootstrap does not accept
+- Corrected the Windows slim prerequisite to Windows App Runtime 2.x with a
+  2.5.1 minimum (x64); the first draft documented 1.8, which the bootstrap does
+  not accept
 - Rebuilt the Windows bundles with the sidecar from the release commit so its
   VCS stamp is clean
 - DPI stage serialization under trimming now writes a JSON array instead of

@@ -11,4 +11,12 @@ chmod +x build/bin/rapoo-bridge
 
 file build/bin/rapoo-bridge | grep -q 'x86-64'
 file build/bin/rapoo-bridge.exe | grep -q 'x86-64'
+revision=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+if [[ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+  modified=1
+else
+  modified=0
+fi
+printf 'revision=%s\nmodified=%s\n' "$revision" "$modified" > build/bin/sidecar-vcs.txt
 echo "sidecars: $(file build/bin/rapoo-bridge build/bin/rapoo-bridge.exe | tr '\n' ' ')"
+echo "sidecar-vcs: revision=$revision modified=$modified"

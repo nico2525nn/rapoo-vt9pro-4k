@@ -4,14 +4,18 @@
 
 .DESCRIPTION
     slim     - framework-dependent; requires the .NET 10 Desktop Runtime and
-               the Windows App Runtime 2.5.1 (x64).
+               a Windows App Runtime 2.x (2.5.1 or later, x64).
     portable - self-contained; no runtime installation required.
 
     Run this on Windows after uno/build-sidecars.sh has produced
-    build\bin\rapoo-bridge.exe.
+    build\bin\rapoo-bridge.exe and build\bin\sidecar-vcs.txt.
+
+    Pass -ExpectedSidecarRevision <sha> to bind the package to a specific
+    release commit.
 #>
 param(
-    [string]$Version = ""
+    [string]$Version = "",
+    [string]$ExpectedSidecarRevision = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,6 +36,29 @@ $sidecar = Join-Path $root "build\bin\rapoo-bridge.exe"
 if (-not (Test-Path $sidecar)) {
     throw "Missing $sidecar. Run ./uno/build-sidecars.sh on Linux first."
 }
+
+$stampPath = Join-Path $root "build\bin\sidecar-vcs.txt"
+if (-not (Test-Path $stampPath)) {
+    throw "Missing $stampPath. Run ./uno/build-sidecars.sh on Linux and sync the stamp with the sidecar."
+}
+$stamp = Get-Content $stampPath | ConvertFrom-StringData
+$revision = $stamp.revision
+if ($revision -notmatch '^[0-9a-f]{40}$') {
+    throw "Invalid sidecar revision '$revision' in $stampPath."
+}
+if ($stamp.modified -ne "0") {
+    throw "The sidecar was built from a dirty tree (modified=$($stamp.modified))."
+}
+if ($ExpectedSidecarRevision -and
+    $ExpectedSidecarRevision -ne $revision) {
+    throw "The sidecar revision $revision does not match the expected $ExpectedSidecarRevision."
+}
+$sidecarText = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($sidecar))
+if (-not $sidecarText.Contains("vcs.revision=$revision") -or
+    -not $sidecarText.Contains("vcs.modified=false")) {
+    throw "The sidecar binary does not match $stampPath."
+}
+Write-Host "sidecar revision $revision (clean)"
 
 $newestGoSource = Get-ChildItem `
     (Join-Path $root "cmd"), (Join-Path $root "internal"), (Join-Path $root "pkg") `
@@ -114,8 +141,9 @@ function Publish-Bundle {
         }
         $wasdkVersion = ($wasdk -split '/')[-1]
         $readmeText = Get-Content (Join-Path $out "README.md") -Raw
-        if ($readmeText -notmatch [regex]::Escape("Windows App Runtime $wasdkVersion")) {
-            throw "README does not mention Windows App Runtime $wasdkVersion, which the slim bundle requires."
+        if ($readmeText -notmatch [regex]::Escape("Windows App Runtime 2.x") -or
+            $readmeText -notmatch [regex]::Escape($wasdkVersion)) {
+            throw "README must document Windows App Runtime 2.x with a $wasdkVersion minimum."
         }
         Write-Host "Windows App SDK $wasdkVersion; README runtime prerequisite matches."
     }

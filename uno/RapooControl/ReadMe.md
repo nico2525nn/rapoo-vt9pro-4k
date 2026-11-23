@@ -37,12 +37,12 @@ Publishing fails deliberately if the sidecar is missing or the release RID is
 not explicit. Release publishing uses one of two profiles:
 
 - `win-x64` — slim: framework-dependent .NET and Windows App SDK. Requires the
-  .NET 10 Desktop Runtime and Windows App Runtime 2.5.1 (x64).
+  .NET 10 Desktop Runtime and a Windows App Runtime 2.x (2.5.1 or later, x64).
 - `win-x64-portable` — self-contained .NET and Windows App SDK.
 
 Uno.Sdk 7.0.5 resolves `Microsoft.WindowsAppSDK` 2.5.1. The slim Windows
-profile therefore needs the 2.5.1 runtime; 2.6/2.7 are different framework
-packages and do not satisfy the bootstrap.
+profile needs a 2.x runtime with minimum 2.5.1; newer 2.x runtimes (for
+example 2.6 or 2.7) also satisfy the bootstrap.
 
 Both profiles remove the unused Windows ML stack after publish and skip
 ReadyToRun and PDBs. The Linux release script publishes a framework-dependent

@@ -16,7 +16,7 @@ v1.4.0 Linux tarball.
 
 | Bundle | Download | Requires |
 |:--|:--|:--|
-| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 2.5.1 (x64) |
+| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 2.x (2.5.1 or later, x64) |
 | Windows portable | `...-windows-amd64-portable.7z` (47.8 MB) / `.zip` (76.3 MB) | nothing |
 | Linux slim | `...-linux-amd64-slim.tar.xz` (15.6 MB) / `.tar.gz` (22.1 MB) | .NET 10 Runtime |
 | Linux portable | `...-linux-amd64-portable.tar.xz` (21.2 MB) / `.tar.gz` (30.6 MB) | nothing (X11 + OpenGL) |
@@ -25,10 +25,11 @@ v1.4.0 Linux tarball.
   Explorer. On Linux, `tar.xz` is smaller and `tar.gz` is more widely supported.
 - `.NET 10 Desktop Runtime`:
   <https://dotnet.microsoft.com/download/dotnet/10.0>
-- `Windows App Runtime 2.5.1` (x64):
+- `Windows App Runtime 2.x` (x64, 2.5.1 or later):
   <https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe>
-  The app targets Windows App SDK 2.5.1, so the 2.5 runtime is required; the
-  2.6/2.7 runtimes do not satisfy it. The installer is about 120 MB.
+  The app uses the Windows App SDK 2.x runtime with a 2.5.1 minimum. The
+  2.5.1 installer linked above is the smallest known-good runtime; newer 2.x
+  runtimes also work. The installer is about 120 MB.
 - `checksums.txt` — SHA256 checksums for every asset.
 
 The v1.4.0 self-contained release remains available for reference. The v1.3.0
@@ -54,9 +55,10 @@ WinUI/Wails releases are unchanged.
   `RapooControl.exe`. No runtime installation is needed.
 - **Slim:** install the [.NET 10 Desktop
   Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) and the [Windows
-  App Runtime 2.5.1 (x64)](https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe),
-  then extract the archive and run `RapooControl.exe`. The 2.5 runtime is
-  required; 2.6/2.7 do not satisfy it.
+  App Runtime 2.x (x64, 2.5.1 or
+  later)](https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe),
+  then extract the archive and run `RapooControl.exe`. The 2.5.1 installer is
+  the smallest known-good runtime; newer 2.x runtimes also work.
 
 The Go sidecar is included next to the app.
 
