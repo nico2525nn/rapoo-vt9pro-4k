@@ -396,6 +396,8 @@ func bridgeErrorCode(err error) string {
 		return "device_changed"
 	case errors.Is(err, service.ErrDeadlineExceeded), errors.Is(err, rapoo.ErrDeadlineExceeded):
 		return "deadline_exceeded"
+	case errors.Is(err, rapoo.ErrResultUnknown):
+		return "result_unknown"
 	default:
 		return "error"
 	}

@@ -179,9 +179,10 @@ func LookupModel(vid, pid uint16) (ModelSpec, bool) {
 // EndpointPair pairs the 0xBA command collection with the optional async
 // notification collection for a single physical Rapoo device.
 type EndpointPair struct {
-	Model   ModelSpec
-	Command *hid.DeviceInfo
-	Report  *hid.DeviceInfo
+	Model     ModelSpec
+	Command   *hid.DeviceInfo
+	Report    *hid.DeviceInfo
+	Ambiguous bool
 }
 
 // DefaultHIDFilter returns a gaming-safe HID enumeration filter restricted to
@@ -228,6 +229,12 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 
 		switch info.Usage {
 		case UsageCommandRealtek:
+			if pair.Command != nil && pair.Command.Path != info.Path {
+				// Two command endpoints under the same VID/PID mean the OS did
+				// not give us a container ID to tell identical devices apart.
+				// Pairing them would mix command and notification endpoints.
+				pair.Ambiguous = true
+			}
 			cp := info
 			pair.Command = &cp
 		case UsageAsyncReport:

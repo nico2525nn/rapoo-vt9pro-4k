@@ -4,8 +4,10 @@ package hid
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -137,80 +139,45 @@ func (p *linuxProvider) Open(info DeviceInfo, writeAccess bool) (Device, error) 
 		return nil, fmt.Errorf("os.NewFile(%s) returned nil", info.Path)
 	}
 
-	var lockFile *os.File
+	var lock net.Listener
 	if writeAccess {
-		lockFile, err = acquireLinuxDeviceLock(info)
+		lock, err = acquireLinuxDeviceLock(info)
 		if err != nil {
 			_ = f.Close()
 			return nil, err
 		}
 	}
 	return &linuxDevice{
-		info:     info,
-		file:     f,
-		lockFile: lockFile,
+		info: info,
+		file: f,
+		lock: lock,
 	}, nil
 }
 
-// acquireLinuxDeviceLock takes a non-blocking advisory lock shared by every
-// process that opens the writable command endpoint for the same physical
-// device. The lock file lives in the temp directory and is keyed by the stable
-// physical ID (falling back to the hidraw path).
-func acquireLinuxDeviceLock(info DeviceInfo) (*os.File, error) {
+// acquireLinuxDeviceLock binds an abstract Unix socket keyed by the stable
+// physical ID. Abstract names are machine-local, are not affected by TMPDIR or
+// filesystem ownership, and are released automatically when the process exits.
+func acquireLinuxDeviceLock(info DeviceInfo) (net.Listener, error) {
 	key := info.PhysicalID
 	if key == "" {
 		key = info.Path
 	}
 	sum := sha256.Sum256([]byte(key))
-	name := fmt.Sprintf("rapoo-vt9pro4k-%x.lock", sum[:8])
-	// Use a fixed path rather than os.TempDir(): TMPDIR is per-process and two
-	// callers with different TMPDIR values must still contend for one lock.
-	// O_NOFOLLOW avoids writing the PID through a malicious symlink in /tmp.
-	path := filepath.Join("/tmp", name)
-	fd, err := syscall.Open(
-		path,
-		syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
-		0o600,
-	)
+	name := "\x00rapoo-vt9pro4k-" + hex.EncodeToString(sum[:8])
+	lock, err := net.ListenUnix("unix", &net.UnixAddr{Name: name, Net: "unix"})
 	if err != nil {
-		return nil, fmt.Errorf("open HID lock %s: %w", path, err)
-	}
-	var stat syscall.Stat_t
-	if err := syscall.Fstat(fd, &stat); err != nil {
-		_ = syscall.Close(fd)
-		return nil, fmt.Errorf("stat HID lock %s: %w", path, err)
-	}
-	if stat.Uid != uint32(os.Geteuid()) {
-		_ = syscall.Close(fd)
-		return nil, fmt.Errorf("HID lock %s is owned by uid %d", path, stat.Uid)
-	}
-	if stat.Mode&0o022 != 0 {
-		if err := syscall.Fchmod(fd, 0o600); err != nil {
-			_ = syscall.Close(fd)
-			return nil, fmt.Errorf("secure HID lock %s: %w", path, err)
-		}
-	}
-	lock := os.NewFile(uintptr(fd), path)
-	if lock == nil {
-		_ = syscall.Close(fd)
-		return nil, fmt.Errorf("os.NewFile(%s) returned nil", path)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = lock.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		if errors.Is(err, syscall.EADDRINUSE) {
 			return nil, ErrDeviceBusy
 		}
 		return nil, fmt.Errorf("lock HID device: %w", err)
 	}
-	_ = lock.Truncate(0)
-	_, _ = lock.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
 	return lock, nil
 }
 
 type linuxDevice struct {
 	info      DeviceInfo
 	file      *os.File
-	lockFile  *os.File
+	lock      net.Listener
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	closed    bool
@@ -375,10 +342,9 @@ func (d *linuxDevice) Close() error {
 		d.mu.Lock()
 		d.closed = true
 		d.mu.Unlock()
-		if d.lockFile != nil {
-			_ = syscall.Flock(int(d.lockFile.Fd()), syscall.LOCK_UN)
-			_ = d.lockFile.Close()
-			d.lockFile = nil
+		if d.lock != nil {
+			_ = d.lock.Close()
+			d.lock = nil
 		}
 		err = d.file.Close()
 	})

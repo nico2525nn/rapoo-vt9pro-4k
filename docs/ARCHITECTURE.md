@@ -34,6 +34,11 @@ I/O and parse errors while retaining the last good cache; an empty library is
 never reported for a corrupt file. Presets are only saved from complete
 snapshots (DPI, sensor, and button table present).
 
+Button presets store the four-byte onboard action, including a `0x05` macro
+reference. The app preserves that reference when applying a preset, but it does
+not read or write the onboard macro body; edits made to macro contents in the
+official vendor tool are outside the profile restore contract.
+
 ## Release checks
 
 - `go test ./...`, `go vet ./...`, and the .NET tests.

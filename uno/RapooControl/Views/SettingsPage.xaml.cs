@@ -298,12 +298,18 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         }
     }
 
-    private async void OpenUpdater_Click(object sender, RoutedEventArgs e)
+    private void OpenUpdater_Click(object sender, RoutedEventArgs e)
     {
+#if WINDOWS
+        // Always go through the file picker so the signature check and the
+        // unsigned-file confirmation apply to every launch path.
+        BrowseUpdater_Click(sender, e);
+#else
         if (ViewModel.DeviceService is { } service)
         {
-            await Feedback.RunAsync(() => service.OpenFirmwareUpdaterAsync(), "公式ソフトを起動しました。");
+            _ = Feedback.RunAsync(() => service.OpenFirmwareUpdaterAsync(), "公式ソフトを起動しました。");
         }
+#endif
     }
 
     private async void FactoryReset_Click(object sender, RoutedEventArgs e)

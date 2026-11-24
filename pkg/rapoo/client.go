@@ -77,7 +77,18 @@ func OpenFirst(provider hid.Provider, opts ClientOptions) (*Client, error) {
 	if len(pairs) == 0 {
 		return nil, ErrDeviceNotFound
 	}
-	return OpenEndpoint(provider, pairs[0], opts)
+	ambiguous := false
+	for _, pair := range pairs {
+		if pair.Ambiguous {
+			ambiguous = true
+			continue
+		}
+		return OpenEndpoint(provider, pair, opts)
+	}
+	if ambiguous {
+		return nil, ErrAmbiguousDevice
+	}
+	return nil, ErrDeviceNotFound
 }
 
 // OpenEndpoint opens a specific matched EndpointPair.
@@ -209,8 +220,12 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byt
 	}
 
 	var lastErr error
+	sent := false
 	for attempt := 0; attempt < c.opts.MaxCommandRetries; attempt++ {
 		if err := checkDeadline(deadline); err != nil {
+			if sent {
+				return nil, fmt.Errorf("%w: %v", ErrResultUnknown, err)
+			}
 			return nil, err
 		}
 		if since := time.Since(c.lastCmdEnd); since < stepDelay {
@@ -229,14 +244,15 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byt
 			continue
 		}
 
+		sent = true
 		time.Sleep(stepDelay)
 		if err := checkDeadline(deadline); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", ErrResultUnknown, err)
 		}
 
 		for poll := 0; poll < c.opts.MaxBusyPolls; poll++ {
 			if err := checkDeadline(deadline); err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%w: %v", ErrResultUnknown, err)
 			}
 			raw, err := c.cmdDev.GetInputReport(ReportIDCommand, PacketLength, sendTimeout)
 			c.lastCmdEnd = time.Now()
@@ -976,6 +992,11 @@ func (c *Client) SetAllButtonMappingsDeadline(mappings []ButtonMapping, deadline
 		}
 	}
 	return nil
+}
+
+// ButtonActionsEqual reports whether two button actions are semantically equal.
+func ButtonActionsEqual(a, b ButtonAction) bool {
+	return buttonActionsEqual(a, b)
 }
 
 func buttonActionsEqual(a, b ButtonAction) bool {

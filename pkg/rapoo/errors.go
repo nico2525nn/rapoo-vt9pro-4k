@@ -7,6 +7,15 @@ import "errors"
 // may have changed the device, so callers must treat the result as partial.
 var ErrDeadlineExceeded = errors.New("rapoo: operation deadline exceeded")
 
+// ErrResultUnknown means the command was sent, but the reply was not observed.
+// The write may have been applied; callers must refresh rather than retry.
+var ErrResultUnknown = errors.New("rapoo: command sent but result unknown")
+
+// ErrAmbiguousDevice means multiple identical devices are attached and the OS
+// did not expose a stable container identity, so command/report endpoints
+// cannot be paired safely.
+var ErrAmbiguousDevice = errors.New("rapoo: multiple identical devices cannot be distinguished")
+
 // PartialError describes a multi-step write that failed after at least one
 // step had already been applied. Applied lists the steps that completed.
 type PartialError struct {

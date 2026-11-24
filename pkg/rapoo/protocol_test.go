@@ -310,3 +310,16 @@ func TestMatchEndpointsKeepsPhysicalDevicesSeparate(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchEndpointsMarksMissingPhysicalIDAmbiguous(t *testing.T) {
+	infos := []hid.DeviceInfo{
+		{Path: "cmd-a", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x000E},
+		{Path: "rep-a", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x0002, InputReportLen: 10},
+		{Path: "cmd-b", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x000E},
+		{Path: "rep-b", VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x0002, InputReportLen: 10},
+	}
+	pairs := MatchEndpoints(infos)
+	if len(pairs) != 1 || !pairs[0].Ambiguous {
+		t.Fatalf("pairs = %+v, want one ambiguous pair", pairs)
+	}
+}

@@ -5,7 +5,7 @@ package updaterguard
 import (
 	"errors"
 	"fmt"
-	"os/exec"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -100,42 +100,86 @@ func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted fun
 		}
 	}
 
-	job, jobErr := windows.CreateJobObject(nil, nil)
-	if jobErr != nil {
-		job = 0
+	job, err := windows.CreateJobObject(nil, nil)
+	if err != nil {
+		return fmt.Errorf("create updater job: %w", err)
 	}
-	if job != 0 {
-		defer windows.CloseHandle(job)
-	}
+	defer windows.CloseHandle(job)
 
-	cmd := exec.Command(updaterPath)
-	cmd.Dir = filepath.Dir(updaterPath)
-	if err := cmd.Start(); err != nil {
+	process, thread, pid, err := startSuspended(updaterPath, filepath.Dir(updaterPath))
+	if err != nil {
 		return err
 	}
-	jobAssigned := false
-	if job != 0 {
-		process, openErr := windows.OpenProcess(
-			windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
-			false,
-			uint32(cmd.Process.Pid))
-		if openErr == nil {
-			assignErr := windows.AssignProcessToJobObject(job, process)
-			_ = windows.CloseHandle(process)
-			jobAssigned = assignErr == nil
-		}
+	if err := windows.AssignProcessToJobObject(job, process); err != nil {
+		_ = windows.TerminateProcess(process, 1)
+		_ = windows.CloseHandle(thread)
+		_ = windows.CloseHandle(process)
+		return fmt.Errorf("assign updater to job: %w", err)
 	}
+	if _, err := windows.ResumeThread(thread); err != nil {
+		_ = windows.TerminateProcess(process, 1)
+		_ = windows.CloseHandle(thread)
+		_ = windows.CloseHandle(process)
+		return fmt.Errorf("resume updater: %w", err)
+	}
+	_ = windows.CloseHandle(thread)
 	if onStarted != nil {
 		onStarted()
 	}
-	err = cmd.Wait()
-	// If the official launcher hands the update to a child (or grandchild) and
-	// exits, keep the HID mutexes until the whole tree has finished.
-	waitForChildren(uint32(cmd.Process.Pid), 30*time.Minute)
-	if jobAssigned {
-		waitForJobEmpty(job, 30*time.Minute)
+
+	waitEvent, waitErr := windows.WaitForSingleObject(process, windows.INFINITE)
+	var exitCode uint32
+	if waitErr == nil && waitEvent == 0 {
+		waitErr = windows.GetExitCodeProcess(process, &exitCode)
 	}
-	return err
+	_ = windows.CloseHandle(process)
+
+	// If the official launcher hands the update to a child (or grandchild) and
+	// exits, keep the HID mutexes until the whole tree has finished. The job
+	// was assigned before the first thread ran, so it covers descendants even
+	// when an intermediate process exits.
+	waitForChildren(pid, 0)
+	waitForJobEmpty(job, 0)
+	if waitErr != nil {
+		return waitErr
+	}
+	if exitCode != 0 {
+		return fmt.Errorf("updater exited with code %d", exitCode)
+	}
+	return nil
+}
+
+func startSuspended(path, dir string) (windows.Handle, windows.Handle, uint32, error) {
+	exe, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine([]string{path}))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	currentDir, err := windows.UTF16PtrFromString(dir)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var startup windows.StartupInfo
+	startup.Cb = uint32(unsafe.Sizeof(startup))
+	var info windows.ProcessInformation
+	if err := windows.CreateProcess(
+		exe,
+		commandLine,
+		nil,
+		nil,
+		false,
+		windows.CREATE_SUSPENDED,
+		nil,
+		currentDir,
+		&startup,
+		&info,
+	); err != nil {
+		return 0, 0, 0, fmt.Errorf("create updater: %w", err)
+	}
+	return info.Process, info.Thread, info.ProcessId, nil
 }
 
 type jobBasicAccounting struct {
@@ -150,9 +194,21 @@ type jobBasicAccounting struct {
 }
 
 func waitForJobEmpty(job windows.Handle, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if count, err := jobActiveProcesses(job); err == nil && count == 0 {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for deadline.IsZero() || time.Now().Before(deadline) {
+		count, err := jobActiveProcesses(job)
+		if err != nil {
+			// The job was assigned before the first thread ran. If accounting
+			// becomes unavailable, keep holding the HID lock; releasing it
+			// while the updater may still be running is worse.
+			log.Printf("updater job accounting stopped: %v", err)
+			time.Sleep(time.Second)
+			continue
+		}
+		if count == 0 {
 			return
 		}
 		time.Sleep(250 * time.Millisecond)
@@ -174,8 +230,11 @@ func jobActiveProcesses(job windows.Handle) (uint32, error) {
 }
 
 func waitForChildren(parentPID uint32, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	var deadline time.Time
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for deadline.IsZero() || time.Now().Before(deadline) {
 		if !hasChildProcess(parentPID) {
 			return
 		}

@@ -63,6 +63,20 @@ export default function App() {
   });
 
   const updateState = useCallback((next: ServiceState) => {
+    const floor = snapshotFloorRef.current;
+    const nextGeneration = next.generation ?? 0;
+    const nextRevision = next.revision ?? 0;
+    if (nextGeneration > 0 && nextGeneration > floor.generation) {
+      floor.generation = nextGeneration;
+      floor.revision = 0;
+    }
+    if (!next.connected && nextGeneration > 0 && nextGeneration === floor.generation &&
+        nextRevision > 0 && nextRevision > floor.revision) {
+      // Advance the floor with the disconnect event, but not with ordinary
+      // state ticks: a snapshot's stateRevision is read before later state
+      // revisions and is normally lower.
+      floor.revision = nextRevision;
+    }
     setState((prev) => {
       const prevGeneration = prev.generation ?? 0;
       const nextGeneration = next.generation ?? 0;

@@ -544,6 +544,9 @@ func (s *MouseService) wrapFriendly(err error) error {
 	if errors.As(err, &partial) {
 		return err
 	}
+	if errors.Is(err, rapoo.ErrResultUnknown) {
+		return fmt.Errorf("%w: %s", rapoo.ErrResultUnknown, s.friendlyError(err))
+	}
 	if errors.Is(err, ErrDeviceChanged) ||
 		errors.Is(err, ErrDeadlineExceeded) ||
 		errors.Is(err, rapoo.ErrDeadlineExceeded) {
@@ -556,6 +559,7 @@ func (s *MouseService) readAfterWrite(
 	client *rapoo.Client,
 	generation uint64,
 	applied []string,
+	verify func(rapoo.DeviceSnapshot) error,
 ) (rapoo.DeviceSnapshot, error) {
 	if client == nil {
 		return rapoo.DeviceSnapshot{}, &PartialWriteError{
@@ -565,6 +569,8 @@ func (s *MouseService) readAfterWrite(
 	}
 	s.mu.RLock()
 	sameTarget := s.client == client && s.state.Generation == generation
+	demo := s.demoMode
+	revision := s.state.Revision
 	s.mu.RUnlock()
 	if !sameTarget {
 		return rapoo.DeviceSnapshot{}, &PartialWriteError{
@@ -573,7 +579,10 @@ func (s *MouseService) readAfterWrite(
 		}
 	}
 
-	snap, err := s.ReadSnapshot()
+	// Read directly from the client that performed the write. s.ReadSnapshot()
+	// may fall back to a cached snapshot (sleep/passive mode), which must not be
+	// accepted as verification of a new write.
+	snap, err := client.ReadSnapshot()
 	if err != nil {
 		return snap, &PartialWriteError{
 			Applied: applied,
@@ -589,10 +598,177 @@ func (s *MouseService) readAfterWrite(
 			Err:     fmt.Errorf("%w: 読み戻し中に接続先が変わりました", ErrDeviceChanged),
 		}
 	}
+	snap.DemoMode = demo
+	snap.Generation = generation
+	snap.StateRevision = revision
+	if !s.updateFromSnapshot(snap, client, generation) {
+		return snap, &PartialWriteError{
+			Applied: applied,
+			Err:     fmt.Errorf("%w: 読み戻しの反映中に接続先が変わりました", ErrDeviceChanged),
+		}
+	}
 	if err := verifyAppliedSnapshot(snap, applied); err != nil {
 		return snap, &PartialWriteError{Applied: applied, Err: err}
 	}
+	if verify != nil {
+		if err := verify(snap); err != nil {
+			return snap, &PartialWriteError{Applied: applied, Err: err}
+		}
+	}
 	return snap, nil
+}
+
+func verifyPollingRate(snap rapoo.DeviceSnapshot, hz int) error {
+	if snap.Sensor == nil {
+		return errors.New("ポーリングレートを読み戻せませんでした")
+	}
+	if snap.Sensor.PollingRateHz != hz {
+		return fmt.Errorf("ポーリングレートの反映を確認できませんでした (要求 %d Hz, 実測 %d Hz)", hz, snap.Sensor.PollingRateHz)
+	}
+	return nil
+}
+
+func verifyDPIConfig(snap rapoo.DeviceSnapshot, cfg rapoo.DPIConfig) error {
+	if snap.DPI == nil {
+		return errors.New("DPI設定を読み戻せませんでした")
+	}
+	stages := snap.DPI.AllStages
+	if len(stages) == 0 {
+		stages = snap.DPI.Stages
+	}
+	if snap.DPI.StageCount != cfg.StageCount {
+		return fmt.Errorf("DPIステージ数の反映を確認できませんでした (要求 %d, 実測 %d)", cfg.StageCount, snap.DPI.StageCount)
+	}
+	expectedStage := cfg.CurrentStage
+	if expectedStage < 1 || expectedStage > cfg.StageCount {
+		expectedStage = 1
+	}
+	if snap.DPI.CurrentStage != expectedStage {
+		return fmt.Errorf("使用DPIステージの反映を確認できませんでした (要求 %d, 実測 %d)", expectedStage, snap.DPI.CurrentStage)
+	}
+	byIndex := make(map[int]rapoo.DPIStage, len(stages))
+	for _, stage := range stages {
+		byIndex[stage.Index] = stage
+	}
+	src := cfg.AllStages
+	if len(src) < cfg.StageCount {
+		src = cfg.Stages
+	}
+	for i := 0; i < cfg.StageCount && i < len(src); i++ {
+		want := src[i]
+		index := want.Index
+		if index == 0 {
+			index = i + 1
+		}
+		got, ok := byIndex[index]
+		if !ok || got.X != want.X || got.Y != want.Y {
+			return fmt.Errorf("DPIステージ %d の反映を確認できませんでした (要求 %d/%d, 実測 %d/%d)",
+				index, want.X, want.Y, got.X, got.Y)
+		}
+	}
+	return nil
+}
+
+func verifySensorPatch(snap rapoo.DeviceSnapshot, patch rapoo.SensorPatch) error {
+	if snap.Sensor == nil {
+		return errors.New("センサー設定を読み戻せませんでした")
+	}
+	sensor := snap.Sensor
+	if patch.LiftOffLevel != nil && sensor.LiftOffLevel != *patch.LiftOffLevel {
+		return fmt.Errorf("リフトオフの反映を確認できませんでした (要求 %d, 実測 %d)", *patch.LiftOffLevel, sensor.LiftOffLevel)
+	}
+	if patch.MotionSync != nil && sensor.MotionSync != *patch.MotionSync {
+		return errors.New("Motion Sync の反映を確認できませんでした")
+	}
+	if patch.PressDebounceStep != nil {
+		actual := sensor.PressDebounceStep
+		if snap.Model.ProtocolGen != 1 {
+			actual = sensor.PressDebounceMs
+		}
+		if actual != *patch.PressDebounceStep {
+			return fmt.Errorf("押下デバウンスの反映を確認できませんでした (要求 %d, 実測 %d)", *patch.PressDebounceStep, actual)
+		}
+	}
+	if patch.ReleaseDebounceStep != nil {
+		actual := sensor.ReleaseDebounceStep
+		if snap.Model.ProtocolGen != 1 {
+			actual = sensor.ReleaseDebounceMs
+		}
+		if actual != *patch.ReleaseDebounceStep {
+			return fmt.Errorf("解放デバウンスの反映を確認できませんでした (要求 %d, 実測 %d)", *patch.ReleaseDebounceStep, actual)
+		}
+	}
+	if patch.SleepMinutes != nil && sensor.SleepMinutes != *patch.SleepMinutes {
+		return fmt.Errorf("スリープ時間の反映を確認できませんでした (要求 %d, 実測 %d)", *patch.SleepMinutes, sensor.SleepMinutes)
+	}
+	if patch.RippleControl != nil && sensor.RippleControl != *patch.RippleControl {
+		return errors.New("リップル補正の反映を確認できませんでした")
+	}
+	if patch.LinearCorrection != nil && sensor.LinearCorrection != *patch.LinearCorrection {
+		return errors.New("直線補正の反映を確認できませんでした")
+	}
+	if patch.SensorAngleDeg != nil && int(sensor.SensorAngleDeg) != *patch.SensorAngleDeg {
+		return fmt.Errorf("センサー角度の反映を確認できませんでした (要求 %d, 実測 %d)", *patch.SensorAngleDeg, sensor.SensorAngleDeg)
+	}
+	if patch.GlassMode != nil && sensor.GlassMode != *patch.GlassMode {
+		return errors.New("ガラス面モードの反映を確認できませんでした")
+	}
+	if patch.LEDLowPowerMode != nil && sensor.LEDLowPowerMode != *patch.LEDLowPowerMode {
+		return fmt.Errorf("LED 省電力の反映を確認できませんでした (要求 %d, 実測 %d)", *patch.LEDLowPowerMode, sensor.LEDLowPowerMode)
+	}
+	return nil
+}
+
+func verifyButtonMapping(snap rapoo.DeviceSnapshot, buttonID int, action rapoo.ButtonAction) error {
+	for _, mapping := range snap.Buttons {
+		if int(mapping.Slot.ID) != buttonID {
+			continue
+		}
+		if !rapoo.ButtonActionsEqual(mapping.Action, action) {
+			return fmt.Errorf("ボタン %d の反映を確認できませんでした", buttonID)
+		}
+		return nil
+	}
+	return fmt.Errorf("ボタン %d の設定を読み戻せませんでした", buttonID)
+}
+
+func verifyButtonMappings(snap rapoo.DeviceSnapshot, expected []rapoo.ButtonMapping) error {
+	if len(snap.Buttons) == 0 {
+		return errors.New("ボタン設定を読み戻せませんでした")
+	}
+	byID := make(map[rapoo.ButtonID]rapoo.ButtonMapping, len(snap.Buttons))
+	for _, mapping := range snap.Buttons {
+		byID[mapping.Slot.ID] = mapping
+	}
+	for _, want := range expected {
+		got, ok := byID[want.Slot.ID]
+		if !ok || !rapoo.ButtonActionsEqual(got.Action, want.Action) {
+			return fmt.Errorf("ボタン %d の反映を確認できませんでした", want.Slot.ID)
+		}
+	}
+	return nil
+}
+
+func verifyPresetSnapshot(snap rapoo.DeviceSnapshot, preset profile.Preset, pollingHz int) error {
+	if pollingHz > 0 {
+		if err := verifyPollingRate(snap, pollingHz); err != nil {
+			return err
+		}
+	}
+	if preset.DPI.StageCount >= 1 {
+		if err := verifyDPIConfig(snap, preset.DPI); err != nil {
+			return err
+		}
+	}
+	if err := verifySensorPatch(snap, preset.Sensor); err != nil {
+		return err
+	}
+	if len(preset.Buttons) > 0 {
+		if err := verifyButtonMappings(snap, preset.Buttons); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func verifyAppliedSnapshot(snap rapoo.DeviceSnapshot, applied []string) error {
@@ -631,6 +807,17 @@ func wrapStepError(applied []string, err error) error {
 		}
 		return &PartialWriteError{Applied: append([]string(nil), applied...), Err: err}
 	}
+	if errors.Is(err, rapoo.ErrResultUnknown) {
+		if len(applied) == 0 {
+			return err
+		}
+		return &PartialWriteError{Applied: append([]string(nil), applied...), Err: err}
+	}
+	if len(applied) > 0 {
+		// A later step failed with an ordinary error. The earlier steps are
+		// already applied, so the caller must still receive a partial result.
+		return &PartialWriteError{Applied: append([]string(nil), applied...), Err: err}
+	}
 	return err
 }
 
@@ -647,7 +834,9 @@ func (s *MouseService) SetPollingRateForGeneration(hz int, generation uint64, de
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"pollingRate"})
+	return s.readAfterWrite(client, actualGeneration, []string{"pollingRate"}, func(snap rapoo.DeviceSnapshot) error {
+		return verifyPollingRate(snap, hz)
+	})
 }
 
 // SetCurrentDPIGear switches the active DPI stage (1..7) and returns the refreshed snapshot.
@@ -663,7 +852,15 @@ func (s *MouseService) SetCurrentDPIGearForGeneration(stage int, generation uint
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"dpiStage"})
+	return s.readAfterWrite(client, actualGeneration, []string{"dpiStage"}, func(snap rapoo.DeviceSnapshot) error {
+		if snap.DPI == nil {
+			return errors.New("DPI設定を読み戻せませんでした")
+		}
+		if snap.DPI.CurrentStage != stage {
+			return fmt.Errorf("使用DPIステージの反映を確認できませんでした (要求 %d, 実測 %d)", stage, snap.DPI.CurrentStage)
+		}
+		return nil
+	})
 }
 
 // SetDPIConfig updates X/Y DPI values, stage count (1..7), and active stage, returning the refreshed snapshot.
@@ -679,7 +876,9 @@ func (s *MouseService) SetDPIConfigForGeneration(cfg rapoo.DPIConfig, generation
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"dpi"})
+	return s.readAfterWrite(client, actualGeneration, []string{"dpi"}, func(snap rapoo.DeviceSnapshot) error {
+		return verifyDPIConfig(snap, cfg)
+	})
 }
 
 // UpdateSensorConfig applies a SensorPatch (LOD, Motion Sync, Debounce, Sleep, Ripple, Linear, Angle, Glass).
@@ -695,7 +894,9 @@ func (s *MouseService) UpdateSensorConfigForGeneration(patch rapoo.SensorPatch, 
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"sensor"})
+	return s.readAfterWrite(client, actualGeneration, []string{"sensor"}, func(snap rapoo.DeviceSnapshot) error {
+		return verifySensorPatch(snap, patch)
+	})
 }
 
 // SetButtonMapping updates one physical button's binding (with Left-Click safety validation).
@@ -711,7 +912,9 @@ func (s *MouseService) SetButtonMappingForGeneration(buttonID int, action rapoo.
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"button"})
+	return s.readAfterWrite(client, actualGeneration, []string{"button"}, func(snap rapoo.DeviceSnapshot) error {
+		return verifyButtonMapping(snap, buttonID, action)
+	})
 }
 
 // ResetButtonsToDefault restores all 10 physical buttons to their factory bindings.
@@ -727,7 +930,9 @@ func (s *MouseService) ResetButtonsToDefaultForGeneration(generation uint64, dea
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"buttons"})
+	return s.readAfterWrite(client, actualGeneration, []string{"buttons"}, func(snap rapoo.DeviceSnapshot) error {
+		return verifyButtonMappings(snap, rapoo.DefaultButtonMappings())
+	})
 }
 
 // FactoryReset restores all onboard settings on the mouse to factory defaults.
@@ -754,7 +959,7 @@ func (s *MouseService) FactoryResetForGeneration(generation uint64, deadline tim
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	return s.readAfterWrite(client, actualGeneration, []string{"factoryReset"})
+	return s.readAfterWrite(client, actualGeneration, []string{"factoryReset"}, nil)
 }
 
 // ============================================================================
@@ -814,6 +1019,7 @@ func (s *MouseService) ApplyPresetForGeneration(id string, generation uint64, de
 	}
 
 	var applied []string
+	var expectedRate int
 	client, actualGeneration, err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
 		targetGen := c.Model().ProtocolGen
 		if preset.ProtocolGen != 0 && targetGen != 0 && preset.ProtocolGen != targetGen {
@@ -833,6 +1039,7 @@ func (s *MouseService) ApplyPresetForGeneration(id string, generation uint64, de
 			if maxRate > 0 && rate > maxRate {
 				rate = maxRate
 			}
+			expectedRate = rate
 			if err := c.SetPollingRateDeadline(rate, deadline); err != nil {
 				return wrapStepError(applied, fmt.Errorf("ポーリングレートの適用に失敗しました: %s: %w", s.friendlyError(err), err))
 			}
@@ -859,7 +1066,9 @@ func (s *MouseService) ApplyPresetForGeneration(id string, generation uint64, de
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, err
 	}
-	return s.readAfterWrite(client, actualGeneration, applied)
+	return s.readAfterWrite(client, actualGeneration, applied, func(snap rapoo.DeviceSnapshot) error {
+		return verifyPresetSnapshot(snap, preset, expectedRate)
+	})
 }
 
 // DeletePreset deletes a user-saved preset.
@@ -996,11 +1205,14 @@ func (s *MouseService) higherPriorityEndpointAvailable() bool {
 	currentPresent := false
 	bestPriority := -1
 	for _, pair := range pairs {
-		if pair.Model.Priority > bestPriority {
-			bestPriority = pair.Model.Priority
-		}
 		if pairMatchesEndpoint(pair, current) {
 			currentPresent = true
+		}
+		if pair.Ambiguous {
+			continue
+		}
+		if pair.Model.Priority > bestPriority {
+			bestPriority = pair.Model.Priority
 		}
 	}
 	if !currentPresent {
@@ -1349,6 +1561,16 @@ func (s *MouseService) friendlyError(err error) string {
 			return "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
 		}
 		return "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first."
+	case errors.Is(err, rapoo.ErrAmbiguousDevice):
+		if japanese {
+			return "同型のマウスが複数接続されており、対象を一意に特定できません。1台だけ接続して再試行してください。"
+		}
+		return "Multiple identical mice are connected and cannot be told apart. Connect only one and retry."
+	case errors.Is(err, rapoo.ErrResultUnknown):
+		if japanese {
+			return "コマンドは送信されましたが、結果を確認できませんでした。設定を再読み込みしてください。"
+		}
+		return "The command was sent but its result could not be confirmed. Reload the settings."
 	case errors.Is(err, hid.ErrDeviceBusy):
 		if japanese {
 			return "別のプロセス（CLI または旧アプリ）がマウスの書き込みチャンネルを使用中です。そのプロセスを終了してから再試行してください。"

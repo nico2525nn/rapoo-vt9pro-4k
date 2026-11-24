@@ -209,3 +209,24 @@ func TestVirtualDeviceFullReadModifyWriteRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected state after FactoryReset: sensor=%+v dpi=%+v", afterReset.Sensor, afterReset.DPI)
 	}
 }
+
+func TestDeadlineAfterSendReturnsResultUnknown(t *testing.T) {
+	dev := hid.NewMockDevice(hid.DeviceInfo{
+		Path:            "cmd",
+		VendorID:        0x24AE,
+		ProductID:       0x1211,
+		InterfaceNumber: 1,
+		UsagePage:       0xFF00,
+		Usage:           0x000E,
+		OutputReportLen: 32,
+	})
+	client := &Client{
+		endpoint: EndpointPair{Model: ModelSpec{StepDelay: 40 * time.Millisecond}},
+		cmdDev:   dev,
+	}
+	client.opts.applyDefaults()
+	_, err := client.sendAndRecvDeadline([]byte{0xBA, 0xA5, 0xA0, 4, 0, 0, 0, 0}, time.Now().Add(10*time.Millisecond))
+	if !errors.Is(err, ErrResultUnknown) {
+		t.Fatalf("error = %v, want ErrResultUnknown", err)
+	}
+}

@@ -381,6 +381,88 @@ func TestDeadlineIsCheckedAfterReadBeforeWrite(t *testing.T) {
 	}
 }
 
+func TestProfileApplyKeepsPriorStepsWhenNextStepFails(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	snap, err := svc.ReadSnapshot()
+	if err != nil || snap.Sensor == nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+	snap.Sensor.PollingRateHz = 2000
+	saved, err := svc.presetStore.SaveSnapshot("", "rate then dpi fail", "", snap)
+	if err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrDPIStagesY {
+			return errors.New("injected Y write failure")
+		}
+		return original(data)
+	}
+
+	_, err = svc.ApplyPresetForGeneration(saved.ID, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+	foundRate := false
+	for _, step := range partial.Applied {
+		if step == "pollingRate" {
+			foundRate = true
+		}
+	}
+	if !foundRate {
+		t.Fatalf("applied steps = %v, want pollingRate", partial.Applied)
+	}
+}
+
+func TestReadbackMismatchIsNotSuccess(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrPollingRate {
+			// Acknowledge the write without changing the virtual memory.
+			return nil
+		}
+		return original(data)
+	}
+
+	_, err := svc.SetPollingRateForGeneration(4000, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+}
+
 func TestSensorPatchValidatesBeforeWriting(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,

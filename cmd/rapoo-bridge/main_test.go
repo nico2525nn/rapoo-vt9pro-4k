@@ -71,6 +71,7 @@ func TestBridgeErrorCodes(t *testing.T) {
 	}{
 		{service.ErrDeviceChanged, "device_changed"},
 		{rapoo.ErrDeadlineExceeded, "deadline_exceeded"},
+		{rapoo.ErrResultUnknown, "result_unknown"},
 		{&service.PartialWriteError{Applied: []string{"dpi"}, Err: errors.New("boom")}, "partial"},
 		{errors.New("boom"), "error"},
 	}
