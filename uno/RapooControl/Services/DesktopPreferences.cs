@@ -104,6 +104,14 @@ public sealed class DesktopPreferences
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>In-memory defaults for the Windows release gate; never saved.</summary>
+    internal void UseSmokeDefaults()
+    {
+        CloseToTray = false;
+        AutoStart = false;
+        StartHidden = false;
+    }
+
     public bool SetCloseToTray(bool enabled)
     {
         var previous = CloseToTray;

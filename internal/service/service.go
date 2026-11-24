@@ -415,8 +415,8 @@ func (s *MouseService) readSnapshotRetry() (rapoo.DeviceSnapshot, error) {
 }
 
 // RefreshSnapshot forces a poll or a re-enumeration and returns a fresh
-// snapshot. Reload must not fall back to the bridge cache without asking the
-// device; 0-TX returns the cached snapshot and never opens HID.
+// snapshot. Reload must not silently keep stale DPI: an asleep or offline
+// mouse returns ErrMouseAsleep. 0-TX returns the cached snapshot without HID.
 func (s *MouseService) RefreshSnapshot(deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	if deadlineExpired(deadline) {
 		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
@@ -429,12 +429,37 @@ func (s *MouseService) RefreshSnapshot(deadline time.Time) (rapoo.DeviceSnapshot
 		return s.ReadSnapshot()
 	}
 	if !connected {
-		s.ensureConnectedAndPoll()
+		if err := s.connectWithDeadline(deadline); err != nil {
+			return rapoo.DeviceSnapshot{}, err
+		}
 	}
-	if deadlineExpired(deadline) {
-		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+	snap, err := s.readSnapshotRetryDeadline(deadline)
+	if err != nil {
+		return snap, err
 	}
-	return s.readSnapshotRetryDeadline(deadline)
+	if !snap.Battery.Online || snap.Battery.Sleeping {
+		return snap, rapoo.ErrMouseAsleep
+	}
+	return snap, nil
+}
+
+// connectWithDeadline waits for the connection lock and enumerates, but never
+// starts discovery after the caller's deadline.
+func (s *MouseService) connectWithDeadline(deadline time.Time) error {
+	for {
+		if deadlineExpired(deadline) {
+			return ErrDeadlineExceeded
+		}
+		if s.connectMu.TryLock() {
+			defer s.connectMu.Unlock()
+			if deadlineExpired(deadline) {
+				return ErrDeadlineExceeded
+			}
+			s.ensureConnectedAndPollLocked()
+			return nil
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (s *MouseService) readSnapshotRetryDeadline(deadline time.Time) (rapoo.DeviceSnapshot, error) {
@@ -1384,10 +1409,17 @@ func (s *MouseService) loop(ctx context.Context) {
 				continue
 			}
 
-			// The endpoint is sticky while the client is healthy. A periodic
-			// priority scan must not tear it down when the preferred endpoint
-			// is present but cannot be opened.
-			lastEnum = now
+			// The endpoint is sticky while the client is healthy, but a
+			// removed device must be noticed without waiting for the battery
+			// poll (60 s normal, 5 min low-frequency).
+			if now.Sub(lastEnum) >= s.cfg.ReconnectInterval {
+				lastEnum = now
+				if !s.currentEndpointPresent() {
+					s.reconnectAndPoll()
+					lastPoll = now
+					continue
+				}
+			}
 
 			interval := s.intervalForMode(mode)
 			if interval > 0 && now.Sub(lastPoll) >= interval {
@@ -1396,6 +1428,34 @@ func (s *MouseService) loop(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// currentEndpointPresent verifies that the selected endpoint is still in the
+// HID catalog. A report-only path can disappear without an async reader error.
+func (s *MouseService) currentEndpointPresent() bool {
+	s.mu.RLock()
+	c := s.client
+	s.mu.RUnlock()
+	if c == nil {
+		return false
+	}
+	infos, err := s.activeProvider().Enumerate(rapoo.DefaultHIDFilter())
+	if err != nil {
+		return true // a transient enumeration failure is not a removal
+	}
+	ep := c.Endpoint()
+	for _, pair := range rapoo.MatchEndpoints(infos) {
+		if pair.Ambiguous {
+			continue
+		}
+		if ep.Command != nil && pair.Command != nil && pair.Command.Path == ep.Command.Path {
+			return true
+		}
+		if ep.Report != nil && pair.Report != nil && pair.Report.Path == ep.Report.Path {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *MouseService) intervalForMode(mode PollingMode) time.Duration {

@@ -51,18 +51,7 @@ if ($busy.Count -gt 0) {
     Fail "close these processes first: $(($busy | ForEach-Object { $_.ProcessName + ':' + $_.Id }) -join ', ')"
 }
 
-$prefs = Join-Path $env:LOCALAPPDATA "rapoo-vt9pro-4k\uno-prefs.json"
-if (Test-Path $prefs) {
-    try {
-        $prefsJson = Get-Content $prefs -Raw | ConvertFrom-Json
-        if ($prefsJson.closeToTray) {
-            Fail "close-to-tray is enabled in uno-prefs.json; disable it or run the gate in a test account"
-        }
-    } catch {
-        Fail "cannot read $prefs"
-    }
-}
-
+$env:RAPOO_SMOKE = "1"
 $env:RAPOO_DEMO = "1"
 $env:RAPOO_LANG = "ja"
 Remove-Item Env:RAPOO_BRIDGE_PATH, Env:RAPOO_USE_MOCK, Env:RAPOO_START_HIDDEN -ErrorAction SilentlyContinue

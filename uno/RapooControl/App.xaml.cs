@@ -23,10 +23,18 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+        var smoke = Environment.GetEnvironmentVariable("RAPOO_SMOKE") == "1";
         LocalizationService.Instance.Initialize();
-        AutoStartService.MigrateLegacy();
-        DesktopPreferences.Current.MigrateLegacy();
+        if (!smoke)
+        {
+            AutoStartService.MigrateLegacy();
+            DesktopPreferences.Current.MigrateLegacy();
+        }
         DesktopPreferences.Current.Load();
+        if (smoke)
+        {
+            DesktopPreferences.Current.UseSmokeDefaults();
+        }
 
         var useMock = Environment.GetEnvironmentVariable("RAPOO_USE_MOCK") == "1";
         RapooService = useMock ? new MockRapooService() : new RealRapooService();

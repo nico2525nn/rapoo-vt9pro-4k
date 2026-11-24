@@ -26,7 +26,7 @@ public sealed partial class RealRapooService
     public Task<BridgeCatalog> GetCatalogAsync() => _client.GetCatalogAsync();
 
     public Task<BridgeSnapshot> RefreshSnapshotAsync() =>
-        UpdateSnapshotAsync((_, _) => _client.GetSnapshotAsync());
+        UpdateSnapshotAsync((_, _) => _client.RefreshSnapshotAsync());
 
     public Task<BridgeSnapshot> ApplySensorAsync(
         IReadOnlyDictionary<string, object> patch,

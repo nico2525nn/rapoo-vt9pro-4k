@@ -24,11 +24,16 @@
   close proceed, and the tray does not force efficiency mode.
 - Autostart ignores a stale Run value whose executable no longer exists and
   only removes legacy entries after the Uno command is usable.
-- Tray Reload asks the device through a new `refresh` RPC that returns a fresh
-  snapshot and propagates busy/deadline/device errors; 0-TX stays passive.
+- Tray and DPI Reload ask the device through a new `refresh` RPC that returns a
+  fresh snapshot and propagates busy/deadline/asleep errors; 0-TX stays
+  passive. A disconnected refresh never starts discovery after its deadline.
 - The endpoint stays sticky while the client is healthy; a periodic priority
   scan no longer tears down a working receiver when the preferred wired path
-  cannot be opened.
+  cannot be opened. A presence check still notices an unplugged endpoint
+  without waiting for the 60 s battery poll.
+- The Windows gate runs in a smoke mode that skips legacy autostart/preference
+  migrations and forces in-memory defaults, so it cannot rewrite a real
+  profile.
 - Windows permission errors show a Windows message instead of the Linux udev
   hint.
 - Packaging: Windows validates the project version and writes an LF checksum
