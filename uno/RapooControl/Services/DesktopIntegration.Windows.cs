@@ -138,7 +138,10 @@ public sealed partial class DesktopIntegration
         viewModel.PropertyChanged += OnViewModelChanged;
         DesktopPreferences.Current.Changed += OnPreferencesChanged;
         window.AppWindow.Closing += OnClosing;
-        _ = PromoteAsync();
+        if (Environment.GetEnvironmentVariable("RAPOO_SMOKE") != "1")
+        {
+            _ = PromoteAsync();
+        }
     }
 
     public void HideWindow()

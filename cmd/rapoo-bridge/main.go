@@ -127,6 +127,9 @@ func newBridge(out io.Writer) (*bridge, error) {
 	if err != nil || base == "" {
 		base = os.TempDir()
 	}
+	if override := os.Getenv("RAPOO_DATA_DIR"); override != "" {
+		base = override
+	}
 	cfgDir := filepath.Join(base, "rapoo-vt9pro-4k")
 	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create config dir: %w", err)

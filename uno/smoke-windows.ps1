@@ -53,6 +53,8 @@ if ($busy.Count -gt 0) {
 
 $env:RAPOO_SMOKE = "1"
 $env:RAPOO_DEMO = "1"
+$gateData = Join-Path $env:TEMP ("rapoo-gate-" + [Guid]::NewGuid().ToString("N"))
+$env:RAPOO_DATA_DIR = $gateData
 $env:RAPOO_LANG = "ja"
 Remove-Item Env:RAPOO_BRIDGE_PATH, Env:RAPOO_USE_MOCK, Env:RAPOO_START_HIDDEN -ErrorAction SilentlyContinue
 
@@ -113,4 +115,5 @@ if (-not $SkipClose) {
     Pass "clean shutdown (app and sidecar exited)"
 }
 
+if (Test-Path $gateData) { Remove-Item $gateData -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host "SMOKE-WINDOWS: OK"

@@ -423,22 +423,63 @@ func (s *MouseService) RefreshSnapshot(deadline time.Time) (rapoo.DeviceSnapshot
 	}
 	s.mu.RLock()
 	mode := s.state.Mode
-	connected := s.client != nil
 	s.mu.RUnlock()
 	if mode == ModePassiveOnly {
 		return s.ReadSnapshot()
 	}
-	if !connected {
-		if err := s.connectWithDeadline(deadline); err != nil {
-			return rapoo.DeviceSnapshot{}, err
+
+	for {
+		if deadlineExpired(deadline) {
+			return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
 		}
+		if s.connectMu.TryLock() {
+			defer s.connectMu.Unlock()
+			s.mu.RLock()
+			connected := s.client != nil
+			s.mu.RUnlock()
+			if !connected {
+				s.ensureConnectedAndPollLocked()
+			}
+			return s.readSnapshotStrictLocked(deadline)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	snap, err := s.readSnapshotRetryDeadline(deadline)
+}
+
+// readSnapshotStrictLocked never falls back to cached settings: an explicit
+// reload must fail (asleep, busy, transport) instead of showing old DPI.
+// The caller holds connectMu.
+func (s *MouseService) readSnapshotStrictLocked(deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	if deadlineExpired(deadline) {
+		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+	}
+	s.mu.RLock()
+	c := s.client
+	demo := s.demoMode
+	generation := s.state.Generation
+	revision := s.state.Revision
+	s.mu.RUnlock()
+	if c == nil {
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
+	}
+	snap, err := c.ReadSnapshot()
 	if err != nil {
 		return snap, err
 	}
-	if !snap.Battery.Online || snap.Battery.Sleeping {
-		return snap, rapoo.ErrMouseAsleep
+	if deadlineExpired(deadline) {
+		return snap, ErrDeadlineExceeded
+	}
+	s.mu.RLock()
+	same := s.client == c && s.state.Generation == generation
+	s.mu.RUnlock()
+	if !same {
+		return snap, fmt.Errorf("%w: 接続先が変わりました。設定を再読み込みしてください。", ErrDeviceChanged)
+	}
+	snap.DemoMode = demo
+	snap.Generation = generation
+	snap.StateRevision = revision
+	if !s.updateFromSnapshot(snap, c, generation) {
+		return snap, fmt.Errorf("%w: 接続先が変わりました。設定を再読み込みしてください。", ErrDeviceChanged)
 	}
 	return snap, nil
 }
@@ -1435,6 +1476,7 @@ func (s *MouseService) loop(ctx context.Context) {
 func (s *MouseService) currentEndpointPresent() bool {
 	s.mu.RLock()
 	c := s.client
+	passive := s.state.Mode == ModePassiveOnly
 	s.mu.RUnlock()
 	if c == nil {
 		return false
@@ -1443,19 +1485,41 @@ func (s *MouseService) currentEndpointPresent() bool {
 	if err != nil {
 		return true // a transient enumeration failure is not a removal
 	}
+	// A passive client opened the report collection; a writable one opened the
+	// command collection. The unused path can remain (or appear) without the
+	// open handle being usable.
 	ep := c.Endpoint()
+	var want *hid.DeviceInfo
+	if passive {
+		want = ep.Report
+	} else {
+		want = ep.Command
+	}
+	if want == nil {
+		return false
+	}
+	found := false
 	for _, pair := range rapoo.MatchEndpoints(infos) {
 		if pair.Ambiguous {
 			continue
 		}
-		if ep.Command != nil && pair.Command != nil && pair.Command.Path == ep.Command.Path {
-			return true
+		candidate := pair.Command
+		if passive {
+			candidate = pair.Report
 		}
-		if ep.Report != nil && pair.Report != nil && pair.Report.Path == ep.Report.Path {
-			return true
+		if candidate != nil && candidate.Path == want.Path {
+			found = true
+			break
 		}
 	}
-	return false
+	if !found {
+		return false
+	}
+	// Do not report a removal for a client that was replaced while enumerating.
+	s.mu.RLock()
+	current := s.client == c
+	s.mu.RUnlock()
+	return current
 }
 
 func (s *MouseService) intervalForMode(mode PollingMode) time.Duration {
