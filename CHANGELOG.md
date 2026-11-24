@@ -1,5 +1,48 @@
 # Changelog
 
+## v1.5.1 — 2026-11-24
+
+### Fixed
+
+- Bound every device write to the sidecar session and generation captured when
+  the dialog/page action started; a bridge restart or device swap now aborts
+  before sending.
+- Added request deadlines to the bridge protocol. Queued writes are skipped,
+  multi-step writes stop between steps, and expired writes report
+  `deadline_exceeded` instead of running after the UI timed out.
+- Preserved `PartialWriteError` through profile/DPI/sensor/button writes and
+  verified readback values against the requested polling rate, DPI slots,
+  sensor fields, and button actions.
+- Distinguished a sent-but-unconfirmed write (`result_unknown`) from a rejected
+  write for lost, malformed, pending, and uninitialized HID replies.
+- Windows: paired command/report endpoints by container ID, rejected ambiguous
+  same-model pairs when the container ID is unavailable, and verified the
+  firmware-updater Job Object/signature path.
+- Linux: serialized writable hidraw handles with `flock` on the device fd,
+  independent of TMPDIR, UID, and network namespaces.
+- DPI writes preserve hidden raw slots (including `0xffff`) and refuse to write
+  when hidden slots cannot be read; readback checks every supplied slot after
+  encoder normalization.
+- Preset saves now require a fresh, complete read from the current generation;
+  battery wake-ups no longer save a stale display cache, and an expired save
+  does not touch disk.
+- Demo startup opens the virtual provider before `ready` without making real
+  HID startup synchronous.
+- Bounded the bridge notification channel, rotated diagnostic logs, surfaced
+  preset-store errors, persisted `DOTNET_ROOT` in Linux autostart, and tightened
+  the legacy Wails/WinUI state ordering.
+- Added bridge/service/profile regression tests and a demo-asserting Linux smoke
+  script.
+
+### Downloads
+
+| Bundle | 7z / tar.xz | zip / tar.gz |
+|:--|--:|--:|
+| Windows slim | 8.9 MB | 14.1 MB |
+| Windows portable | 47.8 MB | 76.4 MB |
+| Linux slim | 15.6 MB | 22.1 MB |
+| Linux portable | 21.2 MB | 30.6 MB |
+
 ## v1.5.0 — 2026-11-24
 
 ### Changed

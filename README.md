@@ -16,8 +16,8 @@ v1.4.0 Linux tarball.
 
 | Bundle | Download | Requires |
 |:--|:--|:--|
-| Windows slim | `rapoo-control-uno-v1.5.0-windows-amd64-slim.7z` (8.8 MB) / `.zip` (14.0 MB) | .NET 10 Desktop Runtime, Windows App Runtime 2.x (2.5.1 or later, x64) |
-| Windows portable | `...-windows-amd64-portable.7z` (47.8 MB) / `.zip` (76.3 MB) | nothing |
+| Windows slim | `rapoo-control-uno-v1.5.1-windows-amd64-slim.7z` (8.9 MB) / `.zip` (14.1 MB) | .NET 10 Desktop Runtime, Windows App Runtime 2.x (2.5.1 or later, x64) |
+| Windows portable | `...-windows-amd64-portable.7z` (47.8 MB) / `.zip` (76.4 MB) | nothing |
 | Linux slim | `...-linux-amd64-slim.tar.xz` (15.6 MB) / `.tar.gz` (22.1 MB) | .NET 10 Runtime |
 | Linux portable | `...-linux-amd64-portable.tar.xz` (21.2 MB) / `.tar.gz` (30.6 MB) | nothing (X11 + OpenGL) |
 

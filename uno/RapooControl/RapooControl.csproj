@@ -10,9 +10,9 @@
     <!-- App Identifier -->
     <ApplicationId>io.github.nico2525nn.rapoocontrol</ApplicationId>
     <!-- Versions -->
-    <Version>1.5.0</Version>
-    <InformationalVersion>1.5.0</InformationalVersion>
-    <ApplicationDisplayVersion>1.5.0</ApplicationDisplayVersion>
+    <Version>1.5.1</Version>
+    <InformationalVersion>1.5.1</InformationalVersion>
+    <ApplicationDisplayVersion>1.5.1</ApplicationDisplayVersion>
     <ApplicationVersion>1</ApplicationVersion>
     <!-- Package Publisher -->
     <ApplicationPublisher>RapooControl</ApplicationPublisher>
