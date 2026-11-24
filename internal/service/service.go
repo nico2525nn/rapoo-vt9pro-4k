@@ -1349,6 +1349,7 @@ func (s *MouseService) ensureConnectedAndPollLocked() {
 		}
 		s.mu.Lock()
 		s.client = client
+		s.cachedSnap = nil
 		s.state.Generation++
 		s.state.Connected = true
 		s.state.DemoMode = demo
