@@ -1158,9 +1158,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     {
         try
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "rapoo-vt9pro-4k");
+            var dir = AppPaths.DataDirectory;
             Directory.CreateDirectory(dir);
             lock (LogGate)
             {

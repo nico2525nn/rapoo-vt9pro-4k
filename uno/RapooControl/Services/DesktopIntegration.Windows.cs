@@ -94,6 +94,10 @@ public sealed partial class DesktopIntegration
             Text = loc.T("Windows スタートアップ"),
             Command = new RelayCommand(() =>
             {
+                if (Environment.GetEnvironmentVariable("RAPOO_SMOKE") == "1")
+                {
+                    return;
+                }
                 var next = !DesktopPreferences.Current.AutoStart;
                 DesktopPreferences.Current.SetAutoStart(next);
                 UpdateTray(force: true);

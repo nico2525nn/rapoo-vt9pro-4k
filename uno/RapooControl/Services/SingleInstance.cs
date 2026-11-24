@@ -29,9 +29,7 @@ public sealed class SingleInstance : IDisposable
 
     private SingleInstance()
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "rapoo-vt9pro-4k");
+        var dir = AppPaths.DataDirectory;
         Directory.CreateDirectory(dir);
         _lockPath = Path.Combine(dir, "uno-instance.lock");
         _portPath = Path.Combine(dir, "uno-instance.port");

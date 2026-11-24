@@ -14,9 +14,7 @@ public sealed class DesktopPreferences
     private readonly string _path;
 
     private DesktopPreferences()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "rapoo-vt9pro-4k"))
+        : this(AppPaths.DataDirectory)
     {
     }
 

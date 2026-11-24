@@ -466,6 +466,11 @@ func (s *MouseService) readSnapshotStrictLocked(deadline time.Time) (rapoo.Devic
 	if err != nil {
 		return snap, err
 	}
+	if snap.DPI == nil || snap.Sensor == nil {
+		// ReadSnapshot keeps partial results; an explicit reload must not
+		// present a missing DPI block as a successful fresh read.
+		return snap, errors.New("デバイス設定を完全に読み出せませんでした。マウスを起こして再試行してください。")
+	}
 	if deadlineExpired(deadline) {
 		return snap, ErrDeadlineExceeded
 	}
@@ -1476,6 +1481,7 @@ func (s *MouseService) loop(ctx context.Context) {
 func (s *MouseService) currentEndpointPresent() bool {
 	s.mu.RLock()
 	c := s.client
+	generation := s.state.Generation
 	passive := s.state.Mode == ModePassiveOnly
 	s.mu.RUnlock()
 	if c == nil {
@@ -1485,9 +1491,9 @@ func (s *MouseService) currentEndpointPresent() bool {
 	if err != nil {
 		return true // a transient enumeration failure is not a removal
 	}
-	// A passive client opened the report collection; a writable one opened the
-	// command collection. The unused path can remain (or appear) without the
-	// open handle being usable.
+	// Compare the exact path this client opened against the raw enumeration.
+	// Matching pairs would hide a still-present path behind an ambiguous pair,
+	// and the unused command/report path must not keep a dead client alive.
 	ep := c.Endpoint()
 	var want *hid.DeviceInfo
 	if passive {
@@ -1495,31 +1501,24 @@ func (s *MouseService) currentEndpointPresent() bool {
 	} else {
 		want = ep.Command
 	}
-	if want == nil {
-		return false
-	}
 	found := false
-	for _, pair := range rapoo.MatchEndpoints(infos) {
-		if pair.Ambiguous {
-			continue
-		}
-		candidate := pair.Command
-		if passive {
-			candidate = pair.Report
-		}
-		if candidate != nil && candidate.Path == want.Path {
-			found = true
-			break
+	if want != nil {
+		for _, info := range infos {
+			if info.Path == want.Path {
+				found = true
+				break
+			}
 		}
 	}
-	if !found {
-		return false
-	}
-	// Do not report a removal for a client that was replaced while enumerating.
+	// If the client or its generation changed while enumerating, the result is
+	// stale: keep the new client instead of reconnecting it.
 	s.mu.RLock()
-	current := s.client == c
+	same := s.client == c && s.state.Generation == generation
 	s.mu.RUnlock()
-	return current
+	if !same {
+		return true
+	}
+	return found
 }
 
 func (s *MouseService) intervalForMode(mode PollingMode) time.Duration {

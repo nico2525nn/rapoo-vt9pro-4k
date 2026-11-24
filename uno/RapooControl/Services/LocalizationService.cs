@@ -251,9 +251,7 @@ public sealed class LocalizationService
 
     private LocalizationService()
     {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "rapoo-vt9pro-4k");
+        var dir = AppPaths.DataDirectory;
         Directory.CreateDirectory(dir);
         _prefsPath = Path.Combine(dir, "winui-prefs.json");
     }
@@ -526,9 +524,7 @@ public sealed class LocalizationService
     {
         try
         {
-            var directory = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "rapoo-vt9pro-4k");
+            var directory = AppPaths.DataDirectory;
             Directory.CreateDirectory(directory);
             lock (ErrorLogGate)
             {
