@@ -123,9 +123,10 @@ public sealed partial class ProfilesPage : Page, IConfigPageActions
             return Task.CompletedTask;
         }
 
+        var generation = ViewModel.DeviceGeneration;
         return Feedback.RunAsync(async () =>
         {
-            await service.ApplyPresetAsync(preset.Id, ViewModel.DeviceGeneration);
+            await service.ApplyPresetAsync(preset.Id, generation);
             ProfilesList.SelectedItem = null;
         }, PageFeedback.Applied);
     }

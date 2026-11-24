@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,6 +43,24 @@ func TestRunSkipsExpiredRequest(t *testing.T) {
 	}
 	if current.ID != 2 || current.Error != "" {
 		t.Fatalf("current response = %+v", current)
+	}
+}
+
+func TestHandleRejectsStaleGeneration(t *testing.T) {
+	svc := service.NewMouseService(hid.NewMockProvider(), service.Config{PresetDir: t.TempDir()})
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	generation := svc.GetState().Generation
+	b := &bridge{svc: svc}
+
+	_, err := b.handle(request{
+		ID:     1,
+		Method: "pollingRate",
+		Params: json.RawMessage(`{"hz":4000,"generation":` + strconv.FormatUint(generation+1, 10) + `}`),
+	})
+	if !errors.Is(err, service.ErrDeviceChanged) {
+		t.Fatalf("stale generation error = %v, want ErrDeviceChanged", err)
 	}
 }
 

@@ -157,9 +157,10 @@ public sealed partial class SensorPage : Page, IConfigPageActions
         }
 
         var revision = ViewModel.DeviceRevision;
+        var generation = ViewModel.DeviceGeneration;
         await Feedback.RunAsync(async () =>
         {
-            var snapshot = await service.ApplySensorAsync(patch, ViewModel.DeviceGeneration);
+            var snapshot = await service.ApplySensorAsync(patch, generation);
             EnsureRevision(revision);
             LoadSnapshot(snapshot, revision);
         }, PageFeedback.Applied);

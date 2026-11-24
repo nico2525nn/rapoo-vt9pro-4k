@@ -218,11 +218,13 @@ public sealed class DpiPageViewModel : ObservableObject
         }
 
         var configuration = CreateDraft();
+        // Pin both writes in this apply to the same device generation.
+        var generation = _currentGeneration?.Invoke() ?? 0;
         if (HasDpiChanges(saved, configuration))
         {
             await _service.ApplyDpiConfigurationAsync(
                 configuration,
-                expectedGeneration: _currentGeneration?.Invoke() ?? 0);
+                expectedGeneration: generation);
             if (!ReferenceEquals(_savedConfiguration, saved))
             {
                 throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
@@ -236,7 +238,7 @@ public sealed class DpiPageViewModel : ObservableObject
         {
             await _service.SetPollingRateAsync(
                 rate,
-                expectedGeneration: _currentGeneration?.Invoke() ?? 0);
+                expectedGeneration: generation);
             _pollingRateHz = rate;
             _savedPollingRate = rate;
             OnPropertyChanged(nameof(IsDirty));

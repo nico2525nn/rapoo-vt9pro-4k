@@ -139,6 +139,12 @@ dotnet test uno/RapooControl.Tests/RapooControl.Tests.csproj
 powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1 -ExpectedSidecarRevision <sha>
 ```
 
+The Linux smoke check runs a published bundle under Xvfb:
+
+```bash
+./uno/smoke-linux.sh dist/linux-portable/RapooControl
+```
+
 The Linux portable bundle is published with `PublishTrimmed=true`. The bridge
 protocol uses source-generated `System.Text.Json` metadata, so trimming is safe
 for the Skia head; the WinUI head is published untrimmed. The Windows publish
@@ -150,8 +156,10 @@ ReadyToRun images, and PDBs.
 - Not detected: check the 4K receiver or the USB-C cable.
 - Cannot change settings: disable 0-TX (gaming lock).
 - Linux permission error: apply the udev rule above, then reconnect the device.
-- Firmware update: the app launches the official Rapoo software and never
-  flashes firmware itself.
+- Firmware update: the app launches the official Rapoo software you select and
+  never downloads or flashes firmware. The sidecar checks the absolute path and
+  file name; verify the publisher in Explorer before selecting a downloaded
+  copy.
 
 ## Protocol
 
