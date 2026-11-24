@@ -98,14 +98,16 @@ status = x11.XGetWindowProperty(
 if status != 0 or not data:
     sys.exit("smoke-linux: window has no _NET_WM_ICON")
 try:
+    # Check the type before reading the buffer: an 8/16-bit property would
+    # otherwise be read as an array of CARDINALs.
+    if actual.value != 6 or fmt.value != 32:
+        sys.exit(
+            "smoke-linux: _NET_WM_ICON is not CARDINAL/32 "
+            f"(type={actual.value} format={fmt.value})")
     values = [data[i] for i in range(count.value)]
 finally:
     x11.XFree(data)
 
-if actual.value != 6 or fmt.value != 32:
-    sys.exit(
-        "smoke-linux: _NET_WM_ICON is not CARDINAL/32 "
-        f"(type={actual.value} format={fmt.value})")
 if len(values) < 2:
     sys.exit("smoke-linux: _NET_WM_ICON is empty")
 width, height = values[0], values[1]
@@ -153,7 +155,20 @@ xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
   set -euo pipefail
   "$0" >"$1" 2>&1 &
   app=$!
-  trap "kill $app 2>/dev/null || true" EXIT
+  cleanup() {
+    # A SIGSTOPped child ignores SIGTERM until it is resumed.
+    kill -CONT "$app" 2>/dev/null || true
+    kill -TERM "$app" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      kill -0 "$app" 2>/dev/null || break
+      state=$(awk "{print \$3}" "/proc/$app/stat" 2>/dev/null || true)
+      [[ "$state" == Z ]] && break
+      sleep 0.1
+    done
+    kill -KILL "$app" 2>/dev/null || true
+    wait "$app" 2>/dev/null || true
+  }
+  trap cleanup EXIT
   wid=""
   for _ in $(seq 1 40); do
     wid=$(xdotool search --onlyvisible --name "Rapoo Control" 2>/dev/null | head -n1 || true)
