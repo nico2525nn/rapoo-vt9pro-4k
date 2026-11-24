@@ -321,6 +321,64 @@ func (s *MouseService) readSnapshotFresh() (rapoo.DeviceSnapshot, error) {
 	return s.readSnapshotNow()
 }
 
+// readSnapshotForPreset requires a complete, fresh read from the current
+// client. It never falls back to a cached settings snapshot after a battery
+// wake, because that cache may predate the user's latest changes.
+func (s *MouseService) readSnapshotForPreset() (rapoo.DeviceSnapshot, error) {
+	if !s.connectMu.TryLock() {
+		return rapoo.DeviceSnapshot{}, ErrBusy
+	}
+	defer s.connectMu.Unlock()
+
+	s.mu.RLock()
+	c := s.client
+	demo := s.demoMode
+	mode := s.state.Mode
+	generation := s.state.Generation
+	revision := s.state.Revision
+	s.mu.RUnlock()
+	if c == nil {
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
+	}
+	if mode == ModePassiveOnly {
+		return rapoo.DeviceSnapshot{}, errors.New("ゲーム優先 (完全受動) モード中はプロファイルを保存できません。")
+	}
+
+	snap, err := c.ReadSnapshot()
+	if errors.Is(err, rapoo.ErrMouseAsleep) {
+		if _, batteryErr := s.readBatteryWithRetry(c, 3); batteryErr != nil {
+			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(batteryErr))
+		}
+		snap, err = c.ReadSnapshot()
+	}
+	if err != nil {
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
+	}
+	if snap.DPI == nil || snap.Sensor == nil || len(snap.Buttons) == 0 {
+		return rapoo.DeviceSnapshot{}, errors.New("デバイス設定を完全に読み取れなかったため、プロファイルを保存できません。再読み込みしてください。")
+	}
+	snap.DemoMode = demo
+	snap.Generation = generation
+	snap.StateRevision = revision
+	if !s.updateFromSnapshot(snap, c, generation) {
+		return rapoo.DeviceSnapshot{}, fmt.Errorf("%w: 保存前に接続先が変わりました", ErrDeviceChanged)
+	}
+	return snap, nil
+}
+
+func (s *MouseService) readSnapshotForPresetRetry() (rapoo.DeviceSnapshot, error) {
+	var lastErr error
+	for attempt := 0; attempt < 20; attempt++ {
+		snap, err := s.readSnapshotForPreset()
+		if !errors.Is(err, ErrBusy) {
+			return snap, err
+		}
+		lastErr = err
+		time.Sleep(25 * time.Millisecond)
+	}
+	return rapoo.DeviceSnapshot{}, lastErr
+}
+
 // readSnapshotRetry waits briefly for an in-flight poll to release the HID
 // channel. Public ReadSnapshot stays non-blocking so a slow initial HID query
 // cannot hold up the bridge RPC loop.
@@ -1058,12 +1116,9 @@ func (s *MouseService) SavePreset(id, name, description string) (profile.Preset,
 	if s.presetStore == nil {
 		return profile.Preset{}, s.presetStoreError()
 	}
-	snap, err := s.readSnapshotRetry()
+	snap, err := s.readSnapshotForPresetRetry()
 	if err != nil {
 		return profile.Preset{}, err
-	}
-	if snap.DPI == nil || snap.Sensor == nil || snap.Buttons == nil {
-		return profile.Preset{}, errors.New("デバイス設定を完全に読み取れなかったため、プロファイルを保存できません。再読み込みしてください。")
 	}
 	return s.presetStore.SaveSnapshot(id, name, description, snap)
 }

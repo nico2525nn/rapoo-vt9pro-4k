@@ -714,6 +714,45 @@ func TestStagesWithSevenEntriesChecksAllSlots(t *testing.T) {
 	}
 }
 
+func TestSavePresetReloadsSettingsAfterBatteryWake(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	waitForState(t, svc, func(st State) bool { return st.Connected && st.DemoMode })
+	// Make the live device differ from the last cached snapshot.
+	binary.LittleEndian.PutUint16(svc.demoDevice.Mem[0x0888:0x088A], 1600)
+	binary.LittleEndian.PutUint16(svc.demoDevice.Mem[0x08C8:0x08CA], 1600)
+
+	original := svc.demoDevice.CmdDev.OnGetInput
+	pending := 6
+	svc.demoDevice.CmdDev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
+		if pending > 0 {
+			pending--
+			return []byte{0xBA, 0x02, 0x00, 0x00}, nil
+		}
+		return original(reportID, length)
+	})
+
+	saved, err := svc.SavePreset("", "after wake", "")
+	if err != nil {
+		t.Fatalf("SavePreset: %v", err)
+	}
+	if saved.DPI.Stages[0].X != 1600 {
+		t.Fatalf("saved stage 1 X = %d, want 1600", saved.DPI.Stages[0].X)
+	}
+}
+
 func TestDPIWritePreservesHiddenRawBytes(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,
