@@ -61,9 +61,13 @@ export default function App() {
     generation: 0,
     revision: 0,
   });
+  const stateFloorRef = useRef<{ generation: number; revision: number }>({
+    generation: 0,
+    revision: 0,
+  });
 
   const isStaleState = (next: ServiceState): boolean => {
-    const floor = snapshotFloorRef.current;
+    const floor = stateFloorRef.current;
     const generation = next.generation ?? 0;
     const revision = next.revision ?? 0;
     if (generation > 0 && floor.generation > 0 && generation < floor.generation) {
@@ -74,9 +78,21 @@ export default function App() {
   };
 
   const updateState = useCallback((next: ServiceState) => {
-    const floor = snapshotFloorRef.current;
+    const stateFloor = stateFloorRef.current;
     const nextGeneration = next.generation ?? 0;
     const nextRevision = next.revision ?? 0;
+    if (nextGeneration > 0 && stateFloor.generation > 0 &&
+        (nextGeneration < stateFloor.generation ||
+         (nextGeneration === stateFloor.generation && nextRevision > 0 &&
+          stateFloor.revision > 0 && nextRevision < stateFloor.revision))) {
+      return;
+    }
+    if (nextGeneration > 0) {
+      stateFloor.generation = nextGeneration;
+      stateFloor.revision = nextRevision > 0 ? nextRevision : stateFloor.revision;
+    }
+
+    const floor = snapshotFloorRef.current;
     if (nextGeneration > 0 && nextGeneration > floor.generation) {
       floor.generation = nextGeneration;
       floor.revision = 0;

@@ -333,3 +333,14 @@ func TestMatchEndpointsRejectsWindowsCommandAndReportFromDifferentDevices(t *tes
 		t.Fatalf("pairs = %+v, want one ambiguous pair", pairs)
 	}
 }
+
+func TestMatchEndpointsKeepsSameWindowsDeviceCollectionsTogether(t *testing.T) {
+	infos := []hid.DeviceInfo{
+		{Path: `\\?\hid#vid_24ae&pid_1211&mi_01&col04#7&aaaa&0&0004#{guid}`, VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x000E},
+		{Path: `\\?\hid#vid_24ae&pid_1211&mi_01&col06#7&aaaa&0&0006#{guid}`, VendorID: 0x24AE, ProductID: 0x1211, InterfaceNumber: 1, UsagePage: 0xFF00, Usage: 0x0002, InputReportLen: 10},
+	}
+	pairs := MatchEndpoints(infos)
+	if len(pairs) != 1 || pairs[0].Ambiguous || pairs[0].Command == nil || pairs[0].Report == nil {
+		t.Fatalf("pairs = %+v, want one paired non-ambiguous device", pairs)
+	}
+}

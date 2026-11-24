@@ -630,14 +630,23 @@ func (c *Client) SetDPIConfigDeadline(cfg DPIConfig, deadline time.Time) error {
 	if len(srcStages) < stageCount {
 		srcStages = cfg.Stages
 	}
-	// Preserve any trailing onboard slots (> len(srcStages)) by reading current slots if needed.
+	if len(srcStages) < stageCount {
+		return fmt.Errorf("rapoo: got %d DPI stages for stageCount %d", len(srcStages), stageCount)
+	}
+	// Preserve hidden onboard slots only when their current values can actually
+	// be read. Filling them with defaults would silently overwrite the mouse.
 	if len(srcStages) < MaxDPIStage {
-		if existing, err := c.ReadDPIConfig(); err == nil && len(existing.AllStages) == MaxDPIStage {
-			merged := make([]DPIStage, MaxDPIStage)
-			copy(merged, existing.AllStages)
-			copy(merged, srcStages)
-			srcStages = merged
+		existing, err := c.ReadDPIConfig()
+		if err != nil {
+			return fmt.Errorf("rapoo: read hidden DPI stages: %w", err)
 		}
+		if len(existing.AllStages) != MaxDPIStage {
+			return errors.New("rapoo: hidden DPI stages are incomplete")
+		}
+		merged := make([]DPIStage, MaxDPIStage)
+		copy(merged, existing.AllStages)
+		copy(merged, srcStages)
+		srcStages = merged
 	}
 
 	// Encode and validate the whole payload before the first write.

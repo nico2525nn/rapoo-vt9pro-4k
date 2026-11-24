@@ -152,6 +152,9 @@ func newBridge(out io.Writer) (*bridge, error) {
 
 	b := &bridge{svc: svc, prefsPath: prefsPath, prefs: prefs, enc: json.NewEncoder(out)}
 	svc.Startup(context.Background())
+	if os.Getenv("RAPOO_DEMO") == "1" {
+		svc.EnsureDemoReady()
+	}
 	svc.Subscribe(func(state service.State) {
 		b.emit("state", state)
 	})

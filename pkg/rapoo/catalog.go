@@ -299,6 +299,9 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 func fallbackDeviceKey(path string) string {
 	p := strings.ToLower(path)
 	if strings.Contains(p, "#") {
+		if i := strings.Index(p, "#{"); i >= 0 {
+			p = p[:i]
+		}
 		for {
 			i := strings.Index(p, "&col")
 			if i < 0 {

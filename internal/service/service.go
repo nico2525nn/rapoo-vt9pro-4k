@@ -188,12 +188,19 @@ func (s *MouseService) Startup(ctx context.Context) {
 	s.cancel = cancel
 	s.mu.Unlock()
 
-	// Establish the first client before advertising readiness, so the bridge's
-	// `ready` event cannot race a demo/real `snapshot` RPC.
-	s.ensureConnectedAndPoll()
-
 	s.wg.Add(1)
 	go s.loop(runCtx)
+}
+
+// EnsureDemoReady opens the virtual provider before the bridge advertises
+// readiness in demo mode. It never waits for real HID; real startup stays async.
+func (s *MouseService) EnsureDemoReady() {
+	s.mu.RLock()
+	demo := s.demoMode
+	s.mu.RUnlock()
+	if demo {
+		s.ensureConnectedAndPoll()
+	}
 }
 
 // Shutdown cleanly closes open HID handles and stops background workers.
@@ -662,7 +669,10 @@ func verifyDPIConfig(snap rapoo.DeviceSnapshot, cfg rapoo.DPIConfig) error {
 		src = cfg.Stages
 	}
 	limit := cfg.StageCount
-	if len(src) >= rapoo.MaxDPIStage {
+	if len(cfg.AllStages) > limit {
+		limit = len(cfg.AllStages)
+	}
+	if limit > rapoo.MaxDPIStage {
 		limit = rapoo.MaxDPIStage
 	}
 	if len(src) < limit || len(stages) < limit {
@@ -1116,6 +1126,8 @@ func (s *MouseService) ImportPresetJSON(rawJSON string) (profile.Preset, error) 
 
 func (s *MouseService) loop(ctx context.Context) {
 	defer s.wg.Done()
+
+	s.ensureConnectedAndPoll()
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()

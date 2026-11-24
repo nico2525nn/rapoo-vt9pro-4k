@@ -133,7 +133,41 @@ func TestMouseServiceDemoModeAndPresets(t *testing.T) {
 	}
 }
 
-func TestStartInDemoIsReadyWhenStartupReturns(t *testing.T) {
+func TestStartupDoesNotWaitForRealHid(t *testing.T) {
+	prov := hid.NewMockProvider()
+	cmd := hid.NewMockDevice(hid.DeviceInfo{
+		Path:            "cmd",
+		VendorID:        0x24AE,
+		ProductID:       0x1211,
+		InterfaceNumber: 1,
+		UsagePage:       0xFF00,
+		Usage:           0x000E,
+		OutputReportLen: 32,
+	})
+	cmd.OnGetInput = func(byte, int) ([]byte, error) {
+		time.Sleep(300 * time.Millisecond)
+		return nil, errors.New("slow response")
+	}
+	prov.Register(cmd)
+	svc := NewMouseService(prov, Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	started := time.Now()
+	svc.Startup(ctx)
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		cancel()
+		svc.Shutdown()
+		t.Fatalf("Startup blocked for %v on real HID", elapsed)
+	}
+	cancel()
+	svc.Shutdown()
+}
+
+func TestEnsureDemoReadyBeforeSnapshot(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,
 		NormalInterval:    10 * time.Second,
@@ -146,10 +180,11 @@ func TestStartInDemoIsReadyWhenStartupReturns(t *testing.T) {
 	defer cancel()
 	svc.Startup(ctx)
 	defer svc.Shutdown()
+	svc.EnsureDemoReady()
 
 	snap, err := svc.ReadSnapshot()
 	if err != nil {
-		t.Fatalf("ReadSnapshot immediately after Startup: %v", err)
+		t.Fatalf("ReadSnapshot after EnsureDemoReady: %v", err)
 	}
 	if !snap.DemoMode || snap.DPI == nil || snap.Sensor == nil || len(snap.Buttons) != 10 {
 		t.Fatalf("incomplete demo snapshot: %+v", snap)
@@ -510,6 +545,35 @@ func TestDPIReadbackNormalizesAndChecksAllStages(t *testing.T) {
 	}
 }
 
+func TestDPIConfigFailsBeforeWritingWhenHiddenStagesCannotBeRead(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+
+	svc.demoDevice.CmdDev.OnGetInput = func(byte, int) ([]byte, error) {
+		return nil, errors.New("hidden DPI read failure")
+	}
+	cfg := rapoo.DPIConfig{
+		CurrentStage: 1,
+		StageCount:   1,
+		Stages:       []rapoo.DPIStage{{Index: 1, X: 450, Y: 450}},
+	}
+	if _, err := svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{}); err == nil {
+		t.Fatal("expected hidden DPI read failure to fail before writing")
+	}
+}
+
 func TestShortAllStagesDoesNotProduceFalsePartial(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,
@@ -535,6 +599,52 @@ func TestShortAllStagesDoesNotProduceFalsePartial(t *testing.T) {
 	}
 	if _, err := svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{}); err != nil {
 		t.Fatalf("short AllStages write: %v", err)
+	}
+}
+
+func TestShortAllStagesChecksExplicitExtraSlots(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	snap, err := svc.ReadSnapshot()
+	if err != nil || snap.DPI == nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+		if len(data) >= 8 {
+			addr := binary.LittleEndian.Uint32(data[4:8])
+			if addr == rapoo.AddrDPIStagesX || addr == rapoo.AddrDPIStagesY {
+				return nil
+			}
+		}
+		return original(data)
+	}
+	first := snap.DPI.AllStages[0]
+	second := snap.DPI.AllStages[1]
+	second.X = 500
+	second.Y = 500
+	cfg := rapoo.DPIConfig{
+		CurrentStage: 1,
+		StageCount:   1,
+		AllStages:    []rapoo.DPIStage{first, second},
+	}
+	_, err = svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
 	}
 }
 
