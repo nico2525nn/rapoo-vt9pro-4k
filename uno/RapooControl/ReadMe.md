@@ -50,7 +50,7 @@ slim bundle and a self-contained, IL-trimmed portable bundle:
 
 ```bash
 ./uno/package-linux.sh
-powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1
+powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1 -ExpectedSidecarRevision <sha>
 ```
 
 The Skia head uses source-generated `System.Text.Json` metadata

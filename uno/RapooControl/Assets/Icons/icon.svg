@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  App icon background.
+  App icon background: the rounded plate.
 
-  Intentionally empty: Uno's resizetizer paints the background canvas with a
-  single color (UnoIconBackgroundColor), so a rounded plate cannot live here.
-  The plate and the R are both in icon_foreground.svg, which is composited 1:1
-  over this transparent canvas.
+  Uno's resizetizer composites this under icon_foreground.svg. The canvas
+  outside the rounded rect stays transparent. Keep the 512 x 512 geometry in
+  sync with icon_foreground.svg.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="none"/>
+  <rect width="512" height="512" rx="104" fill="#08050E"/>
+  <rect x="1" y="1" width="510" height="510" rx="103" fill="none"
+        stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
 </svg>

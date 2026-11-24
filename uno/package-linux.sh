@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the Linux release bundles.
 #
-#   slim     - framework-dependent; requires the .NET 10 Desktop Runtime
+#   slim     - framework-dependent; requires the .NET 10 Runtime
 #   portable - self-contained and IL-trimmed; no runtime installation
 #
 # Both bundles contain the Go sidecar and are published as tar.xz and tar.gz.

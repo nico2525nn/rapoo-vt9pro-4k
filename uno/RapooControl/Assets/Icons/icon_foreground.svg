@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  App icon foreground: plate + R, drawn on the same 512 grid.
+  App icon foreground: the R, 1:1 with the 512 plate in icon.svg.
   Built from construction lines (no traced contours).
 
-    plate 512 x 512, corner radius 104 (20.3%), #08050E
     bowl  concentric, centre (310,196), outer r141, inner r87 -> weight 54
     bar   y 55..109 (54), left end cut 45 deg
     stem  26.6 deg, horizontal 66 -> weight 59
@@ -12,14 +11,10 @@
     pill  54 x 120, r27
 
   The Windows executable embeds Resources/app.ico (16, 20, 24, 32, 40, 48,
-  64, 128, 256; BMP frames with a PNG 256). Regenerate it by rendering this
-  file at 1024 px and packing those sizes.
+  64, 128, 256; BMP frames with a PNG 256). Regenerate it after editing
+  either icon file with: ./uno/make-icon.sh
 -->
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="104" fill="#08050E"/>
-  <rect x="1" y="1" width="510" height="510" rx="103" fill="none"
-        stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="2"/>
-
   <path fill="#CFF5FA" d="M 60 55 H 310
     A 141 141 0 0 1 327.9 335.9
     L 448 456 H 368
@@ -29,6 +24,5 @@
     H 310
     A 87 87 0 0 0 310 109
     H 114 Z"/>
-
   <rect x="242" y="136" width="54" height="120" rx="27" fill="#CFF5FA"/>
 </svg>
