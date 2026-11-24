@@ -748,6 +748,9 @@ func (c *Client) UpdateSensorConfigDeadline(patch SensorPatch, deadline time.Tim
 			return &PartialError{Applied: applied, Err: err}
 		}
 		if err := c.writeMemory(AddrSensorParameters, next8C0); err != nil {
+			if len(applied) == 0 {
+				return err
+			}
 			return &PartialError{Applied: applied, Err: err}
 		}
 	}
@@ -833,11 +836,17 @@ func (c *Client) SetAllButtonMappingsDeadline(mappings []ButtonMapping, deadline
 	var applied []string
 	write := func(m ButtonMapping) error {
 		if err := checkDeadline(deadline); err != nil {
+			if len(applied) == 0 {
+				return err
+			}
 			return &PartialError{Applied: applied, Err: err}
 		}
 		slot, _ := LookupButtonSlot(m.Slot.ID)
 		raw := encoded[m.Slot.ID]
 		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+			if len(applied) == 0 {
+				return err
+			}
 			return &PartialError{Applied: applied, Err: err}
 		}
 		applied = append(applied, fmt.Sprintf("button %d", m.Slot.ID))
