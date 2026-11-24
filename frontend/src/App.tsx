@@ -62,6 +62,17 @@ export default function App() {
     revision: 0,
   });
 
+  const isStaleState = (next: ServiceState): boolean => {
+    const floor = snapshotFloorRef.current;
+    const generation = next.generation ?? 0;
+    const revision = next.revision ?? 0;
+    if (generation > 0 && floor.generation > 0 && generation < floor.generation) {
+      return true;
+    }
+    return generation > 0 && generation === floor.generation &&
+      revision > 0 && floor.revision > 0 && revision < floor.revision;
+  };
+
   const updateState = useCallback((next: ServiceState) => {
     const floor = snapshotFloorRef.current;
     const nextGeneration = next.generation ?? 0;
@@ -192,6 +203,9 @@ export default function App() {
     });
 
     const offState = rapooApi.subscribeEvent<ServiceState>("rapoo:state", (nextState) => {
+      if (isStaleState(nextState)) {
+        return;
+      }
       updateState(nextState);
       if (!nextState.connected) {
         hasLoadedSnapshotRef.current = false;
