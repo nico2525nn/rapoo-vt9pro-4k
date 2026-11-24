@@ -231,13 +231,15 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 			// No container ID: use a path-derived physical key only as a
 			// ambiguity detector, never to silently mix two mice.
 			infoKey := fallbackDeviceKey(info.Path)
-			if pair.Command != nil && pair.Command.PhysicalID == "" &&
+			if info.Usage == UsageCommandRealtek &&
+				pair.Command != nil && pair.Command.PhysicalID == "" &&
 				strings.Contains(pair.Command.Path, "#") &&
 				strings.Contains(info.Path, "#") &&
 				fallbackDeviceKey(pair.Command.Path) != infoKey {
 				pair.Ambiguous = true
 			}
-			if pair.Report != nil && pair.Report.PhysicalID == "" &&
+			if info.Usage == UsageAsyncReport &&
+				pair.Report != nil && pair.Report.PhysicalID == "" &&
 				fallbackDeviceKey(pair.Report.Path) != infoKey {
 				pair.Ambiguous = true
 			}
