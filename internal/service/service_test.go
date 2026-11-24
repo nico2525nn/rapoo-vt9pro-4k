@@ -212,6 +212,67 @@ func TestDPIPartialErrorPreservesAppliedSteps(t *testing.T) {
 	}
 }
 
+func TestPresetRestoresUnknownOnboardMacro(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	snap, err := svc.ReadSnapshot()
+	if err != nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+	var macroRaw = [4]byte{0xEE, 0x10, 0x20, 0x30}
+	var macroSlot rapoo.ButtonID = rapoo.ButtonForward
+	for i := range snap.Buttons {
+		if snap.Buttons[i].Slot.ID == macroSlot {
+			snap.Buttons[i].Action = rapoo.ButtonAction{
+				Type: rapoo.ActionUnknown,
+				Raw:  macroRaw,
+			}
+		}
+	}
+	saved, err := svc.presetStore.SaveSnapshot("", "macro preset", "", snap)
+	if err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+
+	if _, err := svc.SetButtonMappingForGeneration(
+		int(macroSlot),
+		rapoo.ButtonAction{Type: rapoo.ActionRightClick},
+		svc.GetState().Generation,
+		time.Time{}); err != nil {
+		t.Fatalf("change button: %v", err)
+	}
+	if _, err := svc.ApplyPresetForGeneration(saved.ID, svc.GetState().Generation, time.Time{}); err != nil {
+		t.Fatalf("ApplyPreset: %v", err)
+	}
+	after, err := svc.ReadSnapshot()
+	if err != nil {
+		t.Fatalf("ReadSnapshot after apply: %v", err)
+	}
+	for _, mapping := range after.Buttons {
+		if mapping.Slot.ID != macroSlot {
+			continue
+		}
+		if mapping.Action.Type != rapoo.ActionUnknown || mapping.Action.Raw != macroRaw {
+			t.Fatalf("macro not restored: %+v", mapping.Action)
+		}
+		return
+	}
+	t.Fatal("macro slot missing after apply")
+}
+
 func TestHigherPriorityEndpointKeepsCurrentEqualDevice(t *testing.T) {
 	newProvider := func(physical string) *hid.MockProvider {
 		prov := hid.NewMockProvider()
