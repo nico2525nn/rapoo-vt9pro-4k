@@ -147,6 +147,7 @@ func newBridge(out io.Writer) (*bridge, error) {
 		InitialMode: prefs.Mode,
 		Language:    os.Getenv("RAPOO_LANG"),
 		PresetDir:   cfgDir,
+		StartInDemo: os.Getenv("RAPOO_DEMO") == "1",
 	})
 
 	b := &bridge{svc: svc, prefsPath: prefsPath, prefs: prefs, enc: json.NewEncoder(out)}

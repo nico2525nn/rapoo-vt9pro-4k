@@ -88,6 +88,7 @@ type Config struct {
 	ReconnectInterval time.Duration
 	SleepGrace        time.Duration // suppress transient 0x02 replies for this long after a good read
 	PresetDir         string
+	StartInDemo       bool                                // Skip real HID until demo mode is turned off
 	OnEventEmit       func(eventName string, payload any) // Optional Wails runtime.EventsEmit hook
 }
 
@@ -156,9 +157,11 @@ func NewMouseService(provider hid.Provider, cfg Config) *MouseService {
 		presetStore:  store,
 		presetErr:    storeErr,
 		cfg:          cfg,
+		demoMode:     cfg.StartInDemo,
 		state: State{
 			Mode:     cfg.InitialMode,
 			Platform: runtime.GOOS,
+			DemoMode: cfg.StartInDemo,
 		},
 		subscribers: make(map[int]Listener),
 		refreshCh:   make(chan struct{}, 1),
