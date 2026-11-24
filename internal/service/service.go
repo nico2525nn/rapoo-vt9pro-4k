@@ -288,6 +288,10 @@ func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 
 	if changed {
 		s.reconnectAndPoll()
+	} else {
+		// A ready event may arrive before the background loop has opened the
+		// selected provider. Do not return a snapshot with a nil client.
+		s.ensureConnectedAndPoll()
 	}
 	if !enabled {
 		s.mu.RLock()
