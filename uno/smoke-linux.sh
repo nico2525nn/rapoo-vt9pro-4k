@@ -68,13 +68,22 @@ xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
   "$0" >"$1" 2>&1 &
   app=$!
   trap "kill $app 2>/dev/null || true" EXIT
+  have_icon=0
   for _ in $(seq 1 30); do
-    if xdotool search --name "Rapoo Control" >/dev/null 2>&1; then
-      break
-    fi
+    for wid in $(xdotool search --name "Rapoo Control" 2>/dev/null || true); do
+      icon=$(xprop -id "$wid" _NET_WM_ICON 2>/dev/null || true)
+      if [[ -n "$icon" && "$icon" != *"not found"* && ${#icon} -gt 200 ]]; then
+        have_icon=1
+        break
+      fi
+    done
+    [[ "$have_icon" == 1 ]] && break
     sleep 0.5
   done
-  xdotool search --name "Rapoo Control" >/dev/null
+  if [[ "$have_icon" != 1 ]]; then
+    echo "smoke-linux: window has no _NET_WM_ICON (app icon not applied)" >&2
+    exit 1
+  fi
   sleep 2
   import -window root "$2"
   test -s "$2"

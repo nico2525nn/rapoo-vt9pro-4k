@@ -7,3 +7,4 @@
 *.exe
 *.ico
 !build/windows/icon.ico
+!uno/RapooControl/Resources/app.ico

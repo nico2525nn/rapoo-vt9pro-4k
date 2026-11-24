@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Replaced the Uno template logo with the application icon: a geometric R
+  monogram on a rounded dark tile, drawn as vectors in `Assets/Icons/`.
+- Windows executables embed a multi-size ICO (16–256 px) instead of the
+  generated 64 px icon.
+- The Linux smoke check now asserts that the window publishes `_NET_WM_ICON`.
+
 ## v1.5.1 — 2026-11-24
 
 ### Fixed
