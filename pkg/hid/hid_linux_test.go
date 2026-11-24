@@ -17,10 +17,15 @@ func TestAcquireLinuxDeviceLockIsExclusive(t *testing.T) {
 		PhysicalID: fmt.Sprintf("test-%d", time.Now().UnixNano()),
 	}
 
+	// TMPDIR is intentionally different for the second acquisition; the lock
+	// must still be machine-local and shared.
+	firstTmp := t.TempDir()
+	t.Setenv("TMPDIR", firstTmp)
 	first, err := acquireLinuxDeviceLock(info)
 	if err != nil {
 		t.Fatalf("first lock: %v", err)
 	}
+	t.Setenv("TMPDIR", t.TempDir())
 	lockPath := first.Name()
 	t.Cleanup(func() {
 		_ = first.Close()

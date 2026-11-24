@@ -3,6 +3,8 @@ package service
 import (
 	"errors"
 	"fmt"
+
+	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
 )
 
 // ErrDeviceChanged means the HID target changed between the UI action and the
@@ -11,7 +13,8 @@ var ErrDeviceChanged = errors.New("service: device changed")
 
 // ErrDeadlineExceeded means the request was queued or running past its
 // deadline. A multi-step operation may already have applied some steps.
-var ErrDeadlineExceeded = errors.New("service: request deadline exceeded")
+// It aliases the rapoo sentinel so service and client paths share one identity.
+var ErrDeadlineExceeded = rapoo.ErrDeadlineExceeded
 
 // PartialWriteError reports which write steps completed before a failure.
 type PartialWriteError struct {

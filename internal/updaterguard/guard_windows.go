@@ -100,19 +100,77 @@ func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted fun
 		}
 	}
 
+	job, jobErr := windows.CreateJobObject(nil, nil)
+	if jobErr != nil {
+		job = 0
+	}
+	if job != 0 {
+		defer windows.CloseHandle(job)
+	}
+
 	cmd := exec.Command(updaterPath)
 	cmd.Dir = filepath.Dir(updaterPath)
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	jobAssigned := false
+	if job != 0 {
+		process, openErr := windows.OpenProcess(
+			windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE,
+			false,
+			uint32(cmd.Process.Pid))
+		if openErr == nil {
+			assignErr := windows.AssignProcessToJobObject(job, process)
+			_ = windows.CloseHandle(process)
+			jobAssigned = assignErr == nil
+		}
+	}
 	if onStarted != nil {
 		onStarted()
 	}
 	err = cmd.Wait()
-	// If the official launcher hands the update to a child and exits, keep the
-	// HID mutexes until every child has finished as well.
+	// If the official launcher hands the update to a child (or grandchild) and
+	// exits, keep the HID mutexes until the whole tree has finished.
 	waitForChildren(uint32(cmd.Process.Pid), 30*time.Minute)
+	if jobAssigned {
+		waitForJobEmpty(job, 30*time.Minute)
+	}
 	return err
+}
+
+type jobBasicAccounting struct {
+	TotalUserTime             int64
+	TotalKernelTime           int64
+	ThisPeriodTotalUserTime   int64
+	ThisPeriodTotalKernelTime int64
+	TotalPageFaultCount       uint32
+	TotalProcesses            uint32
+	ActiveProcesses           uint32
+	TotalTerminatedProcesses  uint32
+}
+
+func waitForJobEmpty(job windows.Handle, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if count, err := jobActiveProcesses(job); err == nil && count == 0 {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func jobActiveProcesses(job windows.Handle) (uint32, error) {
+	var info jobBasicAccounting
+	if err := windows.QueryInformationJobObject(
+		job,
+		windows.JobObjectBasicAccountingInformation,
+		uintptr(unsafe.Pointer(&info)),
+		uint32(unsafe.Sizeof(info)),
+		nil,
+	); err != nil {
+		return 0, err
+	}
+	return info.ActiveProcesses, nil
 }
 
 func waitForChildren(parentPID uint32, timeout time.Duration) {

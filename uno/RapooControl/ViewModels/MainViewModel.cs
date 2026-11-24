@@ -31,7 +31,7 @@ public sealed class MainViewModel : ObservableObject
             UpdatedAt: DateTimeOffset.Now,
             IsMock: service.IsMock);
 
-        Dpi = new DpiPageViewModel(service, () => DeviceGeneration);
+        Dpi = new DpiPageViewModel(service, () => DeviceGeneration, () => DeviceSessionId);
     }
 
     public DpiPageViewModel Dpi { get; }
@@ -72,6 +72,8 @@ public sealed class MainViewModel : ObservableObject
     public bool IsDemoMode => _status.DemoMode;
 
     public long DeviceGeneration => _status.Generation;
+
+    public long DeviceSessionId => _status.SessionId;
 
     public bool IsPassive => _status.Mode == "passive_only";
 

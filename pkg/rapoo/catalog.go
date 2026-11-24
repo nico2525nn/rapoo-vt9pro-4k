@@ -247,9 +247,22 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 	}
 
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].Model.Priority > out[j].Model.Priority
+		if out[i].Model.Priority != out[j].Model.Priority {
+			return out[i].Model.Priority > out[j].Model.Priority
+		}
+		return endpointSortKey(out[i]) < endpointSortKey(out[j])
 	})
 	return out
+}
+
+func endpointSortKey(pair EndpointPair) string {
+	if pair.Command != nil {
+		return pair.Command.Path
+	}
+	if pair.Report != nil {
+		return pair.Report.Path
+	}
+	return ""
 }
 
 func prefersReportEndpoint(model ModelSpec, cand, curr hid.DeviceInfo) bool {

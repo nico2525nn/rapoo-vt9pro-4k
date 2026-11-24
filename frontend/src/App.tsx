@@ -57,6 +57,10 @@ export default function App() {
   const [language, setLanguageState] = useState<Language>("en");
 
   const hasLoadedSnapshotRef = useRef<boolean>(false);
+  const snapshotFloorRef = useRef<{ generation: number; revision: number }>({
+    generation: 0,
+    revision: 0,
+  });
 
   const updateState = useCallback((next: ServiceState) => {
     setState((prev) => {
@@ -76,21 +80,27 @@ export default function App() {
   }, []);
 
   const updateSnapshot = useCallback((next: DeviceSnapshot | null) => {
-    setSnapshot((prev) => {
-      if (next === null) return null;
-      const prevGeneration = prev?.generation ?? 0;
-      const nextGeneration = next.generation ?? 0;
-      if (prevGeneration > 0 && nextGeneration > 0 && nextGeneration < prevGeneration) {
-        return prev;
-      }
-      const prevRevision = prev?.stateRevision ?? 0;
-      const nextRevision = next.stateRevision ?? 0;
-      if (prevGeneration > 0 && nextGeneration > 0 && prevGeneration === nextGeneration &&
-          prevRevision > 0 && nextRevision > 0 && nextRevision < prevRevision) {
-        return prev;
-      }
-      return next;
-    });
+    if (next === null) {
+      setSnapshot(null);
+      // Keep the floor: an in-flight response from the disconnected device
+      // must not reappear after this point.
+      return;
+    }
+    const floor = snapshotFloorRef.current;
+    const nextGeneration = next.generation ?? 0;
+    const nextRevision = next.stateRevision ?? 0;
+    if (nextGeneration > 0 && floor.generation > 0 && nextGeneration < floor.generation) {
+      return;
+    }
+    if (nextGeneration > 0 && nextGeneration === floor.generation &&
+        nextRevision > 0 && floor.revision > 0 && nextRevision < floor.revision) {
+      return;
+    }
+    if (nextGeneration > 0) {
+      floor.generation = nextGeneration;
+      floor.revision = nextRevision > 0 ? nextRevision : floor.revision;
+    }
+    setSnapshot(next);
   }, []);
 
   useEffect(() => {
@@ -130,17 +140,20 @@ export default function App() {
     let cancelled = false;
 
     const bootstrap = async () => {
-      const [cat, st, presetList, appPrefs] = await Promise.all([
+      const [cat, st, appPrefs] = await Promise.all([
         rapooApi.getCatalog(),
         rapooApi.getState(),
-        rapooApi.listPresets(),
         rapooApi.getAppPreferences(),
       ]);
       if (cancelled) return;
       setCatalog(cat);
       updateState(st);
-      setPresets(presetList);
       setPrefs(appPrefs);
+      try {
+        setPresets(await rapooApi.listPresets());
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : t("Failed to load profiles"));
+      }
       const initialLanguage = normalizeLanguage(appPrefs.language);
       setI18nLanguage(initialLanguage);
       setLanguageState(initialLanguage);
@@ -158,7 +171,11 @@ export default function App() {
       }
     };
 
-    void bootstrap();
+    void bootstrap().catch((error) => {
+      if (!cancelled) {
+        toast.error(error instanceof Error ? error.message : t("Failed to initialize"));
+      }
+    });
 
     const offState = rapooApi.subscribeEvent<ServiceState>("rapoo:state", (nextState) => {
       updateState(nextState);

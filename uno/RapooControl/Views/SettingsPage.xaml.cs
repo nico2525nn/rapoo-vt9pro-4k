@@ -324,6 +324,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
         };
         LocalizationService.Instance.ApplyDialog(confirmation);
         var generation = ViewModel.DeviceGeneration;
+        var session = ViewModel.DeviceSessionId;
         if (await confirmation.ShowAsync() != ContentDialogResult.Primary ||
             !ViewModel.CanConfigureDevice)
         {
@@ -332,7 +333,7 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
 
         await Feedback.RunAsync(async () =>
         {
-            var snapshot = await service.FactoryResetAsync(generation);
+            var snapshot = await service.FactoryResetAsync(generation, session);
             LoadFirmware(snapshot, ViewModel.DeviceRevision);
         }, "工場出荷時設定に戻しました。");
     }

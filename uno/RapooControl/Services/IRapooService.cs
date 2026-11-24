@@ -26,10 +26,12 @@ public interface IRapooService : IAsyncDisposable
     Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
         CancellationToken cancellationToken = default,
-        long expectedGeneration = 0);
+        long expectedGeneration = 0,
+        long expectedSession = 0);
 
     Task<DeviceStatus> SetPollingRateAsync(
         int hertz,
         CancellationToken cancellationToken = default,
-        long expectedGeneration = 0);
+        long expectedGeneration = 0,
+        long expectedSession = 0);
 }

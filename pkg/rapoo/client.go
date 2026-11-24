@@ -192,8 +192,15 @@ func (c *Client) readReportLoop() {
 
 // sendAndRecvLocked executes a single 0xBA control-report exchange while cmdMu is held.
 func (c *Client) sendAndRecvLocked(tx []byte) ([]byte, error) {
+	return c.sendAndRecvLockedDeadline(tx, time.Time{})
+}
+
+func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byte, error) {
 	if c.opts.PassiveOnly || c.cmdDev == nil {
 		return nil, errors.New("rapoo: command channel unavailable (passive-only mode)")
+	}
+	if err := checkDeadline(deadline); err != nil {
+		return nil, err
 	}
 
 	stepDelay := c.endpoint.Model.StepDelay
@@ -203,19 +210,35 @@ func (c *Client) sendAndRecvLocked(tx []byte) ([]byte, error) {
 
 	var lastErr error
 	for attempt := 0; attempt < c.opts.MaxCommandRetries; attempt++ {
+		if err := checkDeadline(deadline); err != nil {
+			return nil, err
+		}
 		if since := time.Since(c.lastCmdEnd); since < stepDelay {
 			time.Sleep(stepDelay - since)
 		}
+		if err := checkDeadline(deadline); err != nil {
+			return nil, err
+		}
+		sendTimeout, err := ioTimeoutForDeadline(deadline, c.opts.IOTimeout)
+		if err != nil {
+			return nil, err
+		}
 
-		if err := c.cmdDev.SetOutputReport(tx, c.opts.IOTimeout); err != nil {
+		if err := c.cmdDev.SetOutputReport(tx, sendTimeout); err != nil {
 			lastErr = err
 			continue
 		}
 
 		time.Sleep(stepDelay)
+		if err := checkDeadline(deadline); err != nil {
+			return nil, err
+		}
 
 		for poll := 0; poll < c.opts.MaxBusyPolls; poll++ {
-			raw, err := c.cmdDev.GetInputReport(ReportIDCommand, PacketLength, c.opts.IOTimeout)
+			if err := checkDeadline(deadline); err != nil {
+				return nil, err
+			}
+			raw, err := c.cmdDev.GetInputReport(ReportIDCommand, PacketLength, sendTimeout)
 			c.lastCmdEnd = time.Now()
 			if err != nil {
 				lastErr = err
@@ -256,9 +279,27 @@ func (c *Client) sendAndRecvLocked(tx []byte) ([]byte, error) {
 }
 
 func (c *Client) sendAndRecv(tx []byte) ([]byte, error) {
+	return c.sendAndRecvDeadline(tx, time.Time{})
+}
+
+func (c *Client) sendAndRecvDeadline(tx []byte, deadline time.Time) ([]byte, error) {
 	c.cmdMu.Lock()
 	defer c.cmdMu.Unlock()
-	return c.sendAndRecvLocked(tx)
+	return c.sendAndRecvLockedDeadline(tx, deadline)
+}
+
+func ioTimeoutForDeadline(deadline time.Time, fallback time.Duration) (time.Duration, error) {
+	if deadline.IsZero() {
+		return fallback, nil
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0, ErrDeadlineExceeded
+	}
+	if remaining < fallback {
+		return remaining, nil
+	}
+	return fallback, nil
 }
 
 // ============================================================================
@@ -444,6 +485,13 @@ func checkDeadline(deadline time.Time) error {
 }
 
 func (c *Client) writeMemory(addr uint32, data []byte) error {
+	return c.writeMemoryDeadline(addr, data, time.Time{})
+}
+
+func (c *Client) writeMemoryDeadline(addr uint32, data []byte, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	c.cmdMu.Lock()
 	op := c.opcodes.WriteMemory
 	c.cmdMu.Unlock()
@@ -452,7 +500,7 @@ func (c *Client) writeMemory(addr uint32, data []byte) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.sendAndRecv(tx)
+	resp, err := c.sendAndRecvDeadline(tx, deadline)
 	if err != nil {
 		return err
 	}
@@ -468,6 +516,15 @@ func (c *Client) writeMemory(addr uint32, data []byte) error {
 // SetPollingRate updates the mouse polling rate (125, 250, 500, 1000, 2000, 4000 Hz)
 // via read-modify-write at 0x0880, preserving adjacent bytes 0x0881 and 0x0883.
 func (c *Client) SetPollingRate(hz int) error {
+	return c.SetPollingRateDeadline(hz, time.Time{})
+}
+
+// SetPollingRateDeadline is SetPollingRate with a deadline checked before the
+// write, after the read-modify-write read.
+func (c *Client) SetPollingRateDeadline(hz int, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	if hz > c.endpoint.Model.MaxRateHz {
 		return fmt.Errorf("rapoo: %d Hz exceeds %s maximum (%d Hz)", hz, c.endpoint.Model.Name, c.endpoint.Model.MaxRateHz)
 	}
@@ -479,17 +536,29 @@ func (c *Client) SetPollingRate(hz int) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	wiredCode := cur[2]
 	if c.endpoint.Model.Connection == ConnectionWired {
 		wiredCode = code
 	}
 	next := []byte{code, cur[1], wiredCode, cur[3]}
-	return c.writeMemory(AddrPollingRate, next)
+	return c.writeMemoryDeadline(AddrPollingRate, next, deadline)
 }
 
 // SetCurrentDPIGear switches the active DPI stage (1-based: 1..7) via
 // read-modify-write at 0x0898.
 func (c *Client) SetCurrentDPIGear(stage int) error {
+	return c.SetCurrentDPIGearDeadline(stage, time.Time{})
+}
+
+// SetCurrentDPIGearDeadline is SetCurrentDPIGear with a deadline checked before
+// the write.
+func (c *Client) SetCurrentDPIGearDeadline(stage int, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	if stage < 1 || stage > MaxDPIStage {
 		return fmt.Errorf("rapoo: DPI stage %d out of range (1..7)", stage)
 	}
@@ -497,8 +566,11 @@ func (c *Client) SetCurrentDPIGear(stage int) error {
 	if err != nil {
 		return err
 	}
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	next := []byte{byte(stage - 1), cur[1], cur[2], cur[3]}
-	return c.writeMemory(AddrCurrentDPIGear, next)
+	return c.writeMemoryDeadline(AddrCurrentDPIGear, next, deadline)
 }
 
 // SetDPIConfig writes all 7 X/Y DPI stages, stage count (1..7), and active DPI stage (1..stageCount).
@@ -542,21 +614,21 @@ func (c *Client) SetDPIConfigDeadline(cfg DPIConfig, deadline time.Time) error {
 	}
 
 	var applied []string
-	if err := c.writeMemory(AddrDPIStagesX, blockX[:]); err != nil {
+	if err := c.writeMemoryDeadline(AddrDPIStagesX, blockX[:], deadline); err != nil {
 		return err
 	}
 	applied = append(applied, "dpiX")
 	if err := checkDeadline(deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
-	if err := c.writeMemory(AddrDPIStagesY, blockY[:]); err != nil {
+	if err := c.writeMemoryDeadline(AddrDPIStagesY, blockY[:], deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
 	applied = append(applied, "dpiY")
 	if err := checkDeadline(deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
-	if err := c.SetCurrentDPIGear(curStage); err != nil {
+	if err := c.SetCurrentDPIGearDeadline(curStage, deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
 	return nil
@@ -692,7 +764,7 @@ func (c *Client) UpdateSensorConfigDeadline(patch SensorPatch, deadline time.Tim
 		if err := checkDeadline(deadline); err != nil {
 			return err
 		}
-		if err := c.writeMemory(AddrSilentHeight, next884); err != nil {
+		if err := c.writeMemoryDeadline(AddrSilentHeight, next884, deadline); err != nil {
 			return err
 		}
 		applied = append(applied, "sensor884")
@@ -747,7 +819,7 @@ func (c *Client) UpdateSensorConfigDeadline(patch SensorPatch, deadline time.Tim
 		if err := checkDeadline(deadline); err != nil {
 			return &PartialError{Applied: applied, Err: err}
 		}
-		if err := c.writeMemory(AddrSensorParameters, next8C0); err != nil {
+		if err := c.writeMemoryDeadline(AddrSensorParameters, next8C0, deadline); err != nil {
 			if len(applied) == 0 {
 				return err
 			}
@@ -761,6 +833,15 @@ func (c *Client) UpdateSensorConfigDeadline(patch SensorPatch, deadline time.Tim
 // SetButtonMapping updates a single physical button's onboard action, enforcing
 // the Left-Click safety guard so at least one clickable button retains Left-Click.
 func (c *Client) SetButtonMapping(buttonID ButtonID, action ButtonAction) error {
+	return c.SetButtonMappingDeadline(buttonID, action, time.Time{})
+}
+
+// SetButtonMappingDeadline is SetButtonMapping with a deadline checked before
+// the write.
+func (c *Client) SetButtonMappingDeadline(buttonID ButtonID, action ButtonAction, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	slot, ok := LookupButtonSlot(buttonID)
 	if !ok {
 		return fmt.Errorf("rapoo: unknown button ID %d", buttonID)
@@ -781,6 +862,9 @@ func (c *Client) SetButtonMapping(buttonID ButtonID, action ButtonAction) error 
 		}
 	}
 	if err := ValidateButtonMappings(current); err != nil {
+		return err
+	}
+	if err := checkDeadline(deadline); err != nil {
 		return err
 	}
 
@@ -843,7 +927,7 @@ func (c *Client) SetAllButtonMappingsDeadline(mappings []ButtonMapping, deadline
 		}
 		slot, _ := LookupButtonSlot(m.Slot.ID)
 		raw := encoded[m.Slot.ID]
-		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+		if err := c.writeMemoryDeadline(slot.Addr, raw[:], deadline); err != nil {
 			if len(applied) == 0 {
 				return err
 			}
@@ -916,12 +1000,20 @@ func buttonActionsEqual(a, b ButtonAction) bool {
 
 // FactoryReset sends the hardware factory reset command (0xAD 0x52 0x3D on Gen-A / 0xD0 on Gen-B).
 func (c *Client) FactoryReset() error {
+	return c.FactoryResetDeadline(time.Time{})
+}
+
+// FactoryResetDeadline is FactoryReset with a deadline checked before sending.
+func (c *Client) FactoryResetDeadline(deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	c.cmdMu.Lock()
 	ops := c.opcodes
 	c.cmdMu.Unlock()
 
 	tx := BuildFactoryReset(c.endpoint.Model.TargetByte, ops)
-	resp, err := c.sendAndRecv(tx)
+	resp, err := c.sendAndRecvDeadline(tx, deadline)
 	if err != nil {
 		return err
 	}

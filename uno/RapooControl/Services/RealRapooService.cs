@@ -41,6 +41,9 @@ public sealed partial class RealRapooService : IRapooService
 
     public bool IsRunning => _client.IsRunning;
 
+    /// <summary>The current sidecar session; capture it before a long dialog.</summary>
+    public long SessionId => CurrentSession();
+
     public event EventHandler<DeviceStatus>? StatusChanged;
 
     public event EventHandler<string>? Faulted;
@@ -134,11 +137,12 @@ public sealed partial class RealRapooService : IRapooService
     public async Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
         CancellationToken cancellationToken = default,
-        long expectedGeneration = 0)
+        long expectedGeneration = 0,
+        long expectedSession = 0)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var epoch = CurrentEpoch;
-        var sessionId = CurrentSession();
+        var sessionId = expectedSession != 0 ? expectedSession : CurrentSession();
         var generation = expectedGeneration != 0 ? expectedGeneration : CurrentGeneration();
 
         var stages = configuration.Stages
@@ -173,10 +177,11 @@ public sealed partial class RealRapooService : IRapooService
     public async Task<DeviceStatus> SetPollingRateAsync(
         int hertz,
         CancellationToken cancellationToken = default,
-        long expectedGeneration = 0)
+        long expectedGeneration = 0,
+        long expectedSession = 0)
     {
         var epoch = CurrentEpoch;
-        var sessionId = CurrentSession();
+        var sessionId = expectedSession != 0 ? expectedSession : CurrentSession();
         var generation = expectedGeneration != 0 ? expectedGeneration : CurrentGeneration();
         var snapshot = await _client
             .SetPollingRateAsync(hertz, cancellationToken, sessionId, generation)

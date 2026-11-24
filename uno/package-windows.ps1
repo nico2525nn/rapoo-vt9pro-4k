@@ -144,8 +144,13 @@ function Publish-Bundle {
         }
         $wasdkVersion = ($wasdk -split '/')[-1]
         $readmeText = Get-Content (Join-Path $out "README.md") -Raw
-        $requirement = "Windows App Runtime 2.x ($wasdkVersion or later, x64)"
-        $installer = "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe"
+        $parts = $wasdkVersion -split '\.'
+        if ($parts.Count -lt 2) {
+            throw "Could not derive the Windows App Runtime series from $wasdkVersion."
+        }
+        $series = "$($parts[0]).$($parts[1])"
+        $requirement = "Windows App Runtime $($parts[0]).x ($wasdkVersion or later, x64)"
+        $installer = "https://aka.ms/windowsappsdk/$series/$wasdkVersion/windowsappruntimeinstall-x64.exe"
         if ($readmeText -notmatch [regex]::Escape($requirement) -or
             $readmeText -notmatch [regex]::Escape($installer)) {
             throw "README must contain '$requirement' and the $wasdkVersion x64 installer URL."

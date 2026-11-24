@@ -163,10 +163,37 @@ func acquireLinuxDeviceLock(info DeviceInfo) (*os.File, error) {
 	}
 	sum := sha256.Sum256([]byte(key))
 	name := fmt.Sprintf("rapoo-vt9pro4k-%x.lock", sum[:8])
-	path := filepath.Join(os.TempDir(), name)
-	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	// Use a fixed path rather than os.TempDir(): TMPDIR is per-process and two
+	// callers with different TMPDIR values must still contend for one lock.
+	// O_NOFOLLOW avoids writing the PID through a malicious symlink in /tmp.
+	path := filepath.Join("/tmp", name)
+	fd, err := syscall.Open(
+		path,
+		syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW,
+		0o600,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("open HID lock %s: %w", path, err)
+	}
+	var stat syscall.Stat_t
+	if err := syscall.Fstat(fd, &stat); err != nil {
+		_ = syscall.Close(fd)
+		return nil, fmt.Errorf("stat HID lock %s: %w", path, err)
+	}
+	if stat.Uid != uint32(os.Geteuid()) {
+		_ = syscall.Close(fd)
+		return nil, fmt.Errorf("HID lock %s is owned by uid %d", path, stat.Uid)
+	}
+	if stat.Mode&0o022 != 0 {
+		if err := syscall.Fchmod(fd, 0o600); err != nil {
+			_ = syscall.Close(fd)
+			return nil, fmt.Errorf("secure HID lock %s: %w", path, err)
+		}
+	}
+	lock := os.NewFile(uintptr(fd), path)
+	if lock == nil {
+		_ = syscall.Close(fd)
+		return nil, fmt.Errorf("os.NewFile(%s) returned nil", path)
 	}
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = lock.Close()

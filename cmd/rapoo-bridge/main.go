@@ -466,6 +466,9 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 			continue
 		}
 
+		if err := verifyUpdaterSignature(path); err != nil {
+			return "", err
+		}
 		if err := b.svc.BeginUpdater(); err != nil {
 			return "", err
 		}

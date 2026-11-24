@@ -556,7 +556,34 @@ func (s *MouseService) readAfterWrite(applied []string) (rapoo.DeviceSnapshot, e
 			Err:     fmt.Errorf("設定は書き込まれましたが、読み戻しに失敗しました: %s", s.friendlyError(err)),
 		}
 	}
+	if err := verifyAppliedSnapshot(snap, applied); err != nil {
+		return snap, &PartialWriteError{Applied: applied, Err: err}
+	}
 	return snap, nil
+}
+
+func verifyAppliedSnapshot(snap rapoo.DeviceSnapshot, applied []string) error {
+	for _, step := range applied {
+		switch step {
+		case "dpi", "dpiX", "dpiY", "dpiStage":
+			if snap.DPI == nil {
+				return errors.New("DPI設定は書き込まれましたが、読み戻せませんでした")
+			}
+		case "sensor", "sensor884", "sensor8C0", "pollingRate":
+			if snap.Sensor == nil {
+				return errors.New("センサー設定は書き込まれましたが、読み戻せませんでした")
+			}
+		case "button", "buttons":
+			if len(snap.Buttons) == 0 {
+				return errors.New("ボタン設定は書き込まれましたが、読み戻せませんでした")
+			}
+		case "factoryReset":
+			if snap.DPI == nil || snap.Sensor == nil || len(snap.Buttons) == 0 {
+				return errors.New("初期化は実行されましたが、設定を完全に読み戻せませんでした")
+			}
+		}
+	}
+	return nil
 }
 
 func wrapStepError(applied []string, err error) error {
@@ -566,6 +593,9 @@ func wrapStepError(applied []string, err error) error {
 		return &PartialWriteError{Applied: all, Err: partial.Err}
 	}
 	if errors.Is(err, rapoo.ErrDeadlineExceeded) {
+		if len(applied) == 0 {
+			return err
+		}
 		return &PartialWriteError{Applied: append([]string(nil), applied...), Err: err}
 	}
 	return err
@@ -579,7 +609,7 @@ func (s *MouseService) SetPollingRate(hz int) (rapoo.DeviceSnapshot, error) {
 // SetPollingRateForGeneration binds the write to the generation the UI saw.
 func (s *MouseService) SetPollingRateForGeneration(hz int, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
-		return c.SetPollingRate(hz)
+		return c.SetPollingRateDeadline(hz, deadline)
 	})
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
@@ -595,7 +625,7 @@ func (s *MouseService) SetCurrentDPIGear(stage int) (rapoo.DeviceSnapshot, error
 // SetCurrentDPIGearForGeneration binds the write to the generation the UI saw.
 func (s *MouseService) SetCurrentDPIGearForGeneration(stage int, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
-		return c.SetCurrentDPIGear(stage)
+		return c.SetCurrentDPIGearDeadline(stage, deadline)
 	})
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
@@ -614,7 +644,7 @@ func (s *MouseService) SetDPIConfigForGeneration(cfg rapoo.DPIConfig, generation
 		return c.SetDPIConfigDeadline(cfg, deadline)
 	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError(nil, err)))
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
 	return s.readAfterWrite([]string{"dpi"})
 }
@@ -630,7 +660,7 @@ func (s *MouseService) UpdateSensorConfigForGeneration(patch rapoo.SensorPatch, 
 		return c.UpdateSensorConfigDeadline(patch, deadline)
 	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError(nil, err)))
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
 	return s.readAfterWrite([]string{"sensor"})
 }
@@ -643,10 +673,10 @@ func (s *MouseService) SetButtonMapping(buttonID int, action rapoo.ButtonAction)
 // SetButtonMappingForGeneration binds the write to the generation the UI saw.
 func (s *MouseService) SetButtonMappingForGeneration(buttonID int, action rapoo.ButtonAction, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
-		return c.SetButtonMapping(rapoo.ButtonID(buttonID), action)
+		return c.SetButtonMappingDeadline(rapoo.ButtonID(buttonID), action, deadline)
 	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError(nil, err)))
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
 	return s.readAfterWrite([]string{"button"})
 }
@@ -662,7 +692,7 @@ func (s *MouseService) ResetButtonsToDefaultForGeneration(generation uint64, dea
 		return c.SetAllButtonMappingsDeadline(rapoo.DefaultButtonMappings(), deadline)
 	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError(nil, err)))
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(wrapStepError(nil, err))
 	}
 	return s.readAfterWrite([]string{"buttons"})
 }
@@ -676,7 +706,7 @@ func (s *MouseService) FactoryReset() (rapoo.DeviceSnapshot, error) {
 // opened against. A device swap while the dialog is open aborts the write.
 func (s *MouseService) FactoryResetForGeneration(generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
-		if err := c.FactoryReset(); err != nil {
+		if err := c.FactoryResetDeadline(deadline); err != nil {
 			return err
 		}
 		// Give mouse MCU a moment to reinitialize flash defaults when connected to real hardware.
@@ -770,24 +800,24 @@ func (s *MouseService) ApplyPresetForGeneration(id string, generation uint64, de
 			if maxRate > 0 && rate > maxRate {
 				rate = maxRate
 			}
-			if err := c.SetPollingRate(rate); err != nil {
-				return wrapStepError(applied, fmt.Errorf("ポーリングレートの適用に失敗しました: %s", s.friendlyError(err)))
+			if err := c.SetPollingRateDeadline(rate, deadline); err != nil {
+				return wrapStepError(applied, fmt.Errorf("ポーリングレートの適用に失敗しました: %s: %w", s.friendlyError(err), err))
 			}
 			applied = append(applied, "pollingRate")
 		}
 		if preset.DPI.StageCount >= 1 {
 			if err := c.SetDPIConfigDeadline(preset.DPI, deadline); err != nil {
-				return wrapStepError(applied, fmt.Errorf("DPIの適用に失敗しました: %s", s.friendlyError(err)))
+				return wrapStepError(applied, fmt.Errorf("DPIの適用に失敗しました: %s: %w", s.friendlyError(err), err))
 			}
 			applied = append(applied, "dpi")
 		}
 		if err := c.UpdateSensorConfigDeadline(preset.Sensor, deadline); err != nil {
-			return wrapStepError(applied, fmt.Errorf("センサー設定の適用に失敗しました: %s", s.friendlyError(err)))
+			return wrapStepError(applied, fmt.Errorf("センサー設定の適用に失敗しました: %s: %w", s.friendlyError(err), err))
 		}
 		applied = append(applied, "sensor")
 		if len(preset.Buttons) > 0 {
 			if err := c.SetAllButtonMappingsDeadline(preset.Buttons, deadline); err != nil {
-				return wrapStepError(applied, fmt.Errorf("ボタン割り当ての適用に失敗しました: %s", s.friendlyError(err)))
+				return wrapStepError(applied, fmt.Errorf("ボタン割り当ての適用に失敗しました: %s: %w", s.friendlyError(err), err))
 			}
 			applied = append(applied, "buttons")
 		}
@@ -930,19 +960,32 @@ func (s *MouseService) higherPriorityEndpointAvailable() bool {
 		return true
 	}
 	current := curClient.Endpoint()
-	best := pairs[0]
-	if current.Command != nil {
-		if best.Command == nil || best.Command.Path != current.Command.Path {
-			return true
+	currentPresent := false
+	bestPriority := -1
+	for _, pair := range pairs {
+		if pair.Model.Priority > bestPriority {
+			bestPriority = pair.Model.Priority
 		}
-	} else if best.Command != nil {
+		if pairMatchesEndpoint(pair, current) {
+			currentPresent = true
+		}
+	}
+	if !currentPresent {
 		return true
 	}
-	if current.Report != nil {
-		if best.Report == nil || best.Report.Path != current.Report.Path {
-			return true
-		}
-	} else if best.Report != nil {
+	// Do not churn between two identical devices just because the map/sort
+	// order changed. Only a strictly higher-priority endpoint (wired over
+	// dongle) may replace a healthy current one.
+	return bestPriority > current.Model.Priority
+}
+
+func pairMatchesEndpoint(pair, current rapoo.EndpointPair) bool {
+	if current.Command != nil && pair.Command != nil &&
+		pair.Command.Path == current.Command.Path {
+		return true
+	}
+	if current.Report != nil && pair.Report != nil &&
+		pair.Report.Path == current.Report.Path {
 		return true
 	}
 	return false

@@ -30,40 +30,46 @@ public sealed partial class RealRapooService
 
     public Task<BridgeSnapshot> ApplySensorAsync(
         IReadOnlyDictionary<string, object> patch,
-        long expectedGeneration = 0) =>
+        long expectedGeneration = 0,
+        long expectedSession = 0) =>
         UpdateSnapshotAsync((session, generation) =>
             _client.ApplySensorAsync(
                 patch,
                 default,
-                session,
+                PinnedSession(expectedSession, session),
                 PinnedGeneration(expectedGeneration, generation)));
 
     public Task<BridgeSnapshot> SetButtonAsync(
         int buttonId,
         BridgeButtonAction action,
-        long expectedGeneration = 0) =>
+        long expectedGeneration = 0,
+        long expectedSession = 0) =>
         UpdateSnapshotAsync((session, generation) =>
             _client.SetButtonAsync(
                 buttonId,
                 action,
                 default,
-                session,
+                PinnedSession(expectedSession, session),
                 PinnedGeneration(expectedGeneration, generation)));
 
-    public Task<BridgeSnapshot> ResetButtonsAsync(long expectedGeneration = 0) =>
+    public Task<BridgeSnapshot> ResetButtonsAsync(
+        long expectedGeneration = 0,
+        long expectedSession = 0) =>
         UpdateSnapshotAsync((session, generation) =>
             _client.ResetButtonsAsync(
                 default,
-                session,
+                PinnedSession(expectedSession, session),
                 PinnedGeneration(expectedGeneration, generation)));
 
-    public Task<BridgeSnapshot> FactoryResetAsync() => FactoryResetAsync(0);
+    public Task<BridgeSnapshot> FactoryResetAsync() => FactoryResetAsync(0, 0);
 
-    public Task<BridgeSnapshot> FactoryResetAsync(long expectedGeneration) =>
+    public Task<BridgeSnapshot> FactoryResetAsync(
+        long expectedGeneration,
+        long expectedSession = 0) =>
         UpdateSnapshotAsync((session, generation) =>
             _client.FactoryResetAsync(
                 default,
-                session,
+                PinnedSession(expectedSession, session),
                 PinnedGeneration(expectedGeneration, generation)));
 
     public Task<List<BridgePreset>> ListPresetsAsync() => _client.ListPresetsAsync();
@@ -71,12 +77,15 @@ public sealed partial class RealRapooService
     public Task<BridgePreset> SavePresetAsync(string name, string description) =>
         _client.SavePresetAsync(string.Empty, name, description);
 
-    public Task<BridgeSnapshot> ApplyPresetAsync(string id, long expectedGeneration = 0) =>
+    public Task<BridgeSnapshot> ApplyPresetAsync(
+        string id,
+        long expectedGeneration = 0,
+        long expectedSession = 0) =>
         UpdateSnapshotAsync((session, generation) =>
             _client.ApplyPresetAsync(
                 id,
                 default,
-                session,
+                PinnedSession(expectedSession, session),
                 PinnedGeneration(expectedGeneration, generation)));
 
     public Task DeletePresetAsync(string id) => _client.DeletePresetAsync(id);
@@ -85,6 +94,9 @@ public sealed partial class RealRapooService
 
     private static long PinnedGeneration(long expectedGeneration, long currentGeneration) =>
         expectedGeneration != 0 ? expectedGeneration : currentGeneration;
+
+    private static long PinnedSession(long expectedSession, long currentSession) =>
+        expectedSession != 0 ? expectedSession : currentSession;
 
 
     private async Task<BridgeSnapshot> UpdateSnapshotAsync(

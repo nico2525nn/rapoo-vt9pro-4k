@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -161,6 +162,161 @@ func TestMouseServiceWriteGuardRejectsStaleGenerationAndDeadline(t *testing.T) {
 	}
 	if _, err := svc.SetPollingRateForGeneration(4000, generation, time.Time{}); err != nil {
 		t.Fatalf("current generation write: %v", err)
+	}
+}
+
+func TestDPIPartialErrorPreservesAppliedSteps(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	before, err := svc.ReadSnapshot()
+	if err != nil || before.DPI == nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrDPIStagesY {
+			return errors.New("injected Y write failure")
+		}
+		return original(data)
+	}
+
+	cfg := *before.DPI
+	cfg.Stages[0].X = 450
+	_, err = svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+	foundX := false
+	for _, step := range partial.Applied {
+		if step == "dpiX" {
+			foundX = true
+		}
+	}
+	if !foundX {
+		t.Fatalf("applied steps = %v, want dpiX", partial.Applied)
+	}
+}
+
+func TestHigherPriorityEndpointKeepsCurrentEqualDevice(t *testing.T) {
+	newProvider := func(physical string) *hid.MockProvider {
+		prov := hid.NewMockProvider()
+		prov.Register(hid.NewMockDevice(hid.DeviceInfo{
+			Path:            "cmd-" + physical,
+			VendorID:        0x24AE,
+			ProductID:       0x1211,
+			InterfaceNumber: 1,
+			UsagePage:       0xFF00,
+			Usage:           0x000E,
+			OutputReportLen: 32,
+			PhysicalID:      physical,
+		}))
+		prov.Register(hid.NewMockDevice(hid.DeviceInfo{
+			Path:            "rep-" + physical,
+			VendorID:        0x24AE,
+			ProductID:       0x1211,
+			InterfaceNumber: 1,
+			UsagePage:       0xFF00,
+			Usage:           0x0002,
+			InputReportLen:  10,
+			PhysicalID:      physical,
+		}))
+		return prov
+	}
+
+	provA := newProvider("container:a")
+	provB := newProvider("container:b")
+	// The service normally sees both devices through one provider. Build a
+	// combined view for the endpoint lookup.
+	combined := hid.NewMockProvider()
+	for _, prov := range []*hid.MockProvider{provA, provB} {
+		infos, err := prov.Enumerate(rapoo.DefaultHIDFilter())
+		if err != nil {
+			t.Fatalf("enumerate: %v", err)
+		}
+		for _, info := range infos {
+			dev, err := prov.Open(info, false)
+			if err != nil {
+				t.Fatalf("open mock: %v", err)
+			}
+			_ = dev.Close()
+			combined.Register(hid.NewMockDevice(info))
+		}
+	}
+	infos, err := combined.Enumerate(rapoo.DefaultHIDFilter())
+	if err != nil {
+		t.Fatalf("combined enumerate: %v", err)
+	}
+	pairs := rapoo.MatchEndpoints(infos)
+	var pairA rapoo.EndpointPair
+	for _, pair := range pairs {
+		if pair.Command != nil && pair.Command.PhysicalID == "container:a" {
+			pairA = pair
+		}
+	}
+	if pairA.Command == nil || pairA.Report == nil {
+		t.Fatalf("pair A not found: %+v", pairs)
+	}
+	client, err := rapoo.OpenEndpoint(combined, pairA, rapoo.ClientOptions{})
+	if err != nil {
+		t.Fatalf("open pair A: %v", err)
+	}
+	defer client.Close()
+
+	svc := NewMouseService(combined, Config{PresetDir: t.TempDir()})
+	svc.client = client
+	svc.state.Connected = true
+	svc.state.Generation = 1
+	if svc.higherPriorityEndpointAvailable() {
+		t.Fatal("current equal-priority endpoint should not be replaced")
+	}
+
+	svc.realProvider = provB
+	if !svc.higherPriorityEndpointAvailable() {
+		t.Fatal("missing current endpoint should trigger reconnect")
+	}
+}
+
+func TestDeadlineIsCheckedAfterReadBeforeWrite(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	original := svc.demoDevice.CmdDev.OnGetInput
+	svc.demoDevice.CmdDev.OnGetInput = func(reportID byte, length int) ([]byte, error) {
+		time.Sleep(50 * time.Millisecond)
+		return original(reportID, length)
+	}
+
+	generation := svc.GetState().Generation
+	_, err := svc.SetPollingRateForGeneration(4000, generation, time.Now().Add(10*time.Millisecond))
+	if !errors.Is(err, ErrDeadlineExceeded) {
+		t.Fatalf("error = %v, want ErrDeadlineExceeded", err)
 	}
 }
 

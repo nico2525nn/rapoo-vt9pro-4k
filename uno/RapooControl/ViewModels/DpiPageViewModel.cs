@@ -11,6 +11,7 @@ public sealed class DpiPageViewModel : ObservableObject
 
     private readonly IRapooService _service;
     private readonly Func<long>? _currentGeneration;
+    private readonly Func<long>? _currentSession;
     private int _stageCount = 4;
     private int _currentStage = 2;
     private int _pollingRateHz = 4000;
@@ -19,10 +20,14 @@ public sealed class DpiPageViewModel : ObservableObject
     private int _savedPollingRate;
     private DpiConfiguration? _savedConfiguration;
 
-    public DpiPageViewModel(IRapooService service, Func<long>? currentGeneration = null)
+    public DpiPageViewModel(
+        IRapooService service,
+        Func<long>? currentGeneration = null,
+        Func<long>? currentSession = null)
     {
         _service = service;
         _currentGeneration = currentGeneration;
+        _currentSession = currentSession;
 
         // Seven slots exist on the device; only StageCount of them are visible.
         for (var i = 1; i <= RapooLimits.MaxDpiStages; i++)
@@ -218,13 +223,15 @@ public sealed class DpiPageViewModel : ObservableObject
         }
 
         var configuration = CreateDraft();
-        // Pin both writes in this apply to the same device generation.
+        // Pin both writes in this apply to the same sidecar session and device.
         var generation = _currentGeneration?.Invoke() ?? 0;
+        var session = _currentSession?.Invoke() ?? 0;
         if (HasDpiChanges(saved, configuration))
         {
             await _service.ApplyDpiConfigurationAsync(
                 configuration,
-                expectedGeneration: generation);
+                expectedGeneration: generation,
+                expectedSession: session);
             if (!ReferenceEquals(_savedConfiguration, saved))
             {
                 throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
@@ -238,7 +245,8 @@ public sealed class DpiPageViewModel : ObservableObject
         {
             await _service.SetPollingRateAsync(
                 rate,
-                expectedGeneration: generation);
+                expectedGeneration: generation,
+                expectedSession: session);
             _pollingRateHz = rate;
             _savedPollingRate = rate;
             OnPropertyChanged(nameof(IsDirty));

@@ -11,6 +11,8 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     private readonly RapooBridgeClient _client = new();
     private BridgeState? _lastState;
     private BridgeSnapshot? _lastSnapshot;
+    private long _snapshotFloorGeneration;
+    private long _snapshotFloorRevision;
 
     public RealRapooService()
     {
@@ -31,6 +33,9 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         };
         _client.Faulted += (_, message) =>
         {
+            ResetSnapshotFloor();
+            _lastState = null;
+            _lastSnapshot = null;
             Faulted?.Invoke(this, message);
         };
     }
@@ -45,6 +50,9 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
+        ResetSnapshotFloor();
+        _lastState = null;
+        _lastSnapshot = null;
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
         var initialState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
         if (AcceptState(initialState))
@@ -76,7 +84,13 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         }
     }
 
-    public Task StopAsync() => _client.StopAsync();
+    public Task StopAsync()
+    {
+        ResetSnapshotFloor();
+        _lastState = null;
+        _lastSnapshot = null;
+        return _client.StopAsync();
+    }
 
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -206,20 +220,32 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
 
     private bool AcceptSnapshot(BridgeSnapshot snapshot)
     {
-        if (snapshot.Generation > 0 && _lastState is { Generation: > 0 } state &&
-            snapshot.Generation < state.Generation)
+        if (snapshot.Generation > 0 && _snapshotFloorGeneration > 0 &&
+            snapshot.Generation < _snapshotFloorGeneration)
         {
             return false;
         }
-        if (snapshot.Generation > 0 && _lastState is { Generation: > 0 } sameGeneration &&
-            snapshot.Generation == sameGeneration.Generation &&
-            _lastSnapshot is { StateRevision: > 0 } previous &&
-            snapshot.StateRevision > 0 &&
-            snapshot.StateRevision < previous.StateRevision)
+        if (snapshot.Generation > 0 && snapshot.Generation == _snapshotFloorGeneration &&
+            snapshot.StateRevision > 0 && _snapshotFloorRevision > 0 &&
+            snapshot.StateRevision < _snapshotFloorRevision)
         {
             return false;
+        }
+        if (snapshot.Generation > 0)
+        {
+            _snapshotFloorGeneration = snapshot.Generation;
+            if (snapshot.StateRevision > 0)
+            {
+                _snapshotFloorRevision = snapshot.StateRevision;
+            }
         }
         return true;
+    }
+
+    private void ResetSnapshotFloor()
+    {
+        _snapshotFloorGeneration = 0;
+        _snapshotFloorRevision = 0;
     }
 
     private async Task<BridgeSnapshot> ReadSnapshotWithRetryAsync(CancellationToken cancellationToken)
