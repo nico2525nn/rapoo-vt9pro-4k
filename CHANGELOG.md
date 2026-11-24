@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Windows: the app crashed during startup while creating
+  `XamlControlsResources` (`0x802B000A`). `Microsoft.WindowsAppSDK` is now a
+  direct package reference so the WinUI resource PRI is merged; both the slim
+  and portable builds start and render in an interactive session.
+- The Windows smoke is now run in the user's interactive session; an SSH
+  session cannot create a DirectComposition device and is not a valid GUI test.
+
 ## v1.6.0 — 2026-11-24
 
 ### Changed
