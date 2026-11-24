@@ -4,41 +4,39 @@ package hid
 
 import (
 	"errors"
-	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
-func TestAcquireLinuxDeviceLockIsExclusive(t *testing.T) {
-	info := DeviceInfo{
-		Path:       filepath.Join(t.TempDir(), "hidraw-test"),
-		PhysicalID: fmt.Sprintf("test-%d", time.Now().UnixNano()),
+func TestLinuxDeviceFileLockIsExclusive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hidraw-test")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatalf("create test device: %v", err)
 	}
+	info := DeviceInfo{Path: path}
+	provider := &linuxProvider{}
 
-	// TMPDIR must not influence the machine-local lock name.
-	t.Setenv("TMPDIR", t.TempDir())
-	first, err := acquireLinuxDeviceLock(info)
+	first, err := provider.Open(info, true)
 	if err != nil {
-		t.Fatalf("first lock: %v", err)
+		t.Fatalf("first open: %v", err)
 	}
-	t.Setenv("TMPDIR", t.TempDir())
 	t.Cleanup(func() {
 		_ = first.Close()
 	})
 
-	if _, err := acquireLinuxDeviceLock(info); !errors.Is(err, ErrDeviceBusy) {
-		t.Fatalf("second lock error = %v, want ErrDeviceBusy", err)
+	if _, err := provider.Open(info, true); !errors.Is(err, ErrDeviceBusy) {
+		t.Fatalf("second open error = %v, want ErrDeviceBusy", err)
 	}
 
 	if err := first.Close(); err != nil {
-		t.Fatalf("close first lock: %v", err)
+		t.Fatalf("close first: %v", err)
 	}
-	second, err := acquireLinuxDeviceLock(info)
+	second, err := provider.Open(info, true)
 	if err != nil {
-		t.Fatalf("lock after release: %v", err)
+		t.Fatalf("open after release: %v", err)
 	}
 	if err := second.Close(); err != nil {
-		t.Fatalf("close second lock: %v", err)
+		t.Fatalf("close second: %v", err)
 	}
 }

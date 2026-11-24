@@ -431,6 +431,62 @@ func TestProfileApplyKeepsPriorStepsWhenNextStepFails(t *testing.T) {
 	}
 }
 
+func TestDPIReadbackNormalizesAndChecksAllStages(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	snap, err := svc.ReadSnapshot()
+	if err != nil || snap.DPI == nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+
+	// Normalization must not turn a valid write into a false partial: 451/0
+	// is encoded as 450/450.
+	cfg := *snap.DPI
+	cfg.Stages[0].X = 451
+	cfg.Stages[0].Y = 0
+	cfg.AllStages = append([]rapoo.DPIStage(nil), snap.DPI.AllStages...)
+	cfg.AllStages[0].X = 451
+	cfg.AllStages[0].Y = 0
+	if _, err := svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{}); err != nil {
+		t.Fatalf("normalized DPI write: %v", err)
+	}
+
+	// The verifier must compare every encoded slot, including slots outside
+	// StageCount. ACK a DPI write without changing memory and expect a partial.
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+		if len(data) >= 8 {
+			addr := binary.LittleEndian.Uint32(data[4:8])
+			if addr == rapoo.AddrDPIStagesX || addr == rapoo.AddrDPIStagesY {
+				return nil
+			}
+		}
+		return original(data)
+	}
+	cfg = *snap.DPI
+	cfg.AllStages = append([]rapoo.DPIStage(nil), snap.DPI.AllStages...)
+	cfg.AllStages[6].X = 500
+	cfg.AllStages[6].Y = 500
+	_, err = svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+}
+
 func TestReadbackMismatchIsNotSuccess(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,

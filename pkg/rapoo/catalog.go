@@ -227,6 +227,22 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 			byDevice[key] = pair
 		}
 
+		if info.PhysicalID == "" {
+			// No container ID: use a path-derived physical key only as a
+			// ambiguity detector, never to silently mix two mice.
+			infoKey := fallbackDeviceKey(info.Path)
+			if pair.Command != nil && pair.Command.PhysicalID == "" &&
+				strings.Contains(pair.Command.Path, "#") &&
+				strings.Contains(info.Path, "#") &&
+				fallbackDeviceKey(pair.Command.Path) != infoKey {
+				pair.Ambiguous = true
+			}
+			if pair.Report != nil && pair.Report.PhysicalID == "" &&
+				fallbackDeviceKey(pair.Report.Path) != infoKey {
+				pair.Ambiguous = true
+			}
+		}
+
 		switch info.Usage {
 		case UsageCommandRealtek:
 			if pair.Command != nil && pair.Command.Path != info.Path {
@@ -260,6 +276,52 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 		return endpointSortKey(out[i]) < endpointSortKey(out[j])
 	})
 	return out
+}
+
+// fallbackDeviceKey is a conservative identity for endpoints without an OS
+// container ID. It is used only to flag mixed pairs, not to prove identity.
+func fallbackDeviceKey(path string) string {
+	p := strings.ToLower(path)
+	if strings.Contains(p, "#") {
+		for {
+			i := strings.Index(p, "&col")
+			if i < 0 {
+				break
+			}
+			j := i + 4
+			for j < len(p) && isHex(p[j]) {
+				j++
+			}
+			p = p[:i] + p[j:]
+		}
+		if i := strings.LastIndex(p, "&"); i >= 0 && len(p)-i-1 == 4 && allHex(p[i+1:]) {
+			p = p[:i]
+		}
+		return p
+	}
+	if i := strings.Index(p, "col"); i >= 0 {
+		return p[:i]
+	}
+	for _, suffix := range []string{"_command", "_cmd", "_report", "_notify", "_other"} {
+		p = strings.TrimSuffix(p, suffix)
+	}
+	return p
+}
+
+func isHex(b byte) bool {
+	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f')
+}
+
+func allHex(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if !isHex(s[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func endpointSortKey(pair EndpointPair) string {

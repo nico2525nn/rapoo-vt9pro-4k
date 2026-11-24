@@ -448,10 +448,10 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		return "", errors.New("firmware update is only available with the official Windows software")
 	}
 
-	candidates := []string{requested}
 	if requested == "" {
-		candidates = officialUpdaterCandidates()
+		return "", errors.New("select the official updater executable explicitly")
 	}
+	candidates := []string{requested}
 	for _, path := range candidates {
 		if path == "" {
 			continue
@@ -544,29 +544,4 @@ func (b *bridge) openUpdater(requested string) (string, error) {
 		return path, nil
 	}
 	return "", errors.New("the official Rapoo software was not found")
-}
-
-func officialUpdaterCandidates() []string {
-	roots := []string{
-		os.Getenv("ProgramFiles(x86)"),
-		os.Getenv("ProgramFiles"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Programs"),
-		os.Getenv("LOCALAPPDATA"),
-		os.Getenv("APPDATA"),
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, exe := range []string{"RapooGameDev.exe", "FirmwareExe.exe"} {
-		for _, root := range roots {
-			if root == "" {
-				continue
-			}
-			path := filepath.Join(root, "Rapoo", "RapooGameDev", exe)
-			if !seen[path] {
-				seen[path] = true
-				out = append(out, path)
-			}
-		}
-	}
-	return out
 }

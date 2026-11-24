@@ -93,6 +93,9 @@ func OpenFirst(provider hid.Provider, opts ClientOptions) (*Client, error) {
 
 // OpenEndpoint opens a specific matched EndpointPair.
 func OpenEndpoint(provider hid.Provider, pair EndpointPair, opts ClientOptions) (*Client, error) {
+	if pair.Ambiguous {
+		return nil, ErrAmbiguousDevice
+	}
 	opts.applyDefaults()
 
 	c := &Client{
@@ -203,10 +206,10 @@ func (c *Client) readReportLoop() {
 
 // sendAndRecvLocked executes a single 0xBA control-report exchange while cmdMu is held.
 func (c *Client) sendAndRecvLocked(tx []byte) ([]byte, error) {
-	return c.sendAndRecvLockedDeadline(tx, time.Time{})
+	return c.sendAndRecvLockedDeadline(tx, time.Time{}, true)
 }
 
-func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byte, error) {
+func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time, retryAfterSend bool) ([]byte, error) {
 	if c.opts.PassiveOnly || c.cmdDev == nil {
 		return nil, errors.New("rapoo: command channel unavailable (passive-only mode)")
 	}
@@ -257,6 +260,9 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byt
 			raw, err := c.cmdDev.GetInputReport(ReportIDCommand, PacketLength, sendTimeout)
 			c.lastCmdEnd = time.Now()
 			if err != nil {
+				if sent && !retryAfterSend {
+					return nil, fmt.Errorf("%w: %v", ErrResultUnknown, err)
+				}
 				lastErr = err
 				break
 			}
@@ -291,17 +297,22 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time) ([]byt
 	if lastErr == nil {
 		lastErr = ErrInvalidResponse
 	}
+	if sent && !retryAfterSend {
+		return nil, fmt.Errorf("%w: %v", ErrResultUnknown, lastErr)
+	}
 	return nil, lastErr
 }
 
 func (c *Client) sendAndRecv(tx []byte) ([]byte, error) {
-	return c.sendAndRecvDeadline(tx, time.Time{})
+	c.cmdMu.Lock()
+	defer c.cmdMu.Unlock()
+	return c.sendAndRecvLockedDeadline(tx, time.Time{}, true)
 }
 
 func (c *Client) sendAndRecvDeadline(tx []byte, deadline time.Time) ([]byte, error) {
 	c.cmdMu.Lock()
 	defer c.cmdMu.Unlock()
-	return c.sendAndRecvLockedDeadline(tx, deadline)
+	return c.sendAndRecvLockedDeadline(tx, deadline, false)
 }
 
 func ioTimeoutForDeadline(deadline time.Time, fallback time.Duration) (time.Duration, error) {

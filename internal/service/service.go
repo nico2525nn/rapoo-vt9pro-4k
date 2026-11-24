@@ -649,24 +649,29 @@ func verifyDPIConfig(snap rapoo.DeviceSnapshot, cfg rapoo.DPIConfig) error {
 	if snap.DPI.CurrentStage != expectedStage {
 		return fmt.Errorf("使用DPIステージの反映を確認できませんでした (要求 %d, 実測 %d)", expectedStage, snap.DPI.CurrentStage)
 	}
-	byIndex := make(map[int]rapoo.DPIStage, len(stages))
-	for _, stage := range stages {
-		byIndex[stage.Index] = stage
-	}
 	src := cfg.AllStages
-	if len(src) < cfg.StageCount {
+	compareAll := len(src) >= rapoo.MaxDPIStage
+	if !compareAll {
 		src = cfg.Stages
 	}
-	for i := 0; i < cfg.StageCount && i < len(src); i++ {
+	limit := cfg.StageCount
+	if compareAll {
+		limit = rapoo.MaxDPIStage
+	}
+	if len(src) < limit || len(stages) < limit {
+		return errors.New("DPIステージの読み戻しデータが不足しています")
+	}
+	for i := 0; i < limit; i++ {
 		want := src[i]
-		index := want.Index
-		if index == 0 {
-			index = i + 1
+		wantX := rapoo.NormalizeDPI(want.X)
+		wantY := wantX
+		if want.Y > 0 {
+			wantY = rapoo.NormalizeDPI(want.Y)
 		}
-		got, ok := byIndex[index]
-		if !ok || got.X != want.X || got.Y != want.Y {
+		got := stages[i]
+		if got.X != wantX || got.Y != wantY {
 			return fmt.Errorf("DPIステージ %d の反映を確認できませんでした (要求 %d/%d, 実測 %d/%d)",
-				index, want.X, want.Y, got.X, got.Y)
+				i+1, wantX, wantY, got.X, got.Y)
 		}
 	}
 	return nil

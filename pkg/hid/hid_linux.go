@@ -3,11 +3,8 @@
 package hid
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -139,10 +136,8 @@ func (p *linuxProvider) Open(info DeviceInfo, writeAccess bool) (Device, error) 
 		return nil, fmt.Errorf("os.NewFile(%s) returned nil", info.Path)
 	}
 
-	var lock net.Listener
 	if writeAccess {
-		lock, err = acquireLinuxDeviceLock(info)
-		if err != nil {
+		if err := lockLinuxDeviceFile(f); err != nil {
 			_ = f.Close()
 			return nil, err
 		}
@@ -150,34 +145,27 @@ func (p *linuxProvider) Open(info DeviceInfo, writeAccess bool) (Device, error) 
 	return &linuxDevice{
 		info: info,
 		file: f,
-		lock: lock,
 	}, nil
 }
 
-// acquireLinuxDeviceLock binds an abstract Unix socket keyed by the stable
-// physical ID. Abstract names are machine-local, are not affected by TMPDIR or
-// filesystem ownership, and are released automatically when the process exits.
-func acquireLinuxDeviceLock(info DeviceInfo) (net.Listener, error) {
-	key := info.PhysicalID
-	if key == "" {
-		key = info.Path
+// lockLinuxDeviceFile takes an advisory lock on the hidraw inode itself. Unlike
+// a lock file or an abstract socket, this is independent of TMPDIR, UID,
+// filesystem ownership, and network namespaces, and the kernel releases it on
+// close/process exit. A second writable open of the same device gets EBUSY.
+func lockLinuxDeviceFile(f *os.File) error {
+	err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+	if err == nil {
+		return nil
 	}
-	sum := sha256.Sum256([]byte(key))
-	name := "\x00rapoo-vt9pro4k-" + hex.EncodeToString(sum[:8])
-	lock, err := net.ListenUnix("unix", &net.UnixAddr{Name: name, Net: "unix"})
-	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
-			return nil, ErrDeviceBusy
-		}
-		return nil, fmt.Errorf("lock HID device: %w", err)
+	if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+		return ErrDeviceBusy
 	}
-	return lock, nil
+	return fmt.Errorf("lock HID device: %w", err)
 }
 
 type linuxDevice struct {
 	info      DeviceInfo
 	file      *os.File
-	lock      net.Listener
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	closed    bool
@@ -342,10 +330,7 @@ func (d *linuxDevice) Close() error {
 		d.mu.Lock()
 		d.closed = true
 		d.mu.Unlock()
-		if d.lock != nil {
-			_ = d.lock.Close()
-			d.lock = nil
-		}
+		_ = syscall.Flock(int(d.file.Fd()), syscall.LOCK_UN)
 		err = d.file.Close()
 	})
 	return err
