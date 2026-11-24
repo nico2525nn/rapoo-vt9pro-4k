@@ -186,6 +186,23 @@ func TestKeyboardShortcutAndLeftClickGuard(t *testing.T) {
 	}
 }
 
+func TestEncodeUnknownButtonActionPreservesRaw(t *testing.T) {
+	raw := [4]byte{0xEE, 0x01, 0x02, 0x03}
+	got, err := EncodeButtonAction(ButtonAction{Type: ActionUnknown, Raw: raw})
+	if err != nil {
+		t.Fatalf("EncodeButtonAction: %v", err)
+	}
+	if got != raw {
+		t.Fatalf("raw = % x, want % x", got, raw)
+	}
+
+	defs := DefaultButtonMappings()
+	defs[3].Action = ButtonAction{Type: ActionUnknown, Raw: raw}
+	if err := ValidateButtonMappings(defs); err != nil {
+		t.Fatalf("unknown macro should be preserved by validation: %v", err)
+	}
+}
+
 func TestReadWriteMemoryFramingAndDPIEncoder(t *testing.T) {
 	readTX, err := BuildReadMemory(TargetWirelessMouse, OpcodesGenA.ReadMemory, AddrDPIStagesX, 24)
 	if err != nil {
