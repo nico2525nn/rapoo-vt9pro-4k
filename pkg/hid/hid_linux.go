@@ -3,6 +3,7 @@
 package hid
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -135,15 +136,54 @@ func (p *linuxProvider) Open(info DeviceInfo, writeAccess bool) (Device, error) 
 		syscall.Close(fd)
 		return nil, fmt.Errorf("os.NewFile(%s) returned nil", info.Path)
 	}
+
+	var lockFile *os.File
+	if writeAccess {
+		lockFile, err = acquireLinuxDeviceLock(info)
+		if err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+	}
 	return &linuxDevice{
-		info: info,
-		file: f,
+		info:     info,
+		file:     f,
+		lockFile: lockFile,
 	}, nil
+}
+
+// acquireLinuxDeviceLock takes a non-blocking advisory lock shared by every
+// process that opens the writable command endpoint for the same physical
+// device. The lock file lives in the temp directory and is keyed by the stable
+// physical ID (falling back to the hidraw path).
+func acquireLinuxDeviceLock(info DeviceInfo) (*os.File, error) {
+	key := info.PhysicalID
+	if key == "" {
+		key = info.Path
+	}
+	sum := sha256.Sum256([]byte(key))
+	name := fmt.Sprintf("rapoo-vt9pro4k-%x.lock", sum[:8])
+	path := filepath.Join(os.TempDir(), name)
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open HID lock %s: %w", path, err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, ErrDeviceBusy
+		}
+		return nil, fmt.Errorf("lock HID device: %w", err)
+	}
+	_ = lock.Truncate(0)
+	_, _ = lock.WriteAt([]byte(strconv.Itoa(os.Getpid())), 0)
+	return lock, nil
 }
 
 type linuxDevice struct {
 	info      DeviceInfo
 	file      *os.File
+	lockFile  *os.File
 	closeOnce sync.Once
 	mu        sync.RWMutex
 	closed    bool
@@ -308,6 +348,11 @@ func (d *linuxDevice) Close() error {
 		d.mu.Lock()
 		d.closed = true
 		d.mu.Unlock()
+		if d.lockFile != nil {
+			_ = syscall.Flock(int(d.lockFile.Fd()), syscall.LOCK_UN)
+			_ = d.lockFile.Close()
+			d.lockFile = nil
+		}
 		err = d.file.Close()
 	})
 	return err

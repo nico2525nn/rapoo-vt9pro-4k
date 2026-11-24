@@ -34,6 +34,10 @@ public sealed partial class RealRapooService
     private async Task<BridgeSnapshot> UpdateSnapshotAsync(Task<BridgeSnapshot> request)
     {
         var snapshot = await request.ConfigureAwait(false);
+        if (!AcceptSnapshot(snapshot))
+        {
+            return _lastSnapshot ?? snapshot;
+        }
         _lastSnapshot = snapshot;
         PublishStatus(snapshot);
         return snapshot;

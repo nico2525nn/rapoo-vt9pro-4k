@@ -762,7 +762,7 @@ func (a *App) FactoryReset() (rapoo.DeviceSnapshot, error) {
 	return a.svc.FactoryReset()
 }
 
-func (a *App) ListPresets() []profile.Preset {
+func (a *App) ListPresets() ([]profile.Preset, error) {
 	return a.svc.ListPresets()
 }
 

@@ -302,7 +302,8 @@ public sealed class RapooBridgeClientTests
                 1,
                 new[] { new BridgeDpiStage { Index = 1, X = 450, Y = 400 } },
                 cancellationToken: default,
-                sessionId: client.CurrentSessionId);
+                sessionId: client.CurrentSessionId,
+                generation: 42);
 
             Assert.That(snapshot.Dpi?.Stages, Has.Count.EqualTo(1));
             Assert.That(snapshot.Dpi!.Stages![0].X, Is.EqualTo(450));
@@ -310,6 +311,9 @@ public sealed class RapooBridgeClientTests
             using var request = JsonDocument.Parse(File.ReadAllText(capture));
             var root = request.RootElement;
             Assert.That(root.GetProperty("method").GetString(), Is.EqualTo("dpiConfig"));
+            Assert.That(root.GetProperty("params").GetProperty("generation").GetInt64(), Is.EqualTo(42));
+            Assert.That(root.GetProperty("deadline").GetInt64(),
+                Is.GreaterThan(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
             var stages = root.GetProperty("params").GetProperty("config").GetProperty("stages");
             Assert.That(stages.ValueKind, Is.EqualTo(JsonValueKind.Array));
             Assert.That(stages[0].GetProperty("x").GetInt32(), Is.EqualTo(450));
@@ -359,12 +363,14 @@ public sealed class RapooBridgeClientTests
                     ["sleepMinutes"] = 10,
                 },
                 cancellationToken: default,
-                sessionId: client.CurrentSessionId);
+                sessionId: client.CurrentSessionId,
+                generation: 7);
             _ = await client.SetButtonAsync(
                 5,
                 new BridgeButtonAction { Type = "left_click", LabelJa = "左クリック" },
                 cancellationToken: default,
-                sessionId: client.CurrentSessionId);
+                sessionId: client.CurrentSessionId,
+                generation: 7);
 
             var requests = File.ReadAllLines(capture)
                 .Select(line => JsonDocument.Parse(line))
@@ -376,11 +382,14 @@ public sealed class RapooBridgeClientTests
                 Assert.That(requests[0].RootElement.GetProperty("params").GetProperty("path").GetString(), Is.Empty);
                 Assert.That(requests[1].RootElement.GetProperty("params").GetProperty("language").GetString(), Is.EqualTo("ja"));
 
-                var patch = requests[2].RootElement.GetProperty("params").GetProperty("patch");
+                var sensorParams = requests[2].RootElement.GetProperty("params");
+                Assert.That(sensorParams.GetProperty("generation").GetInt64(), Is.EqualTo(7));
+                var patch = sensorParams.GetProperty("patch");
                 Assert.That(patch.GetProperty("motionSync").GetBoolean(), Is.False);
                 Assert.That(patch.GetProperty("sleepMinutes").GetInt32(), Is.EqualTo(10));
 
                 var button = requests[3].RootElement.GetProperty("params");
+                Assert.That(button.GetProperty("generation").GetInt64(), Is.EqualTo(7));
                 Assert.That(button.GetProperty("buttonId").GetInt32(), Is.EqualTo(5));
                 Assert.That(button.GetProperty("action").GetProperty("type").GetString(), Is.EqualTo("left_click"));
             }
@@ -396,6 +405,34 @@ public sealed class RapooBridgeClientTests
         {
             File.Delete(script);
             File.Delete(capture);
+        }
+    }
+
+    [Test]
+    public async Task ErrorCode_IsExposedOnException()
+    {
+        Assume.That(!OperatingSystem.IsWindows(), "The fake sidecar uses a POSIX shell.");
+        var script = CreateScript(
+            """
+            #!/bin/sh
+            printf '%s\n' '{"event":"ready","data":{"version":"1"}}'
+            while IFS= read -r line; do
+              printf '%s\n' '{"id":1,"error":"device changed","code":"device_changed"}'
+            done
+            """);
+        Environment.SetEnvironmentVariable("RAPOO_BRIDGE_PATH", script);
+
+        await using var client = new RapooBridgeClient();
+        try
+        {
+            await client.StartAsync();
+            var error = Assert.ThrowsAsync<RapooBridgeException>(
+                () => client.GetStateAsync().WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.That(error!.Code, Is.EqualTo("device_changed"));
+        }
+        finally
+        {
+            File.Delete(script);
         }
     }
 

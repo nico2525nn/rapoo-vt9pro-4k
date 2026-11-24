@@ -30,10 +30,13 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     private readonly object _gate = new();
     private readonly object _eventGate = new();
     private readonly Channel<BridgeNotification> _notifications =
-        Channel.CreateUnbounded<BridgeNotification>(new UnboundedChannelOptions
+        Channel.CreateBounded<BridgeNotification>(new BoundedChannelOptions(256)
         {
             SingleReader = true,
             SingleWriter = false,
+            // A slow UI must not make the sidecar read loop block or grow
+            // without bound. Keep the newest state; snapshots are refreshed.
+            FullMode = BoundedChannelFullMode.DropOldest,
         });
     private readonly CancellationTokenSource _notificationCts = new();
     private long _nextSessionId;
@@ -375,10 +378,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeSnapshot> SetPollingRateAsync(
         int hz,
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
+        long sessionId = 0,
+        long generation = 0) =>
         RequestAsync<BridgeSnapshot>(
             "pollingRate",
-            new JsonObject { ["hz"] = hz },
+            new JsonObject
+            {
+                ["hz"] = hz,
+                ["generation"] = generation,
+            },
             cancellationToken,
             sessionId);
 
@@ -387,7 +395,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         int currentStage,
         IReadOnlyList<BridgeDpiStage> stages,
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
+        long sessionId = 0,
+        long generation = 0) =>
         RequestAsync<BridgeSnapshot>(
             "dpiConfig",
             new JsonObject
@@ -399,6 +408,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                     ["independentXY"] = stages.Any(stage => stage.X != stage.Y),
                     ["stages"] = CreateStageArray(stages),
                 },
+                ["generation"] = generation,
             },
             cancellationToken,
             sessionId);
@@ -406,7 +416,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeSnapshot> ApplySensorAsync(
         IReadOnlyDictionary<string, object> patch,
         CancellationToken cancellationToken = default,
-        long sessionId = 0)
+        long sessionId = 0,
+        long generation = 0)
     {
         var patchNode = new JsonObject();
         foreach (var (key, value) in patch)
@@ -425,7 +436,11 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
         return RequestAsync<BridgeSnapshot>(
             "sensor",
-            new JsonObject { ["patch"] = patchNode },
+            new JsonObject
+            {
+                ["patch"] = patchNode,
+                ["generation"] = generation,
+            },
             cancellationToken,
             sessionId);
     }
@@ -434,7 +449,8 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         int buttonId,
         BridgeButtonAction action,
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
+        long sessionId = 0,
+        long generation = 0) =>
         RequestAsync<BridgeSnapshot>(
             "button",
             new JsonObject
@@ -443,19 +459,30 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                 ["action"] = JsonSerializer.SerializeToNode(
                     action,
                     BridgeJsonContext.Default.BridgeButtonAction),
+                ["generation"] = generation,
             },
             cancellationToken,
             sessionId);
 
     public Task<BridgeSnapshot> ResetButtonsAsync(
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("resetButtons", null, cancellationToken, sessionId);
+        long sessionId = 0,
+        long generation = 0) =>
+        RequestAsync<BridgeSnapshot>(
+            "resetButtons",
+            new JsonObject { ["generation"] = generation },
+            cancellationToken,
+            sessionId);
 
     public Task<BridgeSnapshot> FactoryResetAsync(
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
-        RequestAsync<BridgeSnapshot>("factoryReset", null, cancellationToken, sessionId);
+        long sessionId = 0,
+        long generation = 0) =>
+        RequestAsync<BridgeSnapshot>(
+            "factoryReset",
+            new JsonObject { ["generation"] = generation },
+            cancellationToken,
+            sessionId);
 
     public Task<BridgeCatalog> GetCatalogAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeCatalog>("catalog", null, cancellationToken);
@@ -481,10 +508,15 @@ public sealed class RapooBridgeClient : IAsyncDisposable
     public Task<BridgeSnapshot> ApplyPresetAsync(
         string id,
         CancellationToken cancellationToken = default,
-        long sessionId = 0) =>
+        long sessionId = 0,
+        long generation = 0) =>
         RequestAsync<BridgeSnapshot>(
             "applyPreset",
-            new JsonObject { ["id"] = id },
+            new JsonObject
+            {
+                ["id"] = id,
+                ["generation"] = generation,
+            },
             cancellationToken,
             sessionId);
 
@@ -731,6 +763,10 @@ public sealed class RapooBridgeClient : IAsyncDisposable
         {
             ["id"] = id,
             ["method"] = method,
+            // Leave a margin before the C# wait expires. The sidecar skips a
+            // queued request that can no longer be applied in time.
+            ["deadline"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() +
+                (long)RequestTimeout.TotalMilliseconds - 500,
         };
         if (parameters is not null)
         {
@@ -785,6 +821,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
                             ? errorElement.GetString()
                             : errorElement.GetRawText();
                     }
+                    var code = root.TryGetProperty("code", out var codeElement)
+                        ? codeElement.GetString()
+                        : null;
                     var hasResult = root.TryGetProperty("result", out var resultElement);
                     if (!session.Pending.TryRemove(id, out var completion))
                     {
@@ -793,7 +832,7 @@ public sealed class RapooBridgeClient : IAsyncDisposable
 
                     if (error is not null)
                     {
-                        completion.TrySetException(new RapooBridgeException(error));
+                        completion.TrySetException(new RapooBridgeException(error, code));
                     }
                     else if (hasResult)
                     {
@@ -1122,8 +1161,20 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             Directory.CreateDirectory(dir);
             lock (LogGate)
             {
+                var path = Path.Combine(dir, "winui-bridge.log");
+                try
+                {
+                    if (new FileInfo(path).Length > 1_000_000)
+                    {
+                        File.Move(path, path + ".1", overwrite: true);
+                    }
+                }
+                catch (IOException)
+                {
+                    // Rotation is best effort; keep logging to the current file.
+                }
                 File.AppendAllText(
-                    Path.Combine(dir, "winui-bridge.log"),
+                    path,
                     $"{DateTimeOffset.Now:O} {message}{Environment.NewLine}");
             }
         }
@@ -1181,4 +1232,8 @@ public sealed record BridgeStateEvent(long SessionId, BridgeState State, long Se
 
 public sealed record BridgeFault(long SessionId, string Message, long Sequence);
 
-public sealed class RapooBridgeException(string message) : Exception(message);
+public sealed class RapooBridgeException(string message, string? code = null) : Exception(message)
+{
+    /// <summary>Stable sidecar error code: device_changed, deadline_exceeded, partial, ...</summary>
+    public string? Code { get; } = code;
+}

@@ -25,7 +25,11 @@ public interface IRapooService : IAsyncDisposable
 
     Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0);
 
-    Task<DeviceStatus> SetPollingRateAsync(int hertz, CancellationToken cancellationToken = default);
+    Task<DeviceStatus> SetPollingRateAsync(
+        int hertz,
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0);
 }

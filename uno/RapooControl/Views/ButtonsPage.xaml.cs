@@ -203,6 +203,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
         }
 
         var revision = _deviceRevision;
+        var generation = ViewModel.DeviceGeneration;
         return Feedback.RunAsync(async () =>
         {
             if (!Assignments.Any(mapping => mapping.Slot.Clickable && mapping.Action.Type == "left_click"))
@@ -218,7 +219,7 @@ public sealed partial class ButtonsPage : Page, IConfigPageActions
                 {
                     throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
                 }
-                var snapshot = await service.SetButtonAsync(id, action);
+                var snapshot = await service.SetButtonAsync(id, action, generation);
                 if (revision != ViewModel.DeviceRevision)
                 {
                     throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");

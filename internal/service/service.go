@@ -120,6 +120,7 @@ type MouseService struct {
 	realProvider hid.Provider
 	demoDevice   *rapoo.VirtualDevice
 	presetStore  *profile.Store
+	presetErr    error
 	cfg          Config
 
 	mu            sync.RWMutex
@@ -147,12 +148,13 @@ func NewMouseService(provider hid.Provider, cfg Config) *MouseService {
 		provider = hid.NewProvider()
 	}
 	cfg.applyDefaults()
-	store, _ := profile.NewStore(cfg.PresetDir)
+	store, storeErr := profile.NewStore(cfg.PresetDir)
 
 	svc := &MouseService{
 		realProvider: provider,
 		demoDevice:   rapoo.NewVirtualDevice(),
 		presetStore:  store,
+		presetErr:    storeErr,
 		cfg:          cfg,
 		state: State{
 			Mode:     cfg.InitialMode,
@@ -422,7 +424,9 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 			// reject that first query even though the mouse is online, so
 			// retry the cheap battery command before showing "sleeping".
 			if bat, batErr := s.readBatteryWithRetry(c, 3); batErr == nil {
-				s.applyBattery(bat)
+				if !s.applyBatteryIfCurrent(bat, c, readGeneration) {
+					return snap, fmt.Errorf("%w: 接続先が変わりました。設定を再読み込みしてください。", ErrDeviceChanged)
+				}
 				if cached != nil {
 					cp := *cached
 					cp.DemoMode = demo
@@ -463,7 +467,7 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	s.mu.RLock()
 	sameClient := s.client == c
 	s.mu.RUnlock()
-	if (!sameClient) {
+	if !sameClient {
 		return snap, errors.New("接続先が変わりました。設定を再読み込みしてください。")
 	}
 	// Stamp before updateFromSnapshot caches the snapshot, otherwise the
@@ -472,7 +476,9 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	if snap.Generation == 0 {
 		snap.Generation = readGeneration
 	}
-	s.updateFromSnapshot(snap)
+	if !s.updateFromSnapshot(snap, c, readGeneration) {
+		return snap, fmt.Errorf("%w: 接続先が変わりました。設定を再読み込みしてください。", ErrDeviceChanged)
+	}
 	return snap, nil
 }
 
@@ -480,120 +486,230 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 // Wails-Bindable Mutating Device Operations
 // ============================================================================
 
-func (s *MouseService) writableClient() (*rapoo.Client, error) {
+func (s *MouseService) currentGeneration() uint64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.state.Generation
+}
+
+func deadlineExpired(deadline time.Time) bool {
+	return !deadline.IsZero() && time.Now().After(deadline)
+}
+
+// withWritableClient serializes a mutating operation with reconnect/poll
+// transitions and verifies the device generation immediately before the write.
+// It holds connectMu for the whole callback so the HID target cannot be swapped
+// underneath a multi-step operation.
+func (s *MouseService) withWritableClient(
+	expectedGeneration uint64,
+	deadline time.Time,
+	fn func(*rapoo.Client) error,
+) error {
+	if deadlineExpired(deadline) {
+		return ErrDeadlineExceeded
+	}
+	s.connectMu.Lock()
+	defer s.connectMu.Unlock()
+	if deadlineExpired(deadline) {
+		return ErrDeadlineExceeded
+	}
+
 	s.mu.RLock()
 	c := s.client
 	mode := s.state.Mode
+	generation := s.state.Generation
 	s.mu.RUnlock()
 
 	if mode == ModePassiveOnly {
-		return nil, errors.New("ゲーム中ロック (完全受動モード) が有効なため設定を変更できません。上部のロックを解除してください。")
+		return errors.New("ゲーム中ロック (完全受動モード) が有効なため設定を変更できません。上部のロックを解除してください。")
 	}
 	if c == nil {
-		return nil, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
+		return errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
 	}
-	return c, nil
+	if expectedGeneration != 0 && generation != expectedGeneration {
+		return fmt.Errorf("%w (expected %d, got %d)", ErrDeviceChanged, expectedGeneration, generation)
+	}
+	return fn(c)
+}
+
+func (s *MouseService) wrapFriendly(err error) error {
+	if err == nil {
+		return nil
+	}
+	var partial *PartialWriteError
+	if errors.As(err, &partial) {
+		return err
+	}
+	if errors.Is(err, ErrDeviceChanged) ||
+		errors.Is(err, ErrDeadlineExceeded) ||
+		errors.Is(err, rapoo.ErrDeadlineExceeded) {
+		return err
+	}
+	return errors.New(s.friendlyError(err))
+}
+
+func (s *MouseService) readAfterWrite(applied []string) (rapoo.DeviceSnapshot, error) {
+	snap, err := s.ReadSnapshot()
+	if err != nil {
+		return snap, &PartialWriteError{
+			Applied: applied,
+			Err:     fmt.Errorf("設定は書き込まれましたが、読み戻しに失敗しました: %s", s.friendlyError(err)),
+		}
+	}
+	return snap, nil
+}
+
+func wrapStepError(step string, applied []string, err error) error {
+	var partial *rapoo.PartialError
+	if errors.As(err, &partial) {
+		all := append(append([]string(nil), applied...), step)
+		all = append(all, partial.Applied...)
+		return &PartialWriteError{Applied: all, Err: partial.Err}
+	}
+	if errors.Is(err, rapoo.ErrDeadlineExceeded) {
+		return &PartialWriteError{Applied: applied, Err: err}
+	}
+	return err
 }
 
 // SetPollingRate changes the mouse polling rate (125..4000 Hz) and returns the refreshed snapshot.
 func (s *MouseService) SetPollingRate(hz int) (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.SetPollingRateForGeneration(hz, s.currentGeneration(), time.Time{})
+}
+
+// SetPollingRateForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) SetPollingRateForGeneration(hz int, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.SetPollingRate(hz)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	if err := c.SetPollingRate(hz); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"pollingRate"})
 }
 
 // SetCurrentDPIGear switches the active DPI stage (1..7) and returns the refreshed snapshot.
 func (s *MouseService) SetCurrentDPIGear(stage int) (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.SetCurrentDPIGearForGeneration(stage, s.currentGeneration(), time.Time{})
+}
+
+// SetCurrentDPIGearForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) SetCurrentDPIGearForGeneration(stage int, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.SetCurrentDPIGear(stage)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	if err := c.SetCurrentDPIGear(stage); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"dpiStage"})
 }
 
 // SetDPIConfig updates X/Y DPI values, stage count (1..7), and active stage, returning the refreshed snapshot.
 func (s *MouseService) SetDPIConfig(cfg rapoo.DPIConfig) (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.SetDPIConfigForGeneration(cfg, s.currentGeneration(), time.Time{})
+}
+
+// SetDPIConfigForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) SetDPIConfigForGeneration(cfg rapoo.DPIConfig, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.SetDPIConfigDeadline(cfg, deadline)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError("dpi", nil, err)))
 	}
-	if err := c.SetDPIConfig(cfg); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"dpi"})
 }
 
 // UpdateSensorConfig applies a SensorPatch (LOD, Motion Sync, Debounce, Sleep, Ripple, Linear, Angle, Glass).
 func (s *MouseService) UpdateSensorConfig(patch rapoo.SensorPatch) (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.UpdateSensorConfigForGeneration(patch, s.currentGeneration(), time.Time{})
+}
+
+// UpdateSensorConfigForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) UpdateSensorConfigForGeneration(patch rapoo.SensorPatch, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.UpdateSensorConfigDeadline(patch, deadline)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError("sensor", nil, err)))
 	}
-	if err := c.UpdateSensorConfig(patch); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"sensor"})
 }
 
 // SetButtonMapping updates one physical button's binding (with Left-Click safety validation).
 func (s *MouseService) SetButtonMapping(buttonID int, action rapoo.ButtonAction) (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.SetButtonMappingForGeneration(buttonID, action, s.currentGeneration(), time.Time{})
+}
+
+// SetButtonMappingForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) SetButtonMappingForGeneration(buttonID int, action rapoo.ButtonAction, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.SetButtonMapping(rapoo.ButtonID(buttonID), action)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError("button", nil, err)))
 	}
-	if err := c.SetButtonMapping(rapoo.ButtonID(buttonID), action); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"button"})
 }
 
 // ResetButtonsToDefault restores all 10 physical buttons to their factory bindings.
 func (s *MouseService) ResetButtonsToDefault() (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.ResetButtonsToDefaultForGeneration(s.currentGeneration(), time.Time{})
+}
+
+// ResetButtonsToDefaultForGeneration binds the write to the generation the UI saw.
+func (s *MouseService) ResetButtonsToDefaultForGeneration(generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		return c.SetAllButtonMappingsDeadline(rapoo.DefaultButtonMappings(), deadline)
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(wrapStepError("buttons", nil, err)))
 	}
-	if err := c.SetAllButtonMappings(rapoo.DefaultButtonMappings()); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"buttons"})
 }
 
 // FactoryReset restores all onboard settings on the mouse to factory defaults.
 func (s *MouseService) FactoryReset() (rapoo.DeviceSnapshot, error) {
-	c, err := s.writableClient()
+	return s.FactoryResetForGeneration(s.currentGeneration(), time.Time{})
+}
+
+// FactoryResetForGeneration binds the reset to the generation the dialog was
+// opened against. A device swap while the dialog is open aborts the write.
+func (s *MouseService) FactoryResetForGeneration(generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	err := s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		if err := c.FactoryReset(); err != nil {
+			return err
+		}
+		// Give mouse MCU a moment to reinitialize flash defaults when connected to real hardware.
+		s.mu.RLock()
+		demo := s.demoMode
+		s.mu.RUnlock()
+		if !demo {
+			time.Sleep(180 * time.Millisecond)
+		}
+		return nil
+	})
 	if err != nil {
-		return rapoo.DeviceSnapshot{}, err
+		return rapoo.DeviceSnapshot{}, s.wrapFriendly(err)
 	}
-	if err := c.FactoryReset(); err != nil {
-		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
-	}
-	// Give mouse MCU a moment to reinitialize flash defaults when connected to real hardware.
-	s.mu.RLock()
-	demo := s.demoMode
-	s.mu.RUnlock()
-	if !demo {
-		time.Sleep(180 * time.Millisecond)
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite([]string{"factoryReset"})
 }
 
 // ============================================================================
 // Profile Preset Library Operations
 // ============================================================================
 
-// ListPresets returns user-saved presets.
-func (s *MouseService) ListPresets() []profile.Preset {
+func (s *MouseService) presetStoreError() error {
+	if s.presetErr != nil {
+		return s.presetErr
+	}
+	return errors.New("プロファイル保存領域を初期化できませんでした")
+}
+
+// ListPresets returns user-saved presets and a storage error, if any.
+func (s *MouseService) ListPresets() ([]profile.Preset, error) {
 	if s.presetStore == nil {
-		return nil
+		return nil, s.presetStoreError()
 	}
 	return s.presetStore.List()
 }
@@ -601,74 +717,93 @@ func (s *MouseService) ListPresets() []profile.Preset {
 // SavePreset snapshots the current mouse configuration as a named preset.
 func (s *MouseService) SavePreset(id, name, description string) (profile.Preset, error) {
 	if s.presetStore == nil {
-		return profile.Preset{}, errors.New("プロファイル保存領域を初期化できませんでした")
+		return profile.Preset{}, s.presetStoreError()
 	}
 	snap, err := s.ReadSnapshot()
 	if err != nil {
 		return profile.Preset{}, err
+	}
+	if snap.DPI == nil || snap.Sensor == nil || snap.Buttons == nil {
+		return profile.Preset{}, errors.New("デバイス設定を完全に読み取れなかったため、プロファイルを保存できません。再読み込みしてください。")
 	}
 	return s.presetStore.SaveSnapshot(id, name, description, snap)
 }
 
 // ApplyPreset writes all settings from a preset (DPI, Polling Rate, Sensor, Buttons) to the mouse.
 func (s *MouseService) ApplyPreset(id string) (rapoo.DeviceSnapshot, error) {
+	return s.ApplyPresetForGeneration(id, s.currentGeneration(), time.Time{})
+}
+
+// ApplyPresetForGeneration binds the whole multi-step apply to the generation
+// the UI saw and stops between steps when the deadline expires.
+func (s *MouseService) ApplyPresetForGeneration(id string, generation uint64, deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	if s.presetStore == nil {
-		return rapoo.DeviceSnapshot{}, errors.New("プロファイル保存領域が利用できません")
+		return rapoo.DeviceSnapshot{}, s.presetStoreError()
 	}
-	preset, ok := s.presetStore.Get(id)
+	preset, ok, err := s.presetStore.Get(id)
+	if err != nil {
+		return rapoo.DeviceSnapshot{}, err
+	}
 	if !ok {
 		return rapoo.DeviceSnapshot{}, errors.New("指定されたプロファイルが見つかりません")
 	}
 	if err := profile.ValidatePreset(preset); err != nil {
 		return rapoo.DeviceSnapshot{}, err
 	}
-	c, err := s.writableClient()
+
+	var applied []string
+	err = s.withWritableClient(generation, deadline, func(c *rapoo.Client) error {
+		targetGen := c.Model().ProtocolGen
+		if preset.ProtocolGen != 0 && targetGen != 0 && preset.ProtocolGen != targetGen {
+			return errors.New("プロファイルのハードウェア世代が接続中のマウスと一致しません")
+		}
+		if targetGen == 1 {
+			if (preset.Sensor.PressDebounceStep != nil && *preset.Sensor.PressDebounceStep > 6) ||
+				(preset.Sensor.ReleaseDebounceStep != nil && *preset.Sensor.ReleaseDebounceStep > 6) {
+				return errors.New("Gen-A のデバウンスは 0..6 の段階値で指定してください")
+			}
+		}
+
+		// Clamp polling rate to connection capability (e.g. 1000Hz max when wired USB-C).
+		rate := preset.PollingHz
+		if rate > 0 {
+			maxRate := c.Model().MaxRateHz
+			if maxRate > 0 && rate > maxRate {
+				rate = maxRate
+			}
+			if err := c.SetPollingRate(rate); err != nil {
+				return wrapStepError("pollingRate", applied, fmt.Errorf("ポーリングレートの適用に失敗しました: %s", s.friendlyError(err)))
+			}
+			applied = append(applied, "pollingRate")
+		}
+		if preset.DPI.StageCount >= 1 {
+			if err := c.SetDPIConfigDeadline(preset.DPI, deadline); err != nil {
+				return wrapStepError("dpi", applied, fmt.Errorf("DPIの適用に失敗しました: %s", s.friendlyError(err)))
+			}
+			applied = append(applied, "dpi")
+		}
+		if err := c.UpdateSensorConfigDeadline(preset.Sensor, deadline); err != nil {
+			return wrapStepError("sensor", applied, fmt.Errorf("センサー設定の適用に失敗しました: %s", s.friendlyError(err)))
+		}
+		applied = append(applied, "sensor")
+		if len(preset.Buttons) > 0 {
+			if err := c.SetAllButtonMappingsDeadline(preset.Buttons, deadline); err != nil {
+				return wrapStepError("buttons", applied, fmt.Errorf("ボタン割り当ての適用に失敗しました: %s", s.friendlyError(err)))
+			}
+			applied = append(applied, "buttons")
+		}
+		return nil
+	})
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, err
 	}
-
-	targetGen := c.Model().ProtocolGen
-	if preset.ProtocolGen != 0 && targetGen != 0 && preset.ProtocolGen != targetGen {
-		return rapoo.DeviceSnapshot{}, errors.New("プロファイルのハードウェア世代が接続中のマウスと一致しません")
-	}
-	if targetGen == 1 {
-		if (preset.Sensor.PressDebounceStep != nil && *preset.Sensor.PressDebounceStep > 6) ||
-			(preset.Sensor.ReleaseDebounceStep != nil && *preset.Sensor.ReleaseDebounceStep > 6) {
-			return rapoo.DeviceSnapshot{}, errors.New("Gen-A のデバウンスは 0..6 の段階値で指定してください")
-		}
-	}
-
-	// Clamp polling rate to connection capability (e.g. 1000Hz max when wired USB-C).
-	rate := preset.PollingHz
-	if rate > 0 {
-		maxRate := c.Model().MaxRateHz
-		if maxRate > 0 && rate > maxRate {
-			rate = maxRate
-		}
-		if err := c.SetPollingRate(rate); err != nil {
-			return rapoo.DeviceSnapshot{}, fmt.Errorf("ポーリングレートの適用に失敗しました: %s", s.friendlyError(err))
-		}
-	}
-	if preset.DPI.StageCount >= 1 {
-		if err := c.SetDPIConfig(preset.DPI); err != nil {
-			return rapoo.DeviceSnapshot{}, fmt.Errorf("DPIの適用に失敗しました: %s", s.friendlyError(err))
-		}
-	}
-	if err := c.UpdateSensorConfig(preset.Sensor); err != nil {
-		return rapoo.DeviceSnapshot{}, fmt.Errorf("センサー設定の適用に失敗しました: %s", s.friendlyError(err))
-	}
-	if len(preset.Buttons) > 0 {
-		if err := c.SetAllButtonMappings(preset.Buttons); err != nil {
-			return rapoo.DeviceSnapshot{}, fmt.Errorf("ボタン割り当ての適用に失敗しました: %s", s.friendlyError(err))
-		}
-	}
-	return s.ReadSnapshot()
+	return s.readAfterWrite(applied)
 }
 
 // DeletePreset deletes a user-saved preset.
 func (s *MouseService) DeletePreset(id string) error {
 	if s.presetStore == nil {
-		return errors.New("プロファイル保存領域が利用できません")
+		return s.presetStoreError()
 	}
 	return s.presetStore.Delete(id)
 }
@@ -676,7 +811,7 @@ func (s *MouseService) DeletePreset(id string) error {
 // ExportPresetJSON returns the formatted JSON string for a preset.
 func (s *MouseService) ExportPresetJSON(id string) (string, error) {
 	if s.presetStore == nil {
-		return "", errors.New("プロファイル保存領域が利用できません")
+		return "", s.presetStoreError()
 	}
 	return s.presetStore.ExportJSON(id)
 }
@@ -684,7 +819,7 @@ func (s *MouseService) ExportPresetJSON(id string) (string, error) {
 // ImportPresetJSON imports and saves a preset from JSON text.
 func (s *MouseService) ImportPresetJSON(rawJSON string) (profile.Preset, error) {
 	if s.presetStore == nil {
-		return profile.Preset{}, errors.New("プロファイル保存領域が利用できません")
+		return profile.Preset{}, s.presetStoreError()
 	}
 	return s.presetStore.ImportJSON(rawJSON)
 }
@@ -795,7 +930,23 @@ func (s *MouseService) higherPriorityEndpointAvailable() bool {
 	if len(pairs) == 0 {
 		return true
 	}
-	return pairs[0].Model.ProductID != curClient.Model().ProductID
+	current := curClient.Endpoint()
+	best := pairs[0]
+	if current.Command != nil {
+		if best.Command == nil || best.Command.Path != current.Command.Path {
+			return true
+		}
+	} else if best.Command != nil {
+		return true
+	}
+	if current.Report != nil {
+		if best.Report == nil || best.Report.Path != current.Report.Path {
+			return true
+		}
+	} else if best.Report != nil {
+		return true
+	}
+	return false
 }
 
 func (s *MouseService) reconnectAndPoll() {
@@ -836,6 +987,7 @@ func (s *MouseService) ensureConnectedAndPollLocked() {
 		opts := rapoo.ClientOptions{
 			PassiveOnly:  mode == ModePassiveOnly,
 			OnAsyncEvent: s.handleAsyncEvent,
+			OnAsyncError: s.handleAsyncError,
 		}
 		if demo {
 			opts.BusyPollInterval = time.Millisecond
@@ -943,6 +1095,14 @@ func (s *MouseService) markSleeping(transient bool) bool {
 	return true
 }
 
+func (s *MouseService) handleAsyncError(err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("async report reader stopped: %v", err)
+	s.NotifyDeviceChange()
+}
+
 func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 	switch ev.Kind {
 	case rapoo.EventBattery:
@@ -975,7 +1135,18 @@ func (s *MouseService) handleAsyncEvent(ev rapoo.AsyncEvent) {
 }
 
 func (s *MouseService) applyBattery(bat rapoo.BatteryState) {
+	_ = s.applyBatteryIfCurrent(bat, nil, 0)
+}
+
+// applyBatteryIfCurrent applies a battery result only when the client and
+// generation still match. A nil expected client means the caller already holds
+// connectMu and the current client is authoritative.
+func (s *MouseService) applyBatteryIfCurrent(bat rapoo.BatteryState, expected *rapoo.Client, generation uint64) bool {
 	s.mu.Lock()
+	if expected != nil && (s.client != expected || s.state.Generation != generation) {
+		s.mu.Unlock()
+		return false
+	}
 	rate := s.state.PollingRateHz
 	if rate <= 0 {
 		rate = 1000
@@ -997,10 +1168,15 @@ func (s *MouseService) applyBattery(bat rapoo.BatteryState) {
 	s.mu.Unlock()
 
 	s.publish(snap)
+	return true
 }
 
-func (s *MouseService) updateFromSnapshot(ds rapoo.DeviceSnapshot) {
+func (s *MouseService) updateFromSnapshot(ds rapoo.DeviceSnapshot, expectedClient *rapoo.Client, expectedGeneration uint64) bool {
 	s.mu.Lock()
+	if s.client != expectedClient || s.state.Generation != expectedGeneration {
+		s.mu.Unlock()
+		return false
+	}
 	cp := ds
 	s.cachedSnap = &cp
 	s.state.Connected = true
@@ -1039,6 +1215,7 @@ func (s *MouseService) updateFromSnapshot(ds rapoo.DeviceSnapshot) {
 	if emit != nil {
 		emit("rapoo:snapshot", ds)
 	}
+	return true
 }
 
 func isPermissionError(err error) bool {
@@ -1082,6 +1259,11 @@ func (s *MouseService) friendlyError(err error) string {
 			return "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
 		}
 		return "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first."
+	case errors.Is(err, hid.ErrDeviceBusy):
+		if japanese {
+			return "別のプロセス（CLI または旧アプリ）がマウスの書き込みチャンネルを使用中です。そのプロセスを終了してから再試行してください。"
+		}
+		return "Another process (the CLI or a legacy app) is using the mouse command channel. Close it and retry."
 	case isPermissionError(err):
 		if runtime.GOOS == "linux" {
 			if japanese {

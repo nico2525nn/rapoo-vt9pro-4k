@@ -58,6 +58,41 @@ export default function App() {
 
   const hasLoadedSnapshotRef = useRef<boolean>(false);
 
+  const updateState = useCallback((next: ServiceState) => {
+    setState((prev) => {
+      const prevGeneration = prev.generation ?? 0;
+      const nextGeneration = next.generation ?? 0;
+      if (prevGeneration > 0 && nextGeneration > 0 && nextGeneration < prevGeneration) {
+        return prev;
+      }
+      const prevRevision = prev.revision ?? 0;
+      const nextRevision = next.revision ?? 0;
+      if (prevGeneration > 0 && nextGeneration > 0 && prevGeneration === nextGeneration &&
+          prevRevision > 0 && nextRevision > 0 && nextRevision < prevRevision) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
+  const updateSnapshot = useCallback((next: DeviceSnapshot | null) => {
+    setSnapshot((prev) => {
+      if (next === null) return null;
+      const prevGeneration = prev?.generation ?? 0;
+      const nextGeneration = next.generation ?? 0;
+      if (prevGeneration > 0 && nextGeneration > 0 && nextGeneration < prevGeneration) {
+        return prev;
+      }
+      const prevRevision = prev?.stateRevision ?? 0;
+      const nextRevision = next.stateRevision ?? 0;
+      if (prevGeneration > 0 && nextGeneration > 0 && prevGeneration === nextGeneration &&
+          prevRevision > 0 && nextRevision > 0 && nextRevision < prevRevision) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const root = document.documentElement;
     if (darkMode) {
@@ -82,14 +117,14 @@ export default function App() {
   const fetchSnapshotQuietly = useCallback(async () => {
     try {
       const snap = await rapooApi.readSnapshot();
-      setSnapshot(snap);
+      updateSnapshot(snap);
       if (snap.dpi) {
         hasLoadedSnapshotRef.current = true;
       }
     } catch {
       // Connection and sleep state remain available in the sidebar.
     }
-  }, []);
+  }, [updateSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,7 +138,7 @@ export default function App() {
       ]);
       if (cancelled) return;
       setCatalog(cat);
-      setState(st);
+      updateState(st);
       setPresets(presetList);
       setPrefs(appPrefs);
       const initialLanguage = normalizeLanguage(appPrefs.language);
@@ -114,7 +149,7 @@ export default function App() {
         try {
           const snap = await rapooApi.readSnapshot();
           if (!cancelled) {
-            setSnapshot(snap);
+            updateSnapshot(snap);
             if (snap.dpi) hasLoadedSnapshotRef.current = true;
           }
         } catch {
@@ -126,17 +161,17 @@ export default function App() {
     void bootstrap();
 
     const offState = rapooApi.subscribeEvent<ServiceState>("rapoo:state", (nextState) => {
-      setState(nextState);
+      updateState(nextState);
       if (!nextState.connected) {
         hasLoadedSnapshotRef.current = false;
-        setSnapshot(null);
+        updateSnapshot(null);
       } else if (nextState.mouseOnline && !hasLoadedSnapshotRef.current && nextState.mode !== "passive_only") {
         void fetchSnapshotQuietly();
       }
     });
 
     const offSnap = rapooApi.subscribeEvent<DeviceSnapshot>("rapoo:snapshot", (nextSnap) => {
-      setSnapshot(nextSnap);
+      updateSnapshot(nextSnap);
       if (nextSnap?.dpi) {
         hasLoadedSnapshotRef.current = true;
       }
@@ -152,7 +187,7 @@ export default function App() {
       offSnap();
       offWake();
     };
-  }, [fetchSnapshotQuietly]);
+  }, [fetchSnapshotQuietly, updateState, updateSnapshot]);
 
   useEffect(() => {
     setI18nLanguage(language);
@@ -175,9 +210,9 @@ export default function App() {
     setBusy(true);
     try {
       const nextSnapshot = await fn();
-      setSnapshot(nextSnapshot);
+      updateSnapshot(nextSnapshot);
       if (nextSnapshot?.dpi) hasLoadedSnapshotRef.current = true;
-      setState(await rapooApi.getState());
+      updateState(await rapooApi.getState());
       if (successMessage) toast.success(successMessage);
       return true;
     } catch (error) {
@@ -193,10 +228,10 @@ export default function App() {
     try {
       await rapooApi.refreshNow();
       const nextState = await rapooApi.getState();
-      setState(nextState);
+      updateState(nextState);
       if (nextState.connected && nextState.mode !== "passive_only") {
         const snap = await rapooApi.readSnapshot();
-        setSnapshot(snap);
+        updateSnapshot(snap);
         if (snap.dpi) hasLoadedSnapshotRef.current = true;
       }
     } catch (error) {
@@ -210,16 +245,16 @@ export default function App() {
     setBusy(true);
     try {
       const snap = await rapooApi.setDemoMode(enabled);
-      setSnapshot(snap);
+      updateSnapshot(snap);
       hasLoadedSnapshotRef.current = Boolean(snap?.dpi);
-      setState(await rapooApi.getState());
+      updateState(await rapooApi.getState());
       toast.success(enabled ? t("Demo mode started") : t("Switched to hardware mode"));
     } catch {
       const nextState = await rapooApi.getState();
-      setState(nextState);
+      updateState(nextState);
       if (!enabled) {
         hasLoadedSnapshotRef.current = false;
-        setSnapshot(null);
+        updateSnapshot(null);
         toast.info(t("Demo mode ended"));
       }
     } finally {
@@ -230,7 +265,7 @@ export default function App() {
   const handleSetPollingMode = async (mode: PollingMode) => {
     try {
       const nextState = await rapooApi.setPollingMode(mode);
-      setState(nextState);
+      updateState(nextState);
       if (mode === "passive_only") {
         toast.info(t("In-game lock enabled"));
       } else {

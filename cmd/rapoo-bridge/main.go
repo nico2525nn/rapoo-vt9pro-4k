@@ -30,15 +30,17 @@ import (
 const bridgeVersion = "1"
 
 type request struct {
-	ID     int             `json:"id"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params,omitempty"`
+	ID       int             `json:"id"`
+	Method   string          `json:"method"`
+	Params   json.RawMessage `json:"params,omitempty"`
+	Deadline int64           `json:"deadline,omitempty"` // Unix milliseconds
 }
 
 type response struct {
 	ID     int    `json:"id"`
 	Result any    `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
+	Code   string `json:"code,omitempty"`
 }
 
 type event struct {
@@ -170,13 +172,21 @@ func (b *bridge) run(in io.Reader) error {
 			return err
 		}
 		if req.Method == "" {
-			b.respond(response{ID: req.ID, Error: "empty method"})
+			b.respond(response{ID: req.ID, Error: "empty method", Code: "invalid_request"})
+			continue
+		}
+		if req.Deadline > 0 && time.Now().UnixMilli() > req.Deadline {
+			b.respond(response{
+				ID:    req.ID,
+				Error: "request expired before execution",
+				Code:  "deadline_exceeded",
+			})
 			continue
 		}
 
 		result, err := b.handle(req)
 		if err != nil {
-			b.respond(response{ID: req.ID, Error: err.Error()})
+			b.respond(response{ID: req.ID, Error: err.Error(), Code: bridgeErrorCode(err)})
 		} else {
 			b.respond(response{ID: req.ID, Result: result})
 		}
@@ -232,51 +242,76 @@ func (b *bridge) handle(req request) (any, error) {
 		return b.svc.GetState(), nil
 	case "pollingRate":
 		var p struct {
-			Hz int `json:"hz"`
+			Hz         int    `json:"hz"`
+			Generation uint64 `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.SetPollingRate(p.Hz)
+		return b.svc.SetPollingRateForGeneration(p.Hz, p.Generation, requestDeadline(req))
 	case "dpiGear":
 		var p struct {
-			Stage int `json:"stage"`
+			Stage      int    `json:"stage"`
+			Generation uint64 `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.SetCurrentDPIGear(p.Stage)
+		return b.svc.SetCurrentDPIGearForGeneration(p.Stage, p.Generation, requestDeadline(req))
 	case "dpiConfig":
 		var p struct {
-			Config rapoo.DPIConfig `json:"config"`
+			Config     rapoo.DPIConfig `json:"config"`
+			Generation uint64          `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.SetDPIConfig(p.Config)
+		return b.svc.SetDPIConfigForGeneration(p.Config, p.Generation, requestDeadline(req))
 	case "sensor":
 		var p struct {
-			Patch rapoo.SensorPatch `json:"patch"`
+			Patch      rapoo.SensorPatch `json:"patch"`
+			Generation uint64            `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.UpdateSensorConfig(p.Patch)
+		return b.svc.UpdateSensorConfigForGeneration(p.Patch, p.Generation, requestDeadline(req))
 	case "button":
 		var p struct {
-			ButtonID int                `json:"buttonId"`
-			Action   rapoo.ButtonAction `json:"action"`
+			ButtonID   int                `json:"buttonId"`
+			Action     rapoo.ButtonAction `json:"action"`
+			Generation uint64             `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.SetButtonMapping(p.ButtonID, p.Action)
+		return b.svc.SetButtonMappingForGeneration(p.ButtonID, p.Action, p.Generation, requestDeadline(req))
 	case "resetButtons":
-		return b.svc.ResetButtonsToDefault()
+		var p struct {
+			Generation uint64 `json:"generation"`
+		}
+		if len(req.Params) > 0 {
+			if err := decodeParams(req, &p); err != nil {
+				return nil, err
+			}
+		}
+		return b.svc.ResetButtonsToDefaultForGeneration(p.Generation, requestDeadline(req))
 	case "factoryReset":
-		return b.svc.FactoryReset()
+		var p struct {
+			Generation uint64 `json:"generation"`
+		}
+		if len(req.Params) > 0 {
+			if err := decodeParams(req, &p); err != nil {
+				return nil, err
+			}
+		}
+		return b.svc.FactoryResetForGeneration(p.Generation, requestDeadline(req))
 	case "presets":
-		return b.svc.ListPresets(), nil
+		presets, err := b.svc.ListPresets()
+		if err != nil {
+			return nil, err
+		}
+		return presets, nil
 	case "savePreset":
 		var p struct {
 			ID          string `json:"id"`
@@ -289,12 +324,13 @@ func (b *bridge) handle(req request) (any, error) {
 		return b.svc.SavePreset(p.ID, p.Name, p.Description)
 	case "applyPreset":
 		var p struct {
-			ID string `json:"id"`
+			ID         string `json:"id"`
+			Generation uint64 `json:"generation"`
 		}
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.ApplyPreset(p.ID)
+		return b.svc.ApplyPresetForGeneration(p.ID, p.Generation, requestDeadline(req))
 	case "deletePreset":
 		var p struct {
 			ID string `json:"id"`
@@ -342,6 +378,27 @@ func decodeParams(req request, dst any) error {
 		return fmt.Errorf("invalid params: %w", err)
 	}
 	return nil
+}
+
+func requestDeadline(req request) time.Time {
+	if req.Deadline <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(req.Deadline)
+}
+
+func bridgeErrorCode(err error) string {
+	var partial *service.PartialWriteError
+	switch {
+	case errors.As(err, &partial):
+		return "partial"
+	case errors.Is(err, service.ErrDeviceChanged):
+		return "device_changed"
+	case errors.Is(err, service.ErrDeadlineExceeded), errors.Is(err, rapoo.ErrDeadlineExceeded):
+		return "deadline_exceeded"
+	default:
+		return "error"
+	}
 }
 
 func (b *bridge) respond(resp response) {

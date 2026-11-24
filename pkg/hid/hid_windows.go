@@ -3,6 +3,7 @@
 package hid
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -30,6 +31,7 @@ var (
 	procSetupDiGetClassDevsW     = modSetupAPI.NewProc("SetupDiGetClassDevsW")
 	procSetupDiEnumDeviceInterf  = modSetupAPI.NewProc("SetupDiEnumDeviceInterfaces")
 	procSetupDiGetInterfDetailW  = modSetupAPI.NewProc("SetupDiGetDeviceInterfaceDetailW")
+	procSetupDiGetDevicePropW    = modSetupAPI.NewProc("SetupDiGetDevicePropertyW")
 	procSetupDiDestroyDevInfoLst = modSetupAPI.NewProc("SetupDiDestroyDeviceInfoList")
 	procCreateEventW             = modKernel32.NewProc("CreateEventW")
 	procSetEvent                 = modKernel32.NewProc("SetEvent")
@@ -64,6 +66,31 @@ type spDeviceInterfaceData struct {
 	Flags              uint32
 	Reserved           uintptr
 }
+
+type spDeviceInfoData struct {
+	CbSize    uint32
+	ClassGuid winGUID
+	DevInst   uint32
+	Reserved  uintptr
+}
+
+type devPropKey struct {
+	FmtID winGUID
+	PID   uint32
+}
+
+// DEVPKEY_Device_ContainerId {8c7ed206-3f8a-4827-b3ab-ae9e1faefc6c}, 2.
+var devPropKeyContainerID = devPropKey{
+	FmtID: winGUID{
+		Data1: 0x8C7ED206,
+		Data2: 0x3F8A,
+		Data3: 0x4827,
+		Data4: [8]byte{0xB3, 0xAB, 0xAE, 0x9E, 0x1F, 0xAE, 0xFC, 0x6C},
+	},
+	PID: 2,
+}
+
+const devPropTypeGUID = 0x0000000D
 
 type hiddAttributes struct {
 	Size          uint32
@@ -148,13 +175,16 @@ func (p *windowsProvider) Enumerate(filter Filter) ([]DeviceInfo, error) {
 		}
 		*(*uint32)(unsafe.Pointer(&detailBuf[0])) = detailCbSize
 
+		var devInfoData spDeviceInfoData
+		devInfoData.CbSize = uint32(unsafe.Sizeof(devInfoData))
+
 		r2, _, _ := procSetupDiGetInterfDetailW.Call(
 			devInfoSet,
 			uintptr(unsafe.Pointer(&ifData)),
 			uintptr(unsafe.Pointer(&detailBuf[0])),
 			uintptr(reqSize),
 			0,
-			0,
+			uintptr(unsafe.Pointer(&devInfoData)),
 		)
 		if r2 == 0 {
 			continue
@@ -183,6 +213,7 @@ func (p *windowsProvider) Enumerate(filter Filter) ([]DeviceInfo, error) {
 		if err != nil {
 			continue
 		}
+		info.PhysicalID = queryWindowsContainerID(devInfoSet, &devInfoData)
 		if !filter.MatchesVIDPID(info.VendorID, info.ProductID) {
 			continue
 		}
@@ -250,6 +281,36 @@ func queryWindowsCollectionInfo(devPath string, fallbackVID, fallbackPID uint16,
 	}
 
 	return info, nil
+}
+
+// queryWindowsContainerID returns the container ID shared by all interfaces of
+// one physical device. Unlike VID/PID, it distinguishes two identical mice.
+func queryWindowsContainerID(devInfoSet uintptr, devInfoData *spDeviceInfoData) string {
+	if devInfoSet == 0 || devInfoData == nil {
+		return ""
+	}
+	var propType uint32
+	var size uint32
+	var buf [16]byte
+	r, _, _ := procSetupDiGetDevicePropW.Call(
+		devInfoSet,
+		uintptr(unsafe.Pointer(devInfoData)),
+		uintptr(unsafe.Pointer(&devPropKeyContainerID)),
+		uintptr(unsafe.Pointer(&propType)),
+		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(len(buf)),
+		uintptr(unsafe.Pointer(&size)),
+		0,
+	)
+	if r == 0 || propType != devPropTypeGUID || size < 16 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"container:%08X-%04X-%04X-%02X%02X-%02X%02X%02X%02X%02X%02X",
+		binary.LittleEndian.Uint32(buf[0:4]),
+		binary.LittleEndian.Uint16(buf[4:6]),
+		binary.LittleEndian.Uint16(buf[6:8]),
+		buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15])
 }
 
 func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error) {

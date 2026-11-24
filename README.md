@@ -134,8 +134,9 @@ dotnet test uno/RapooControl.Tests/RapooControl.Tests.csproj
 # Linux release bundles (slim + portable, tar.xz + tar.gz)
 ./uno/package-linux.sh
 
-# Windows release bundles (run on Windows after build-sidecars.sh)
-powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1
+# Windows release bundles (run on Windows after build-sidecars.sh;
+# pass the release commit from the Linux checkout)
+powershell -ExecutionPolicy Bypass -File uno/package-windows.ps1 -ExpectedSidecarRevision <sha>
 ```
 
 The Linux portable bundle is published with `PublishTrimmed=true`. The bridge

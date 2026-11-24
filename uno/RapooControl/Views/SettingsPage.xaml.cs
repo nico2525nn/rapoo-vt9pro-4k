@@ -323,14 +323,16 @@ public sealed partial class SettingsPage : Page, IConfigPageActions
             DefaultButton = ContentDialogButton.Close,
         };
         LocalizationService.Instance.ApplyDialog(confirmation);
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary || !ViewModel.CanConfigureDevice)
+        var generation = ViewModel.DeviceGeneration;
+        if (await confirmation.ShowAsync() != ContentDialogResult.Primary ||
+            !ViewModel.CanConfigureDevice)
         {
             return;
         }
 
         await Feedback.RunAsync(async () =>
         {
-            var snapshot = await service.FactoryResetAsync();
+            var snapshot = await service.FactoryResetAsync(generation);
             LoadFirmware(snapshot, ViewModel.DeviceRevision);
         }, "工場出荷時設定に戻しました。");
     }

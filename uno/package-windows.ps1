@@ -31,6 +31,9 @@ if (-not $Version) {
 if (-not $Version) {
     throw "Could not read the app version from $project"
 }
+if (-not $ExpectedSidecarRevision) {
+    throw "Pass -ExpectedSidecarRevision <sha> from the release checkout; an unpinned sidecar is not allowed."
+}
 
 $sidecar = Join-Path $root "build\bin\rapoo-bridge.exe"
 if (-not (Test-Path $sidecar)) {
@@ -141,9 +144,11 @@ function Publish-Bundle {
         }
         $wasdkVersion = ($wasdk -split '/')[-1]
         $readmeText = Get-Content (Join-Path $out "README.md") -Raw
-        if ($readmeText -notmatch [regex]::Escape("Windows App Runtime 2.x") -or
-            $readmeText -notmatch [regex]::Escape($wasdkVersion)) {
-            throw "README must document Windows App Runtime 2.x with a $wasdkVersion minimum."
+        $requirement = "Windows App Runtime 2.x ($wasdkVersion or later, x64)"
+        $installer = "https://aka.ms/windowsappsdk/2.5/2.5.1/windowsappruntimeinstall-x64.exe"
+        if ($readmeText -notmatch [regex]::Escape($requirement) -or
+            $readmeText -notmatch [regex]::Escape($installer)) {
+            throw "README must contain '$requirement' and the $wasdkVersion x64 installer URL."
         }
         Write-Host "Windows App SDK $wasdkVersion; README runtime prerequisite matches."
     }

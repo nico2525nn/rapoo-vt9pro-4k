@@ -69,7 +69,8 @@ public sealed class MockRapooService : IRapooService
 
     public Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0)
     {
         DeviceStatus status;
 
@@ -107,7 +108,10 @@ public sealed class MockRapooService : IRapooService
         return Task.FromResult(status);
     }
 
-    public Task<DeviceStatus> SetPollingRateAsync(int hertz, CancellationToken cancellationToken = default)
+    public Task<DeviceStatus> SetPollingRateAsync(
+        int hertz,
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0)
     {
         if (!RapooLimits.PollingRates.Contains(hertz))
         {

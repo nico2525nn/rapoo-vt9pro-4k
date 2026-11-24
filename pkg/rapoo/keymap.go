@@ -283,6 +283,11 @@ func FormatKeyCombo(mods KeyModifiers, keyName string) string {
 
 // EncodeButtonAction converts a logical ButtonAction into its exact 4-byte onboard representation.
 func EncodeButtonAction(act ButtonAction) ([4]byte, error) {
+	if act.Type == ActionUnknown {
+		// Preserve an onboard macro decoded from memory. Re-encoding it would
+		// either fail or corrupt vendor-specific data.
+		return act.Raw, nil
+	}
 	if act.Type == ActionKeyboard {
 		code := act.KeyCode
 		if code == 0 && act.KeyName != "" {

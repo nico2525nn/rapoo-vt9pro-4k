@@ -158,6 +158,8 @@ export interface DeviceSnapshot {
   sensor?: SensorConfig;
   buttons?: ButtonMapping[];
   demoMode?: boolean;
+  stateRevision?: number;
+  generation?: number;
 }
 
 export interface ServiceState {
@@ -181,6 +183,8 @@ export interface ServiceState {
   permissionDenied: boolean;
   platform: string;
   updatedAt: string;
+  revision?: number;
+  generation?: number;
   lastError?: string;
 }
 

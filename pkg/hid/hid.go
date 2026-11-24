@@ -14,6 +14,8 @@ var (
 	ErrClosed = errors.New("hid: device closed")
 	// ErrUnsupported indicates HID access is not implemented on the current OS.
 	ErrUnsupported = errors.New("hid: unsupported platform")
+	// ErrDeviceBusy indicates another process owns the writable command endpoint.
+	ErrDeviceBusy = errors.New("hid: device is already in use by another process")
 )
 
 // DeviceInfo describes a single top-level HID collection discovered on the host.

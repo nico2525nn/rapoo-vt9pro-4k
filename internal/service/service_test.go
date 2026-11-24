@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -128,6 +129,79 @@ func TestMouseServiceDemoModeAndPresets(t *testing.T) {
 	_, err = svc.SetButtonMapping(int(rapoo.ButtonLeft), rapoo.ButtonAction{Type: rapoo.ActionDisabled})
 	if err == nil {
 		t.Fatal("expected Japanese Left-Click guard error")
+	}
+}
+
+func TestMouseServiceWriteGuardRejectsStaleGenerationAndDeadline(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	generation := svc.GetState().Generation
+	if generation == 0 {
+		t.Fatal("demo generation is zero")
+	}
+
+	if _, err := svc.SetPollingRateForGeneration(4000, generation+1, time.Time{}); !errors.Is(err, ErrDeviceChanged) {
+		t.Fatalf("stale generation error = %v, want ErrDeviceChanged", err)
+	}
+	if _, err := svc.SetPollingRateForGeneration(4000, generation, time.Now().Add(-time.Second)); !errors.Is(err, ErrDeadlineExceeded) {
+		t.Fatalf("expired deadline error = %v, want ErrDeadlineExceeded", err)
+	}
+	if _, err := svc.SetPollingRateForGeneration(4000, generation, time.Time{}); err != nil {
+		t.Fatalf("current generation write: %v", err)
+	}
+}
+
+func TestSensorPatchValidatesBeforeWriting(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	before, err := svc.ReadSnapshot()
+	if err != nil {
+		t.Fatalf("ReadSnapshot before: %v", err)
+	}
+	generation := svc.GetState().Generation
+	invalidSleep := 1
+	motionSync := !before.Sensor.MotionSync
+	_, err = svc.UpdateSensorConfigForGeneration(
+		rapoo.SensorPatch{MotionSync: &motionSync, SleepMinutes: &invalidSleep},
+		generation,
+		time.Time{})
+	if err == nil {
+		t.Fatal("expected invalid sleep value to fail")
+	}
+
+	after, err := svc.ReadSnapshot()
+	if err != nil {
+		t.Fatalf("ReadSnapshot after: %v", err)
+	}
+	if after.Sensor.MotionSync != before.Sensor.MotionSync {
+		t.Fatalf("Motion Sync changed despite invalid trailing field: before=%v after=%v",
+			before.Sensor.MotionSync, after.Sensor.MotionSync)
 	}
 }
 

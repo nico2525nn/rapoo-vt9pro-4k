@@ -80,7 +80,7 @@ Configuration commands (writes onboard memory):
   vt9ctl set-rate <125|250|500|1000|2000|4000>
   vt9ctl set-dpi-stage <1..7>
   vt9ctl set-motionsync <on|off>
-  vt9ctl set-sleep <1..120>
+  vt9ctl set-sleep <2..120>
 `)
 }
 
@@ -389,11 +389,14 @@ func runSetMotionSync(args []string) error {
 
 func runSetSleep(args []string) error {
 	if len(args) != 1 {
-		return errors.New("usage: vt9ctl set-sleep <1..120>")
+		return errors.New("usage: vt9ctl set-sleep <2..120>")
 	}
 	mins, err := strconv.Atoi(args[0])
 	if err != nil {
 		return err
+	}
+	if mins < 2 || mins > 120 {
+		return errors.New("sleep timeout must be 2..120 minutes")
 	}
 	client, err := rapoo.OpenFirst(nil, rapoo.ClientOptions{})
 	if err != nil {

@@ -10,6 +10,7 @@ public sealed class DpiPageViewModel : ObservableObject
     private static readonly int[] Rates = RapooLimits.PollingRates;
 
     private readonly IRapooService _service;
+    private readonly Func<long>? _currentGeneration;
     private int _stageCount = 4;
     private int _currentStage = 2;
     private int _pollingRateHz = 4000;
@@ -18,9 +19,10 @@ public sealed class DpiPageViewModel : ObservableObject
     private int _savedPollingRate;
     private DpiConfiguration? _savedConfiguration;
 
-    public DpiPageViewModel(IRapooService service)
+    public DpiPageViewModel(IRapooService service, Func<long>? currentGeneration = null)
     {
         _service = service;
+        _currentGeneration = currentGeneration;
 
         // Seven slots exist on the device; only StageCount of them are visible.
         for (var i = 1; i <= RapooLimits.MaxDpiStages; i++)
@@ -218,7 +220,9 @@ public sealed class DpiPageViewModel : ObservableObject
         var configuration = CreateDraft();
         if (HasDpiChanges(saved, configuration))
         {
-            await _service.ApplyDpiConfigurationAsync(configuration);
+            await _service.ApplyDpiConfigurationAsync(
+                configuration,
+                expectedGeneration: _currentGeneration?.Invoke() ?? 0);
             if (!ReferenceEquals(_savedConfiguration, saved))
             {
                 throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
@@ -230,7 +234,9 @@ public sealed class DpiPageViewModel : ObservableObject
         var rate = PollingRateHz;
         if (rate != _savedPollingRate)
         {
-            await _service.SetPollingRateAsync(rate);
+            await _service.SetPollingRateAsync(
+                rate,
+                expectedGeneration: _currentGeneration?.Invoke() ?? 0);
             _pollingRateHz = rate;
             _savedPollingRate = rate;
             OnPropertyChanged(nameof(IsDirty));

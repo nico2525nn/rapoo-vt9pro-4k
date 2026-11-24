@@ -133,11 +133,13 @@ public sealed partial class RealRapooService : IRapooService
 
     public async Task<DeviceStatus> ApplyDpiConfigurationAsync(
         DpiConfiguration configuration,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var epoch = CurrentEpoch;
         var sessionId = CurrentSession();
+        var generation = expectedGeneration != 0 ? expectedGeneration : CurrentGeneration();
 
         var stages = configuration.Stages
             .OrderBy(stage => stage.Index)
@@ -162,19 +164,22 @@ public sealed partial class RealRapooService : IRapooService
             configuration.CurrentStage,
             stages,
             cancellationToken,
-            sessionId).ConfigureAwait(false);
+            sessionId,
+            generation).ConfigureAwait(false);
 
         return PublishSnapshot(snapshot, epoch, sessionId);
     }
 
     public async Task<DeviceStatus> SetPollingRateAsync(
         int hertz,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        long expectedGeneration = 0)
     {
         var epoch = CurrentEpoch;
         var sessionId = CurrentSession();
+        var generation = expectedGeneration != 0 ? expectedGeneration : CurrentGeneration();
         var snapshot = await _client
-            .SetPollingRateAsync(hertz, cancellationToken, sessionId)
+            .SetPollingRateAsync(hertz, cancellationToken, sessionId, generation)
             .ConfigureAwait(false);
         return PublishSnapshot(snapshot, epoch, sessionId);
     }
@@ -466,6 +471,18 @@ public sealed partial class RealRapooService : IRapooService
             {
                 return _deviceEpoch;
             }
+        }
+    }
+
+    private long CurrentGeneration()
+    {
+        lock (_stateGate)
+        {
+            if (_lastState is { Generation: > 0 } state)
+            {
+                return state.Generation;
+            }
+            return _lastSnapshot?.Generation ?? 0;
         }
     }
 

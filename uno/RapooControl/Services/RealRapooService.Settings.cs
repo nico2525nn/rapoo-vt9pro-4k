@@ -26,37 +26,74 @@ public sealed partial class RealRapooService
     public Task<BridgeCatalog> GetCatalogAsync() => _client.GetCatalogAsync();
 
     public Task<BridgeSnapshot> RefreshSnapshotAsync() =>
-        UpdateSnapshotAsync(_ => _client.GetSnapshotAsync());
+        UpdateSnapshotAsync((_, _) => _client.GetSnapshotAsync());
 
-    public Task<BridgeSnapshot> ApplySensorAsync(IReadOnlyDictionary<string, object> patch) =>
-        UpdateSnapshotAsync(session => _client.ApplySensorAsync(patch, default, session));
+    public Task<BridgeSnapshot> ApplySensorAsync(
+        IReadOnlyDictionary<string, object> patch,
+        long expectedGeneration = 0) =>
+        UpdateSnapshotAsync((session, generation) =>
+            _client.ApplySensorAsync(
+                patch,
+                default,
+                session,
+                PinnedGeneration(expectedGeneration, generation)));
 
-    public Task<BridgeSnapshot> SetButtonAsync(int buttonId, BridgeButtonAction action) =>
-        UpdateSnapshotAsync(session => _client.SetButtonAsync(buttonId, action, default, session));
+    public Task<BridgeSnapshot> SetButtonAsync(
+        int buttonId,
+        BridgeButtonAction action,
+        long expectedGeneration = 0) =>
+        UpdateSnapshotAsync((session, generation) =>
+            _client.SetButtonAsync(
+                buttonId,
+                action,
+                default,
+                session,
+                PinnedGeneration(expectedGeneration, generation)));
 
-    public Task<BridgeSnapshot> ResetButtonsAsync() =>
-        UpdateSnapshotAsync(session => _client.ResetButtonsAsync(default, session));
+    public Task<BridgeSnapshot> ResetButtonsAsync(long expectedGeneration = 0) =>
+        UpdateSnapshotAsync((session, generation) =>
+            _client.ResetButtonsAsync(
+                default,
+                session,
+                PinnedGeneration(expectedGeneration, generation)));
 
-    public Task<BridgeSnapshot> FactoryResetAsync() =>
-        UpdateSnapshotAsync(session => _client.FactoryResetAsync(default, session));
+    public Task<BridgeSnapshot> FactoryResetAsync() => FactoryResetAsync(0);
+
+    public Task<BridgeSnapshot> FactoryResetAsync(long expectedGeneration) =>
+        UpdateSnapshotAsync((session, generation) =>
+            _client.FactoryResetAsync(
+                default,
+                session,
+                PinnedGeneration(expectedGeneration, generation)));
 
     public Task<List<BridgePreset>> ListPresetsAsync() => _client.ListPresetsAsync();
 
     public Task<BridgePreset> SavePresetAsync(string name, string description) =>
         _client.SavePresetAsync(string.Empty, name, description);
 
-    public Task<BridgeSnapshot> ApplyPresetAsync(string id) =>
-        UpdateSnapshotAsync(session => _client.ApplyPresetAsync(id, default, session));
+    public Task<BridgeSnapshot> ApplyPresetAsync(string id, long expectedGeneration = 0) =>
+        UpdateSnapshotAsync((session, generation) =>
+            _client.ApplyPresetAsync(
+                id,
+                default,
+                session,
+                PinnedGeneration(expectedGeneration, generation)));
 
     public Task DeletePresetAsync(string id) => _client.DeletePresetAsync(id);
 
     public Task<string> OpenFirmwareUpdaterAsync(string? path = null) => _client.OpenFirmwareUpdaterAsync(path);
 
-    private async Task<BridgeSnapshot> UpdateSnapshotAsync(Func<long, Task<BridgeSnapshot>> request)
+    private static long PinnedGeneration(long expectedGeneration, long currentGeneration) =>
+        expectedGeneration != 0 ? expectedGeneration : currentGeneration;
+
+
+    private async Task<BridgeSnapshot> UpdateSnapshotAsync(
+        Func<long, long, Task<BridgeSnapshot>> request)
     {
         var epoch = CurrentEpoch;
         var sessionId = CurrentSession();
-        var snapshot = await request(sessionId).ConfigureAwait(false);
+        var generation = CurrentGeneration();
+        var snapshot = await request(sessionId, generation).ConfigureAwait(false);
         PublishSnapshot(snapshot, epoch, sessionId);
         return snapshot;
     }

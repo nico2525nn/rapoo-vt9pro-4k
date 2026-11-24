@@ -24,6 +24,9 @@ type ClientOptions struct {
 	MaxCommandRetries int
 	// OnAsyncEvent receives unsolicited COL06 / COL05 notifications.
 	OnAsyncEvent func(AsyncEvent)
+	// OnAsyncError reports a non-timeout failure of the notification reader.
+	// The service should re-enumerate and reopen the device.
+	OnAsyncError func(error)
 }
 
 func (o *ClientOptions) applyDefaults() {
@@ -174,6 +177,9 @@ func (c *Client) readReportLoop() {
 			}
 			if errors.Is(err, hid.ErrClosed) {
 				return
+			}
+			if c.opts.OnAsyncError != nil {
+				c.opts.OnAsyncError(err)
 			}
 			return
 		}
@@ -430,6 +436,13 @@ func (c *Client) ReadSnapshot() (DeviceSnapshot, error) {
 // Mutating Configuration Commands
 // ============================================================================
 
+func checkDeadline(deadline time.Time) error {
+	if !deadline.IsZero() && time.Now().After(deadline) {
+		return ErrDeadlineExceeded
+	}
+	return nil
+}
+
 func (c *Client) writeMemory(addr uint32, data []byte) error {
 	c.cmdMu.Lock()
 	op := c.opcodes.WriteMemory
@@ -490,6 +503,15 @@ func (c *Client) SetCurrentDPIGear(stage int) error {
 
 // SetDPIConfig writes all 7 X/Y DPI stages, stage count (1..7), and active DPI stage (1..stageCount).
 func (c *Client) SetDPIConfig(cfg DPIConfig) error {
+	return c.SetDPIConfigDeadline(cfg, time.Time{})
+}
+
+// SetDPIConfigDeadline is SetDPIConfig with a deadline between the X, Y, and
+// active-stage writes. A failure after a write returns a PartialError.
+func (c *Client) SetDPIConfigDeadline(cfg DPIConfig, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	stageCount := cfg.StageCount
 	if stageCount < 1 || stageCount > MaxDPIStage {
 		return fmt.Errorf("rapoo: DPI stageCount %d out of range (1..7)", stageCount)
@@ -513,17 +535,31 @@ func (c *Client) SetDPIConfig(cfg DPIConfig) error {
 		}
 	}
 
+	// Encode and validate the whole payload before the first write.
 	blockX, blockY, err := EncodeDPIBlocks(srcStages, stageCount)
 	if err != nil {
 		return err
 	}
+
+	var applied []string
 	if err := c.writeMemory(AddrDPIStagesX, blockX[:]); err != nil {
 		return err
 	}
-	if err := c.writeMemory(AddrDPIStagesY, blockY[:]); err != nil {
-		return err
+	applied = append(applied, "dpiX")
+	if err := checkDeadline(deadline); err != nil {
+		return &PartialError{Applied: applied, Err: err}
 	}
-	return c.SetCurrentDPIGear(curStage)
+	if err := c.writeMemory(AddrDPIStagesY, blockY[:]); err != nil {
+		return &PartialError{Applied: applied, Err: err}
+	}
+	applied = append(applied, "dpiY")
+	if err := checkDeadline(deadline); err != nil {
+		return &PartialError{Applied: applied, Err: err}
+	}
+	if err := c.SetCurrentDPIGear(curStage); err != nil {
+		return &PartialError{Applied: applied, Err: err}
+	}
+	return nil
 }
 
 // SetMotionSync toggles sensor Motion Sync via 4-byte aligned read-modify-write at 0x0884 (mem[0x0885]).
@@ -556,30 +592,95 @@ func (c *Client) SetLiftOffLevel(level int) error {
 // SetSleepMinutes updates the wireless idle sleep timeout (2..120 minutes) via
 // 8-byte aligned read-modify-write at 0x08C0 (mem[0x08C2]).
 func (c *Client) SetSleepMinutes(minutes int) error {
-	if minutes < 1 || minutes > 120 {
-		return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (1..120)", minutes)
+	if minutes < 2 || minutes > 120 {
+		return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (2..120)", minutes)
 	}
 	return c.UpdateSensorConfig(SensorPatch{SleepMinutes: &minutes})
 }
 
 // UpdateSensorConfig atomically applies one or more SensorPatch fields to 0x0884 and/or 0x08C0.
 func (c *Client) UpdateSensorConfig(patch SensorPatch) error {
+	return c.UpdateSensorConfigDeadline(patch, time.Time{})
+}
+
+// UpdateSensorConfigDeadline validates the entire patch before the first write
+// and checks the deadline between the two memory blocks. A failure after the
+// first block returns a PartialError listing what was applied.
+func (c *Client) UpdateSensorConfigDeadline(patch SensorPatch, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	c.cmdMu.Lock()
 	genA := c.opcodes.GenADebounce
 	c.cmdMu.Unlock()
 
-	if patch.LiftOffLevel != nil || patch.MotionSync != nil {
+	// Validate every field before touching the device. This prevents an invalid
+	// trailing field (for example sleep=0) from leaving earlier fields applied.
+	var pressRaw, releaseRaw byte
+	if patch.PressDebounceStep != nil {
+		if genA {
+			raw, err := EncodeGenADebounceStep(*patch.PressDebounceStep)
+			if err != nil {
+				return err
+			}
+			pressRaw = raw
+		} else {
+			ms := *patch.PressDebounceStep
+			if ms < 0 || ms > 32 {
+				return fmt.Errorf("rapoo: press debounce %d ms out of range (0..32)", ms)
+			}
+			pressRaw = byte(ms + 2)
+		}
+	}
+	if patch.ReleaseDebounceStep != nil {
+		if genA {
+			raw, err := EncodeGenADebounceStep(*patch.ReleaseDebounceStep)
+			if err != nil {
+				return err
+			}
+			releaseRaw = raw
+		} else {
+			ms := *patch.ReleaseDebounceStep
+			if ms < 0 || ms > 32 {
+				return fmt.Errorf("rapoo: release debounce %d ms out of range (0..32)", ms)
+			}
+			releaseRaw = byte(ms + 2)
+		}
+	}
+	if patch.LiftOffLevel != nil && (*patch.LiftOffLevel < 0 || *patch.LiftOffLevel > 10) {
+		return fmt.Errorf("rapoo: lift-off level %d out of range (0..10)", *patch.LiftOffLevel)
+	}
+	if patch.SleepMinutes != nil && (*patch.SleepMinutes < 2 || *patch.SleepMinutes > 120) {
+		return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (2..120)", *patch.SleepMinutes)
+	}
+	if patch.SensorAngleDeg != nil && (*patch.SensorAngleDeg < -30 || *patch.SensorAngleDeg > 30) {
+		return fmt.Errorf("rapoo: sensor angle %d° out of range (-30..+30)", *patch.SensorAngleDeg)
+	}
+	if patch.LEDLowPowerMode != nil && *patch.LEDLowPowerMode > 1 {
+		return fmt.Errorf("rapoo: LED low-power mode %d out of range (0..1)", *patch.LEDLowPowerMode)
+	}
+
+	has884 := patch.LiftOffLevel != nil || patch.MotionSync != nil
+	has8C0 := patch.PressDebounceStep != nil || patch.ReleaseDebounceStep != nil ||
+		patch.SleepMinutes != nil || patch.RippleControl != nil ||
+		patch.LinearCorrection != nil || patch.SensorAngleDeg != nil ||
+		patch.GlassMode != nil || patch.LEDLowPowerMode != nil
+	if !has884 && !has8C0 {
+		return nil
+	}
+
+	var applied []string
+	if has884 {
+		if err := checkDeadline(deadline); err != nil {
+			return err
+		}
 		cur884, err := c.ReadMemory(AddrSilentHeight, 4)
 		if err != nil {
 			return err
 		}
 		next884 := append([]byte(nil), cur884...)
 		if patch.LiftOffLevel != nil {
-			lvl := *patch.LiftOffLevel
-			if lvl < 0 || lvl > 10 {
-				return fmt.Errorf("rapoo: lift-off level %d out of range (0..10)", lvl)
-			}
-			next884[0] = byte(lvl + 1)
+			next884[0] = byte(*patch.LiftOffLevel + 1)
 		}
 		if patch.MotionSync != nil {
 			if *patch.MotionSync {
@@ -588,62 +689,36 @@ func (c *Client) UpdateSensorConfig(patch SensorPatch) error {
 				next884[1] = 0
 			}
 		}
+		if err := checkDeadline(deadline); err != nil {
+			return err
+		}
 		if err := c.writeMemory(AddrSilentHeight, next884); err != nil {
 			return err
 		}
+		applied = append(applied, "sensor884")
 	}
 
-	if patch.PressDebounceStep != nil || patch.ReleaseDebounceStep != nil ||
-		patch.SleepMinutes != nil || patch.RippleControl != nil ||
-		patch.LinearCorrection != nil || patch.SensorAngleDeg != nil ||
-		patch.GlassMode != nil || patch.LEDLowPowerMode != nil {
-
+	if has8C0 {
+		if err := checkDeadline(deadline); err != nil {
+			return &PartialError{Applied: applied, Err: err}
+		}
 		cur8C0, err := c.ReadMemory(AddrSensorParameters, 8)
 		if err != nil {
+			if len(applied) > 0 {
+				return &PartialError{Applied: applied, Err: err}
+			}
 			return err
 		}
 		next8C0 := append([]byte(nil), cur8C0...)
-
 		if patch.PressDebounceStep != nil {
-			if genA {
-				raw, err := EncodeGenADebounceStep(*patch.PressDebounceStep)
-				if err != nil {
-					return err
-				}
-				next8C0[0] = raw
-			} else {
-				ms := *patch.PressDebounceStep
-				if ms < 0 || ms > 32 {
-					return fmt.Errorf("rapoo: press debounce %d ms out of range (0..32)", ms)
-				}
-				next8C0[0] = byte(ms + 2)
-			}
+			next8C0[0] = pressRaw
 		}
-
 		if patch.ReleaseDebounceStep != nil {
-			if genA {
-				raw, err := EncodeGenADebounceStep(*patch.ReleaseDebounceStep)
-				if err != nil {
-					return err
-				}
-				next8C0[1] = raw
-			} else {
-				ms := *patch.ReleaseDebounceStep
-				if ms < 0 || ms > 32 {
-					return fmt.Errorf("rapoo: release debounce %d ms out of range (0..32)", ms)
-				}
-				next8C0[1] = byte(ms + 2)
-			}
+			next8C0[1] = releaseRaw
 		}
-
 		if patch.SleepMinutes != nil {
-			mins := *patch.SleepMinutes
-			if mins < 1 || mins > 120 {
-				return fmt.Errorf("rapoo: sleep timeout %d minutes out of range (1..120)", mins)
-			}
-			next8C0[2] = byte(mins)
+			next8C0[2] = byte(*patch.SleepMinutes)
 		}
-
 		if patch.RippleControl != nil || patch.LinearCorrection != nil {
 			curFlags := next8C0[3]
 			ripple := ((^curFlags) & 0x01) != 0
@@ -656,15 +731,9 @@ func (c *Client) UpdateSensorConfig(patch SensorPatch) error {
 			}
 			next8C0[3] = EncodeRippleLinearByte(ripple, linear)
 		}
-
 		if patch.SensorAngleDeg != nil {
-			deg := *patch.SensorAngleDeg
-			if deg < -30 || deg > 30 {
-				return fmt.Errorf("rapoo: sensor angle %d° out of range (-30..+30)", deg)
-			}
-			next8C0[4] = byte(int8(deg))
+			next8C0[4] = byte(int8(*patch.SensorAngleDeg))
 		}
-
 		if patch.GlassMode != nil {
 			if *patch.GlassMode {
 				next8C0[5] = 1
@@ -672,13 +741,14 @@ func (c *Client) UpdateSensorConfig(patch SensorPatch) error {
 				next8C0[5] = 0
 			}
 		}
-
 		if patch.LEDLowPowerMode != nil {
 			next8C0[6] = *patch.LEDLowPowerMode
 		}
-
+		if err := checkDeadline(deadline); err != nil {
+			return &PartialError{Applied: applied, Err: err}
+		}
 		if err := c.writeMemory(AddrSensorParameters, next8C0); err != nil {
-			return err
+			return &PartialError{Applied: applied, Err: err}
 		}
 	}
 
@@ -714,10 +784,20 @@ func (c *Client) SetButtonMapping(buttonID ButtonID, action ButtonAction) error 
 	return c.writeMemory(slot.Addr, raw[:])
 }
 
-// SetAllButtonMappings validates and writes a full set of button mappings.
+// SetAllButtonMappings validates and writes the changed button mappings.
 // New Left Click assignments are written first so a transient failure cannot
-// leave the user without any clickable button.
+// leave the user without any clickable button. Unchanged slots are not
+// re-encoded, which preserves onboard macros authored by the official tool.
 func (c *Client) SetAllButtonMappings(mappings []ButtonMapping) error {
+	return c.SetAllButtonMappingsDeadline(mappings, time.Time{})
+}
+
+// SetAllButtonMappingsDeadline is SetAllButtonMappings with a deadline between
+// slot writes. A failure after a write returns a PartialError.
+func (c *Client) SetAllButtonMappingsDeadline(mappings []ButtonMapping, deadline time.Time) error {
+	if err := checkDeadline(deadline); err != nil {
+		return err
+	}
 	if err := ValidateButtonMappings(mappings); err != nil {
 		return err
 	}
@@ -731,53 +811,75 @@ func (c *Client) SetAllButtonMappings(mappings []ButtonMapping) error {
 		currentById[m.Slot.ID] = m
 	}
 
+	// Only touch slots whose action actually changes. This avoids re-encoding
+	// an onboard macro that the official tool wrote into an unchanged slot.
+	changed := make([]ButtonMapping, 0, len(mappings))
 	encoded := make(map[ButtonID][4]byte, len(mappings))
 	for _, m := range mappings {
+		if buttonActionsEqual(m.Action, currentById[m.Slot.ID].Action) {
+			continue
+		}
 		raw, err := EncodeButtonAction(m.Action)
 		if err != nil {
 			return err
 		}
+		changed = append(changed, m)
 		encoded[m.Slot.ID] = raw
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+
+	var applied []string
+	write := func(m ButtonMapping) error {
+		if err := checkDeadline(deadline); err != nil {
+			return &PartialError{Applied: applied, Err: err}
+		}
+		slot, _ := LookupButtonSlot(m.Slot.ID)
+		raw := encoded[m.Slot.ID]
+		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+			return &PartialError{Applied: applied, Err: err}
+		}
+		applied = append(applied, fmt.Sprintf("button %d", m.Slot.ID))
+		return nil
 	}
 
 	// Write new Left Click targets before removing any existing Left Click.
-	for _, m := range mappings {
+	for _, m := range changed {
 		if m.Action.Type != ActionLeftClick {
 			continue
 		}
 		if currentById[m.Slot.ID].Action.Type == ActionLeftClick {
 			continue
 		}
-		slot, _ := LookupButtonSlot(m.Slot.ID)
-		raw := encoded[m.Slot.ID]
-		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+		if err := write(m); err != nil {
 			return err
 		}
 	}
-
-	for _, m := range mappings {
+	for _, m := range changed {
 		if m.Action.Type == ActionLeftClick && currentById[m.Slot.ID].Action.Type != ActionLeftClick {
 			continue
 		}
-		slot, _ := LookupButtonSlot(m.Slot.ID)
-		raw := encoded[m.Slot.ID]
-		if err := c.writeMemory(slot.Addr, raw[:]); err != nil {
+		if err := write(m); err != nil {
 			return err
 		}
 	}
 
 	verify, err := c.ReadButtonMappings()
 	if err != nil {
-		return fmt.Errorf("rapoo: verify button mappings: %w", err)
+		return &PartialError{Applied: applied, Err: fmt.Errorf("rapoo: verify button mappings: %w", err)}
 	}
 	verifyById := make(map[ButtonID]ButtonMapping, len(verify))
 	for _, m := range verify {
 		verifyById[m.Slot.ID] = m
 	}
-	for _, expected := range mappings {
+	for _, expected := range changed {
 		actual, ok := verifyById[expected.Slot.ID]
 		if !ok || !buttonActionsEqual(expected.Action, actual.Action) {
-			return fmt.Errorf("rapoo: button %d did not match after write", expected.Slot.ID)
+			return &PartialError{
+				Applied: applied,
+				Err:     fmt.Errorf("rapoo: button %d did not match after write", expected.Slot.ID),
+			}
 		}
 	}
 	return nil

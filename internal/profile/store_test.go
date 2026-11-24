@@ -1,6 +1,8 @@
 package profile
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/nico/rapoo-vt9pro-4k/pkg/rapoo"
@@ -13,7 +15,10 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 		t.Fatalf("NewStore: %v", err)
 	}
 
-	initial := store.List()
+	initial, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
 	if len(initial) != 0 {
 		t.Fatalf("len(initial) = %d, want 0", len(initial))
 	}
@@ -77,14 +82,35 @@ func TestStoreSaveExportImportDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore reopen: %v", err)
 	}
-	if len(store2.List()) != 2 {
-		t.Fatalf("len(store2.List()) = %d, want 2", len(store2.List()))
+	list2, err := store2.List()
+	if err != nil {
+		t.Fatalf("List after reopen: %v", err)
+	}
+	if len(list2) != 2 {
+		t.Fatalf("len(list2) = %d, want 2", len(list2))
 	}
 
 	if err := store2.Delete(saved.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if len(store2.List()) != 1 {
-		t.Fatalf("len after delete = %d, want 1", len(store2.List()))
+	list3, err := store2.List()
+	if err != nil {
+		t.Fatalf("List after delete: %v", err)
+	}
+	if len(list3) != 1 {
+		t.Fatalf("len after delete = %d, want 1", len(list3))
+	}
+
+	// A corrupt store must not be reported as an empty library. The last good
+	// cache is returned together with the read error.
+	if err := os.WriteFile(filepath.Join(dir, "presets.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatalf("corrupt presets: %v", err)
+	}
+	cached, err := store2.List()
+	if err == nil {
+		t.Fatal("List on a corrupt store returned nil error")
+	}
+	if len(cached) != 1 {
+		t.Fatalf("cached list after corruption = %d, want 1", len(cached))
 	}
 }

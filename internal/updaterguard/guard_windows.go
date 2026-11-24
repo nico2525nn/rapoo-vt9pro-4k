@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -107,5 +108,41 @@ func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted fun
 	if onStarted != nil {
 		onStarted()
 	}
-	return cmd.Wait()
+	err = cmd.Wait()
+	// If the official launcher hands the update to a child and exits, keep the
+	// HID mutexes until every child has finished as well.
+	waitForChildren(uint32(cmd.Process.Pid), 30*time.Minute)
+	return err
+}
+
+func waitForChildren(parentPID uint32, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !hasChildProcess(parentPID) {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func hasChildProcess(parentPID uint32) bool {
+	snapshot, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(snapshot)
+
+	var entry windows.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	if err := windows.Process32First(snapshot, &entry); err != nil {
+		return false
+	}
+	for {
+		if entry.ParentProcessID == parentPID && entry.ProcessID != 0 {
+			return true
+		}
+		if err := windows.Process32Next(snapshot, &entry); err != nil {
+			return false
+		}
+	}
 }

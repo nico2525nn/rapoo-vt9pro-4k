@@ -56,7 +56,7 @@ func NewStore(configDir string) (*Store, error) {
 		lockPath: filepath.Join(configDir, "presets.json.lock"),
 		user:     make(map[string]Preset),
 	}
-	if err := s.withFileLock(s.load); err != nil {
+	if err := s.withFileLock(func() error { return s.load(s.user) }); err != nil {
 		return nil, fmt.Errorf("presets.json: %w", err)
 	}
 	return s, nil
@@ -72,11 +72,15 @@ func (s *Store) withFileLock(fn func() error) error {
 }
 
 func (s *Store) reloadLocked() error {
-	s.user = make(map[string]Preset)
-	return s.load()
+	next := make(map[string]Preset, len(s.user))
+	if err := s.load(next); err != nil {
+		return err
+	}
+	s.user = next
+	return nil
 }
 
-func (s *Store) load() error {
+func (s *Store) load(dst map[string]Preset) error {
 	raw, err := os.ReadFile(s.filePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -90,7 +94,7 @@ func (s *Store) load() error {
 	}
 	for _, p := range list {
 		if p.ID != "" && !p.BuiltIn {
-			s.user[p.ID] = p
+			dst[p.ID] = p
 		}
 	}
 	return nil
@@ -128,11 +132,13 @@ func (s *Store) saveLocked() error {
 	return os.Rename(tmpName, s.filePath)
 }
 
-// List returns user-saved presets.
-func (s *Store) List() []Preset {
+// List returns user-saved presets. On a read error it returns the last
+// successful cache together with the error instead of pretending the library
+// is empty.
+func (s *Store) List() ([]Preset, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.withFileLock(s.reloadLocked)
+	err := s.withFileLock(s.reloadLocked)
 
 	userList := make([]Preset, 0, len(s.user))
 	for _, p := range s.user {
@@ -141,16 +147,17 @@ func (s *Store) List() []Preset {
 	sort.Slice(userList, func(i, j int) bool {
 		return userList[i].UpdatedAt.After(userList[j].UpdatedAt)
 	})
-	return userList
+	return userList, err
 }
 
-// Get returns a user preset by ID.
-func (s *Store) Get(id string) (Preset, bool) {
+// Get returns a user preset by ID. On a read error it still returns the last
+// successful cache and reports the error to the caller.
+func (s *Store) Get(id string) (Preset, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_ = s.withFileLock(s.reloadLocked)
+	err := s.withFileLock(s.reloadLocked)
 	p, ok := s.user[id]
-	return p, ok
+	return p, ok, err
 }
 
 // SaveSnapshot captures a live DeviceSnapshot into a named user Preset.
@@ -250,7 +257,10 @@ func (s *Store) Delete(id string) error {
 
 // ExportJSON serializes a preset to formatted JSON for sharing or backup.
 func (s *Store) ExportJSON(id string) (string, error) {
-	p, ok := s.Get(id)
+	p, ok, err := s.Get(id)
+	if err != nil {
+		return "", err
+	}
 	if !ok {
 		return "", errors.New("指定されたプロファイルが見つかりません")
 	}

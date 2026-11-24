@@ -72,11 +72,21 @@ public static partial class AutoStartService
     private static void WriteUserEntry(string path, string executable, bool hidden)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var command = $"{QuoteDesktopExec(executable)} --app=uno";
+        var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        if (!string.IsNullOrWhiteSpace(dotnetRoot) && Path.IsPathRooted(dotnetRoot))
+        {
+            // The slim Linux bundle needs DOTNET_ROOT when the runtime is not
+            // in /usr/share/dotnet. Persist the value that launched the app so
+            // the next login does not fail before the window appears.
+            command = $"env DOTNET_ROOT={QuoteDesktopExec(dotnetRoot)} {command}";
+        }
+
         var contents =
             "[Desktop Entry]\n" +
             "Type=Application\n" +
             "Name=Rapoo Control\n" +
-            $"Exec={QuoteDesktopExec(executable)} --app=uno\n" +
+            $"Exec={command}\n" +
             "Terminal=false\n" +
             $"Hidden={(hidden ? "true" : "false")}\n" +
             $"X-GNOME-Autostart-enabled={(hidden ? "false" : "true")}\n";

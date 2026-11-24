@@ -16,6 +16,10 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     {
         _client.StateChanged += (_, state) =>
         {
+            if (!AcceptState(state))
+            {
+                return;
+            }
             if (_lastState is { } previous &&
                 (previous.Connected != state.Connected || previous.DemoMode != state.DemoMode ||
                  previous.Connection != state.Connection || previous.ProductId != state.ProductId))
@@ -42,8 +46,12 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         await _client.StartAsync(cancellationToken).ConfigureAwait(false);
-        _lastState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        StatusChanged?.Invoke(this, MapStatus(_lastState));
+        var initialState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        if (AcceptState(initialState))
+        {
+            _lastState = initialState;
+        }
+        StatusChanged?.Invoke(this, MapStatus(_lastState ?? initialState));
 
         try
         {
@@ -52,7 +60,11 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
                 await _client.SetDemoModeAsync(true, cancellationToken).ConfigureAwait(false);
             }
 
-            _lastSnapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+            var initialSnapshot = await ReadSnapshotWithRetryAsync(cancellationToken).ConfigureAwait(false);
+            if (AcceptSnapshot(initialSnapshot))
+            {
+                _lastSnapshot = initialSnapshot;
+            }
             if (_lastState is not null)
             {
                 StatusChanged?.Invoke(this, MapStatus(_lastState));
@@ -68,8 +80,13 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
 
     public async Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        _lastState = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
-        return MapStatus(_lastState);
+        var state = await _client.GetStateAsync(cancellationToken).ConfigureAwait(false);
+        if (!AcceptState(state))
+        {
+            state = _lastState ?? state;
+        }
+        _lastState = state;
+        return MapStatus(state);
     }
 
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
@@ -119,6 +136,10 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
             stages,
             cancellationToken).ConfigureAwait(false);
 
+        if (!AcceptSnapshot(snapshot))
+        {
+            throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
+        }
         _lastSnapshot = snapshot;
         return PublishStatus(snapshot);
     }
@@ -128,6 +149,10 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         var snapshot = await _client.SetPollingRateAsync(hertz, cancellationToken).ConfigureAwait(false);
+        if (!AcceptSnapshot(snapshot))
+        {
+            throw new InvalidOperationException("接続先が変わりました。設定を再読み込みしてください。");
+        }
         _lastSnapshot = snapshot;
         return PublishStatus(snapshot);
     }
@@ -141,8 +166,13 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
         string mode,
         CancellationToken cancellationToken = default)
     {
-        _lastState = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
-        var status = MapStatus(_lastState);
+        var nextState = await _client.SetPollingModeAsync(mode, cancellationToken).ConfigureAwait(false);
+        if (!AcceptState(nextState))
+        {
+            nextState = _lastState ?? nextState;
+        }
+        _lastState = nextState;
+        var status = MapStatus(nextState);
         StatusChanged?.Invoke(this, status);
         return status;
     }
@@ -150,6 +180,46 @@ public sealed partial class RealRapooService : IRapooService, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await _client.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private bool AcceptState(BridgeState state)
+    {
+        if (_lastState is not { } previous)
+        {
+            return true;
+        }
+        if (state.Generation > 0 && previous.Generation > 0)
+        {
+            if (state.Generation < previous.Generation)
+            {
+                return false;
+            }
+            if (state.Generation == previous.Generation &&
+                state.Revision > 0 && previous.Revision > 0 &&
+                state.Revision < previous.Revision)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private bool AcceptSnapshot(BridgeSnapshot snapshot)
+    {
+        if (snapshot.Generation > 0 && _lastState is { Generation: > 0 } state &&
+            snapshot.Generation < state.Generation)
+        {
+            return false;
+        }
+        if (snapshot.Generation > 0 && _lastState is { Generation: > 0 } sameGeneration &&
+            snapshot.Generation == sameGeneration.Generation &&
+            _lastSnapshot is { StateRevision: > 0 } previous &&
+            snapshot.StateRevision > 0 &&
+            snapshot.StateRevision < previous.StateRevision)
+        {
+            return false;
+        }
+        return true;
     }
 
     private async Task<BridgeSnapshot> ReadSnapshotWithRetryAsync(CancellationToken cancellationToken)
