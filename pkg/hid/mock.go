@@ -95,6 +95,22 @@ func (d *MockDevice) Info() DeviceInfo {
 	return d.DeviceInfo
 }
 
+// SetOnSetOutput safely replaces the output handler while a test service is
+// running.
+func (d *MockDevice) SetOnSetOutput(fn func([]byte) error) {
+	d.mu.Lock()
+	d.OnSetOutput = fn
+	d.mu.Unlock()
+}
+
+// SetOnGetInput safely replaces the input handler while a test service is
+// running.
+func (d *MockDevice) SetOnGetInput(fn func(byte, int) ([]byte, error)) {
+	d.mu.Lock()
+	d.OnGetInput = fn
+	d.mu.Unlock()
+}
+
 // SetOutputReport records the report and invokes OnSetOutput if configured.
 func (d *MockDevice) SetOutputReport(data []byte, _ time.Duration) error {
 	d.mu.Lock()

@@ -33,7 +33,7 @@ func TestClientBusyPollingAndAsyncNotifications(t *testing.T) {
 	})
 
 	var polls atomic.Int32
-	cmdDev.OnGetInput = func(reportID byte, length int) ([]byte, error) {
+	cmdDev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		n := polls.Add(1)
 		buf := make([]byte, length)
 		if n < 3 {
@@ -44,7 +44,7 @@ func TestClientBusyPollingAndAsyncNotifications(t *testing.T) {
 		buf[1] = 0x01
 		buf[2] = 92
 		return buf, nil
-	}
+	})
 
 	prov.Register(cmdDev)
 	prov.Register(repDev)
@@ -241,9 +241,9 @@ func TestLostReplyAfterSendReturnsResultUnknownWithoutDuplicateWrite(t *testing.
 		Usage:           0x000E,
 		OutputReportLen: 32,
 	})
-	dev.OnGetInput = func(byte, int) ([]byte, error) {
+	dev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		return nil, errors.New("reply lost")
-	}
+	})
 	client := &Client{
 		endpoint: EndpointPair{Model: ModelSpec{StepDelay: time.Millisecond}},
 		cmdDev:   dev,
@@ -268,14 +268,42 @@ func TestMalformedReplyAfterWriteIsNotRetried(t *testing.T) {
 		Usage:           0x000E,
 		OutputReportLen: 32,
 	})
-	dev.OnGetInput = func(byte, int) ([]byte, error) {
+	dev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		return []byte{0xBA}, nil // report ID only, no normalizable response
-	}
+	})
 	client := &Client{
 		endpoint: EndpointPair{Model: ModelSpec{StepDelay: time.Millisecond}},
 		cmdDev:   dev,
 	}
 	client.opts.applyDefaults()
+	_, err := client.sendAndRecvDeadline([]byte{0xBA, 0xA5, 0xA0, 4, 0, 0, 0, 0}, time.Time{})
+	if !errors.Is(err, ErrResultUnknown) {
+		t.Fatalf("error = %v, want ErrResultUnknown", err)
+	}
+	if len(dev.Written) != 1 {
+		t.Fatalf("written reports = %d, want 1", len(dev.Written))
+	}
+}
+
+func TestPendingAfterWriteReturnsResultUnknown(t *testing.T) {
+	dev := hid.NewMockDevice(hid.DeviceInfo{
+		Path:            "cmd",
+		VendorID:        0x24AE,
+		ProductID:       0x1211,
+		InterfaceNumber: 1,
+		UsagePage:       0xFF00,
+		Usage:           0x000E,
+		OutputReportLen: 32,
+	})
+	dev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
+		return []byte{0xBA, StatusPending}, nil
+	})
+	client := &Client{
+		endpoint: EndpointPair{Model: ModelSpec{StepDelay: time.Millisecond}},
+		cmdDev:   dev,
+	}
+	client.opts.applyDefaults()
+	client.opts.BusyPollInterval = time.Millisecond
 	_, err := client.sendAndRecvDeadline([]byte{0xBA, 0xA5, 0xA0, 4, 0, 0, 0, 0}, time.Time{})
 	if !errors.Is(err, ErrResultUnknown) {
 		t.Fatalf("error = %v, want ErrResultUnknown", err)

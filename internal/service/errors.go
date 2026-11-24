@@ -11,6 +11,10 @@ import (
 // write. No write was sent for the expectation that failed.
 var ErrDeviceChanged = errors.New("service: device changed")
 
+// ErrBusy means the connection lock is held by an initial poll or another
+// operation. The caller should retry shortly instead of waiting for a timeout.
+var ErrBusy = errors.New("service: device busy")
+
 // ErrDeadlineExceeded means the request was queued or running past its
 // deadline. A multi-step operation may already have applied some steps.
 // It aliases the rapoo sentinel so service and client paths share one identity.

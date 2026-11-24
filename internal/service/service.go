@@ -308,7 +308,23 @@ func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(rapoo.ErrDeviceNotFound))
 		}
 	}
-	return s.ReadSnapshot()
+	return s.readSnapshotRetry()
+}
+
+// readSnapshotRetry waits briefly for an in-flight poll to release the HID
+// channel. Public ReadSnapshot stays non-blocking so a slow initial HID query
+// cannot hold up the bridge RPC loop.
+func (s *MouseService) readSnapshotRetry() (rapoo.DeviceSnapshot, error) {
+	var lastErr error
+	for attempt := 0; attempt < 20; attempt++ {
+		snap, err := s.ReadSnapshot()
+		if !errors.Is(err, ErrBusy) {
+			return snap, err
+		}
+		lastErr = err
+		time.Sleep(25 * time.Millisecond)
+	}
+	return rapoo.DeviceSnapshot{}, lastErr
 }
 
 // SetPollingMode switches between Normal (60s), LowFrequency (5m), and PassiveOnly (0-TX).
@@ -404,6 +420,23 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 
 // ReadSnapshot queries full device details (FW, DPI, Sensor, 10 Buttons) and updates cached summary fields.
 func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
+	if !s.connectMu.TryLock() {
+		// A poll or write owns the HID command channel. Return the last good
+		// snapshot when possible; during first connection return busy quickly
+		// so the UI can retry instead of waiting for its 15s timeout.
+		s.mu.RLock()
+		cached := s.cachedSnap
+		demo := s.demoMode
+		s.mu.RUnlock()
+		if cached != nil {
+			cp := *cached
+			cp.DemoMode = demo
+			return cp, nil
+		}
+		return rapoo.DeviceSnapshot{}, ErrBusy
+	}
+	defer s.connectMu.Unlock()
+
 	s.mu.RLock()
 	c := s.client
 	demo := s.demoMode
@@ -669,8 +702,8 @@ func verifyDPIConfig(snap rapoo.DeviceSnapshot, cfg rapoo.DPIConfig) error {
 		src = cfg.Stages
 	}
 	limit := cfg.StageCount
-	if len(cfg.AllStages) > limit {
-		limit = len(cfg.AllStages)
+	if len(src) > limit {
+		limit = len(src)
 	}
 	if limit > rapoo.MaxDPIStage {
 		limit = rapoo.MaxDPIStage
@@ -1011,7 +1044,7 @@ func (s *MouseService) SavePreset(id, name, description string) (profile.Preset,
 	if s.presetStore == nil {
 		return profile.Preset{}, s.presetStoreError()
 	}
-	snap, err := s.ReadSnapshot()
+	snap, err := s.readSnapshotRetry()
 	if err != nil {
 		return profile.Preset{}, err
 	}
@@ -1586,6 +1619,11 @@ func (s *MouseService) friendlyError(err error) string {
 			return "操作不能を防ぐため、少なくとも1つの物理ボタンに「左クリック」を残す必要があります。先に別のボタンへ左クリックを割り当ててください。"
 		}
 		return "To prevent an unusable mouse, keep Left Click on at least one physical button. Assign Left Click to another button first."
+	case errors.Is(err, ErrBusy):
+		if japanese {
+			return "マウスの初期化中です。少し待って再試行してください。"
+		}
+		return "The mouse is initializing. Wait a moment and retry."
 	case errors.Is(err, rapoo.ErrAmbiguousDevice):
 		if japanese {
 			return "同型のマウスが複数接続されており、対象を一意に特定できません。1台だけ接続して再試行してください。"

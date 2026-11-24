@@ -1,6 +1,7 @@
 package rapoo
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"sync"
@@ -281,6 +282,9 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time, retryA
 				if poll+1 < c.opts.MaxBusyPolls {
 					time.Sleep(c.opts.BusyPollInterval)
 					continue
+				}
+				if sent && !retryAfterSend {
+					return nil, fmt.Errorf("%w: pending status", ErrResultUnknown)
 				}
 				return resp, nil
 			}
@@ -633,37 +637,56 @@ func (c *Client) SetDPIConfigDeadline(cfg DPIConfig, deadline time.Time) error {
 	if len(srcStages) < stageCount {
 		return fmt.Errorf("rapoo: got %d DPI stages for stageCount %d", len(srcStages), stageCount)
 	}
-	// Preserve hidden onboard slots only when their current values can actually
-	// be read. Filling them with defaults would silently overwrite the mouse.
+
+	// For a partial stage list, overwrite only the supplied slots in a raw
+	// read-modify-write block. Decoding and re-encoding hidden slots would
+	// normalize vendor sentinels such as 0xffff to a visible DPI value.
+	var blockX, blockY []byte
 	if len(srcStages) < MaxDPIStage {
-		existing, err := c.ReadDPIConfig()
+		rawX, err := c.ReadMemory(AddrDPIStagesX, 16)
 		if err != nil {
 			return fmt.Errorf("rapoo: read hidden DPI stages: %w", err)
 		}
-		if len(existing.AllStages) != MaxDPIStage {
+		rawY, err := c.ReadMemory(AddrDPIStagesY, 16)
+		if err != nil {
+			return fmt.Errorf("rapoo: read hidden DPI stages: %w", err)
+		}
+		if len(rawX) < 16 || len(rawY) < 16 {
 			return errors.New("rapoo: hidden DPI stages are incomplete")
 		}
-		merged := make([]DPIStage, MaxDPIStage)
-		copy(merged, existing.AllStages)
-		copy(merged, srcStages)
-		srcStages = merged
-	}
-
-	// Encode and validate the whole payload before the first write.
-	blockX, blockY, err := EncodeDPIBlocks(srcStages, stageCount)
-	if err != nil {
-		return err
+		blockX = append([]byte(nil), rawX[:16]...)
+		blockY = append([]byte(nil), rawY[:16]...)
+		for i := 0; i < len(srcStages) && i < MaxDPIStage; i++ {
+			wantX := NormalizeDPI(srcStages[i].X)
+			wantY := wantX
+			if srcStages[i].Y > 0 {
+				wantY = NormalizeDPI(srcStages[i].Y)
+			}
+			binary.LittleEndian.PutUint16(blockX[i*2:i*2+2], wantX)
+			binary.LittleEndian.PutUint16(blockY[i*2:i*2+2], wantY)
+		}
+		blockX[14] = byte(stageCount - 1)
+		blockY[14] = byte(stageCount - 1)
+		blockX[15] = 0
+		blockY[15] = 0
+	} else {
+		encodedX, encodedY, err := EncodeDPIBlocks(srcStages, stageCount)
+		if err != nil {
+			return err
+		}
+		blockX = encodedX[:]
+		blockY = encodedY[:]
 	}
 
 	var applied []string
-	if err := c.writeMemoryDeadline(AddrDPIStagesX, blockX[:], deadline); err != nil {
+	if err := c.writeMemoryDeadline(AddrDPIStagesX, blockX, deadline); err != nil {
 		return err
 	}
 	applied = append(applied, "dpiX")
 	if err := checkDeadline(deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
-	if err := c.writeMemoryDeadline(AddrDPIStagesY, blockY[:], deadline); err != nil {
+	if err := c.writeMemoryDeadline(AddrDPIStagesY, blockY, deadline); err != nil {
 		return &PartialError{Applied: applied, Err: err}
 	}
 	applied = append(applied, "dpiY")

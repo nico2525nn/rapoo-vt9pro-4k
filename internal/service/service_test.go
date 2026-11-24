@@ -35,7 +35,7 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 	})
 
 	var sleeping atomic.Bool
-	cmdDev.OnGetInput = func(reportID byte, length int) ([]byte, error) {
+	cmdDev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		buf := make([]byte, length)
 		if sleeping.Load() {
 			buf[0] = 0x02
@@ -45,7 +45,7 @@ func TestMouseServicePreservesBatteryDuringWirelessSleepAndPassiveMode(t *testin
 		buf[1] = 0x01
 		buf[2] = 78
 		return buf, nil
-	}
+	})
 
 	prov.Register(cmdDev)
 	prov.Register(repDev)
@@ -144,10 +144,10 @@ func TestStartupDoesNotWaitForRealHid(t *testing.T) {
 		Usage:           0x000E,
 		OutputReportLen: 32,
 	})
-	cmd.OnGetInput = func(byte, int) ([]byte, error) {
+	cmd.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		time.Sleep(300 * time.Millisecond)
 		return nil, errors.New("slow response")
-	}
+	})
 	prov.Register(cmd)
 	svc := NewMouseService(prov, Config{
 		InitialMode:       ModeNormal,
@@ -245,12 +245,12 @@ func TestDPIPartialErrorPreservesAppliedSteps(t *testing.T) {
 	}
 
 	original := svc.demoDevice.CmdDev.OnSetOutput
-	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
 		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrDPIStagesY {
 			return errors.New("injected Y write failure")
 		}
 		return original(data)
-	}
+	})
 
 	cfg := *before.DPI
 	cfg.Stages[0].X = 450
@@ -427,10 +427,10 @@ func TestDeadlineIsCheckedAfterReadBeforeWrite(t *testing.T) {
 		t.Fatalf("SetDemoMode: %v", err)
 	}
 	original := svc.demoDevice.CmdDev.OnGetInput
-	svc.demoDevice.CmdDev.OnGetInput = func(reportID byte, length int) ([]byte, error) {
+	svc.demoDevice.CmdDev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		time.Sleep(50 * time.Millisecond)
 		return original(reportID, length)
-	}
+	})
 
 	generation := svc.GetState().Generation
 	_, err := svc.SetPollingRateForGeneration(4000, generation, time.Now().Add(10*time.Millisecond))
@@ -466,12 +466,12 @@ func TestProfileApplyKeepsPriorStepsWhenNextStepFails(t *testing.T) {
 	}
 
 	original := svc.demoDevice.CmdDev.OnSetOutput
-	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
 		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrDPIStagesY {
 			return errors.New("injected Y write failure")
 		}
 		return original(data)
-	}
+	})
 
 	_, err = svc.ApplyPresetForGeneration(saved.ID, svc.GetState().Generation, time.Time{})
 	var partial *PartialWriteError
@@ -525,7 +525,7 @@ func TestDPIReadbackNormalizesAndChecksAllStages(t *testing.T) {
 	// The verifier must compare every encoded slot, including slots outside
 	// StageCount. ACK a DPI write without changing memory and expect a partial.
 	original := svc.demoDevice.CmdDev.OnSetOutput
-	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
 		if len(data) >= 8 {
 			addr := binary.LittleEndian.Uint32(data[4:8])
 			if addr == rapoo.AddrDPIStagesX || addr == rapoo.AddrDPIStagesY {
@@ -533,7 +533,7 @@ func TestDPIReadbackNormalizesAndChecksAllStages(t *testing.T) {
 			}
 		}
 		return original(data)
-	}
+	})
 	cfg = *snap.DPI
 	cfg.AllStages = append([]rapoo.DPIStage(nil), snap.DPI.AllStages...)
 	cfg.AllStages[6].X = 500
@@ -561,9 +561,9 @@ func TestDPIConfigFailsBeforeWritingWhenHiddenStagesCannotBeRead(t *testing.T) {
 		t.Fatalf("SetDemoMode: %v", err)
 	}
 
-	svc.demoDevice.CmdDev.OnGetInput = func(byte, int) ([]byte, error) {
+	svc.demoDevice.CmdDev.SetOnGetInput(func(reportID byte, length int) ([]byte, error) {
 		return nil, errors.New("hidden DPI read failure")
-	}
+	})
 	cfg := rapoo.DPIConfig{
 		CurrentStage: 1,
 		StageCount:   1,
@@ -602,6 +602,20 @@ func TestShortAllStagesDoesNotProduceFalsePartial(t *testing.T) {
 	}
 }
 
+func TestReadSnapshotReturnsBusyWithoutWaitingForTheConnectionLock(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{PresetDir: t.TempDir()})
+	svc.connectMu.Lock()
+	started := time.Now()
+	_, err := svc.ReadSnapshot()
+	svc.connectMu.Unlock()
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("error = %v, want ErrBusy", err)
+	}
+	if elapsed := time.Since(started); elapsed > 100*time.Millisecond {
+		t.Fatalf("ReadSnapshot blocked for %v", elapsed)
+	}
+}
+
 func TestShortAllStagesChecksExplicitExtraSlots(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,
@@ -623,7 +637,7 @@ func TestShortAllStagesChecksExplicitExtraSlots(t *testing.T) {
 	}
 
 	original := svc.demoDevice.CmdDev.OnSetOutput
-	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
 		if len(data) >= 8 {
 			addr := binary.LittleEndian.Uint32(data[4:8])
 			if addr == rapoo.AddrDPIStagesX || addr == rapoo.AddrDPIStagesY {
@@ -631,7 +645,7 @@ func TestShortAllStagesChecksExplicitExtraSlots(t *testing.T) {
 			}
 		}
 		return original(data)
-	}
+	})
 	first := snap.DPI.AllStages[0]
 	second := snap.DPI.AllStages[1]
 	second.X = 500
@@ -645,6 +659,81 @@ func TestShortAllStagesChecksExplicitExtraSlots(t *testing.T) {
 	var partial *PartialWriteError
 	if !errors.As(err, &partial) {
 		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+}
+
+func TestStagesWithSevenEntriesChecksAllSlots(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	snap, err := svc.ReadSnapshot()
+	if err != nil || snap.DPI == nil {
+		t.Fatalf("ReadSnapshot: %v", err)
+	}
+	original := svc.demoDevice.CmdDev.OnSetOutput
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
+		if len(data) >= 8 {
+			addr := binary.LittleEndian.Uint32(data[4:8])
+			if addr == rapoo.AddrDPIStagesX || addr == rapoo.AddrDPIStagesY {
+				return nil
+			}
+		}
+		return original(data)
+	})
+	stages := append([]rapoo.DPIStage(nil), snap.DPI.AllStages...)
+	stages[6].X = 550
+	stages[6].Y = 550
+	cfg := rapoo.DPIConfig{CurrentStage: 1, StageCount: 1, Stages: stages}
+	_, err = svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{})
+	var partial *PartialWriteError
+	if !errors.As(err, &partial) {
+		t.Fatalf("error = %v (%T), want PartialWriteError", err, err)
+	}
+}
+
+func TestDPIWritePreservesHiddenRawBytes(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+
+	// Stage 7 X/Y live at 0x0894/0x08D4. 0xffff is a vendor sentinel that the
+	// decoder normalizes; the raw write path must leave it untouched.
+	svc.demoDevice.Mem[0x0894], svc.demoDevice.Mem[0x0895] = 0xFF, 0xFF
+	svc.demoDevice.Mem[0x08D4], svc.demoDevice.Mem[0x08D5] = 0xFF, 0xFF
+	cfg := rapoo.DPIConfig{
+		CurrentStage: 1,
+		StageCount:   1,
+		Stages:       []rapoo.DPIStage{{Index: 1, X: 450, Y: 450}},
+	}
+	if _, err := svc.SetDPIConfigForGeneration(cfg, svc.GetState().Generation, time.Time{}); err != nil {
+		t.Fatalf("SetDPIConfig: %v", err)
+	}
+	if svc.demoDevice.Mem[0x0894] != 0xFF || svc.demoDevice.Mem[0x0895] != 0xFF ||
+		svc.demoDevice.Mem[0x08D4] != 0xFF || svc.demoDevice.Mem[0x08D5] != 0xFF {
+		t.Fatalf("hidden raw DPI bytes were rewritten: % x % x",
+			svc.demoDevice.Mem[0x0894:0x0896], svc.demoDevice.Mem[0x08D4:0x08D6])
 	}
 }
 
@@ -665,13 +754,13 @@ func TestReadbackMismatchIsNotSuccess(t *testing.T) {
 		t.Fatalf("SetDemoMode: %v", err)
 	}
 	original := svc.demoDevice.CmdDev.OnSetOutput
-	svc.demoDevice.CmdDev.OnSetOutput = func(data []byte) error {
+	svc.demoDevice.CmdDev.SetOnSetOutput(func(data []byte) error {
 		if len(data) >= 8 && binary.LittleEndian.Uint32(data[4:8]) == rapoo.AddrPollingRate {
 			// Acknowledge the write without changing the virtual memory.
 			return nil
 		}
 		return original(data)
-	}
+	})
 
 	_, err := svc.SetPollingRateForGeneration(4000, svc.GetState().Generation, time.Time{})
 	var partial *PartialWriteError

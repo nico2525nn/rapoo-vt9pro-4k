@@ -68,8 +68,13 @@ export default function App() {
 
   const isStaleState = (next: ServiceState): boolean => {
     const floor = stateFloorRef.current;
+    const snapshotFloor = snapshotFloorRef.current;
     const generation = next.generation ?? 0;
     const revision = next.revision ?? 0;
+    if (generation > 0 && snapshotFloor.generation > 0 &&
+        generation < snapshotFloor.generation) {
+      return true;
+    }
     if (generation > 0 && floor.generation > 0 && generation < floor.generation) {
       return true;
     }

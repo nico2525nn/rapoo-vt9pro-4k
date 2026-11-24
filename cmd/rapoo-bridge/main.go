@@ -396,6 +396,8 @@ func bridgeErrorCode(err error) string {
 	switch {
 	case errors.As(err, &partial):
 		return "partial"
+	case errors.Is(err, service.ErrBusy):
+		return "busy"
 	case errors.Is(err, service.ErrDeviceChanged):
 		return "device_changed"
 	case errors.Is(err, service.ErrDeadlineExceeded), errors.Is(err, rapoo.ErrDeadlineExceeded):
