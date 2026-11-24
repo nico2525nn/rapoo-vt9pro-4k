@@ -312,3 +312,31 @@ func TestPendingAfterWriteReturnsResultUnknown(t *testing.T) {
 		t.Fatalf("written reports = %d, want 1", len(dev.Written))
 	}
 }
+
+func TestUnsupportedAfterWriteReturnsResultUnknown(t *testing.T) {
+	dev := hid.NewMockDevice(hid.DeviceInfo{
+		Path:            "cmd",
+		VendorID:        0x24AE,
+		ProductID:       0x1211,
+		InterfaceNumber: 1,
+		UsagePage:       0xFF00,
+		Usage:           0x000E,
+		OutputReportLen: 32,
+	})
+	dev.OnGetInput = func(byte, int) ([]byte, error) {
+		return []byte{0xBA, StatusUnsupported}, nil
+	}
+	client := &Client{
+		endpoint: EndpointPair{Model: ModelSpec{StepDelay: time.Millisecond}},
+		cmdDev:   dev,
+	}
+	client.opts.applyDefaults()
+	client.opts.BusyPollInterval = time.Millisecond
+	_, err := client.sendAndRecvDeadline([]byte{0xBA, 0xA5, 0xA0, 4, 0, 0, 0, 0}, time.Time{})
+	if !errors.Is(err, ErrResultUnknown) {
+		t.Fatalf("error = %v, want ErrResultUnknown", err)
+	}
+	if len(dev.Written) != 1 {
+		t.Fatalf("written reports = %d, want 1", len(dev.Written))
+	}
+}

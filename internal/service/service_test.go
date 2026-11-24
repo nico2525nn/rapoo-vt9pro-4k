@@ -602,6 +602,18 @@ func TestShortAllStagesDoesNotProduceFalsePartial(t *testing.T) {
 	}
 }
 
+func TestCachedSnapshotWithOldGenerationIsNotReturned(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{PresetDir: t.TempDir()})
+	svc.connectMu.Lock()
+	svc.cachedSnap = &rapoo.DeviceSnapshot{Generation: 1}
+	svc.state.Generation = 2
+	_, err := svc.ReadSnapshot()
+	svc.connectMu.Unlock()
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("error = %v, want ErrBusy", err)
+	}
+}
+
 func TestReadSnapshotReturnsBusyWithoutWaitingForTheConnectionLock(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{PresetDir: t.TempDir()})
 	svc.connectMu.Lock()

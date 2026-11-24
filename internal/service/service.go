@@ -311,13 +311,23 @@ func (s *MouseService) SetDemoMode(enabled bool) (rapoo.DeviceSnapshot, error) {
 	return s.readSnapshotRetry()
 }
 
+// readSnapshotFresh waits for the HID channel and always reads the current
+// device. Preset saving must not use the display cache from an old generation.
+func (s *MouseService) readSnapshotFresh() (rapoo.DeviceSnapshot, error) {
+	if !s.connectMu.TryLock() {
+		return rapoo.DeviceSnapshot{}, ErrBusy
+	}
+	defer s.connectMu.Unlock()
+	return s.readSnapshotNow()
+}
+
 // readSnapshotRetry waits briefly for an in-flight poll to release the HID
 // channel. Public ReadSnapshot stays non-blocking so a slow initial HID query
 // cannot hold up the bridge RPC loop.
 func (s *MouseService) readSnapshotRetry() (rapoo.DeviceSnapshot, error) {
 	var lastErr error
 	for attempt := 0; attempt < 20; attempt++ {
-		snap, err := s.ReadSnapshot()
+		snap, err := s.readSnapshotFresh()
 		if !errors.Is(err, ErrBusy) {
 			return snap, err
 		}
@@ -422,13 +432,14 @@ func (s *MouseService) RestorePollingMode(mode PollingMode) {
 func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 	if !s.connectMu.TryLock() {
 		// A poll or write owns the HID command channel. Return the last good
-		// snapshot when possible; during first connection return busy quickly
-		// so the UI can retry instead of waiting for its 15s timeout.
+		// snapshot only when it belongs to the current generation; otherwise
+		// let the caller retry instead of saving another device's settings.
 		s.mu.RLock()
 		cached := s.cachedSnap
 		demo := s.demoMode
+		generation := s.state.Generation
 		s.mu.RUnlock()
-		if cached != nil {
+		if cached != nil && cached.Generation != 0 && cached.Generation == generation {
 			cp := *cached
 			cp.DemoMode = demo
 			return cp, nil
@@ -436,7 +447,10 @@ func (s *MouseService) ReadSnapshot() (snap rapoo.DeviceSnapshot, err error) {
 		return rapoo.DeviceSnapshot{}, ErrBusy
 	}
 	defer s.connectMu.Unlock()
+	return s.readSnapshotNow()
+}
 
+func (s *MouseService) readSnapshotNow() (snap rapoo.DeviceSnapshot, err error) {
 	s.mu.RLock()
 	c := s.client
 	demo := s.demoMode

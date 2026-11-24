@@ -289,10 +289,15 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time, retryA
 				return resp, nil
 			}
 			if resp[0] == StatusUnsupported {
-				// Either opcode belongs to the other firmware generation or RF reply hasn't landed yet
+				// Either the opcode is unsupported or the response buffer is
+				// still uninitialized. A write that was already sent cannot be
+				// declared failed based on this byte.
 				if poll < 2 {
 					time.Sleep(c.opts.BusyPollInterval)
 					continue
+				}
+				if sent && !retryAfterSend {
+					return nil, fmt.Errorf("%w: unsupported/uninitialized response", ErrResultUnknown)
 				}
 				return resp, nil
 			}
