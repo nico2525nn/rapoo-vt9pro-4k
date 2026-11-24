@@ -81,6 +81,10 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.26100'">
+    <!-- Direct reference: a transitive WindowsAppSDK leaves App.xaml's
+         XamlControlsResources unable to load the WinUI resources at runtime
+         (E_FAIL / 0x802B000A). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK" />
     <PackageReference Include="H.NotifyIcon.WinUI" />
   </ItemGroup>
 
