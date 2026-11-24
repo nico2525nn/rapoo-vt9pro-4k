@@ -324,11 +324,17 @@ func (s *MouseService) readSnapshotFresh() (rapoo.DeviceSnapshot, error) {
 // readSnapshotForPreset requires a complete, fresh read from the current
 // client. It never falls back to a cached settings snapshot after a battery
 // wake, because that cache may predate the user's latest changes.
-func (s *MouseService) readSnapshotForPreset() (rapoo.DeviceSnapshot, error) {
+func (s *MouseService) readSnapshotForPreset(deadline time.Time) (rapoo.DeviceSnapshot, error) {
+	if deadlineExpired(deadline) {
+		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+	}
 	if !s.connectMu.TryLock() {
 		return rapoo.DeviceSnapshot{}, ErrBusy
 	}
 	defer s.connectMu.Unlock()
+	if deadlineExpired(deadline) {
+		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+	}
 
 	s.mu.RLock()
 	c := s.client
@@ -345,11 +351,20 @@ func (s *MouseService) readSnapshotForPreset() (rapoo.DeviceSnapshot, error) {
 	}
 
 	snap, err := c.ReadSnapshot()
+	if deadlineExpired(deadline) {
+		return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+	}
 	if errors.Is(err, rapoo.ErrMouseAsleep) {
 		if _, batteryErr := s.readBatteryWithRetry(c, 3); batteryErr != nil {
 			return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(batteryErr))
 		}
+		if deadlineExpired(deadline) {
+			return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+		}
 		snap, err = c.ReadSnapshot()
+		if deadlineExpired(deadline) {
+			return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+		}
 	}
 	if err != nil {
 		return rapoo.DeviceSnapshot{}, errors.New(s.friendlyError(err))
@@ -366,10 +381,13 @@ func (s *MouseService) readSnapshotForPreset() (rapoo.DeviceSnapshot, error) {
 	return snap, nil
 }
 
-func (s *MouseService) readSnapshotForPresetRetry() (rapoo.DeviceSnapshot, error) {
+func (s *MouseService) readSnapshotForPresetRetry(deadline time.Time) (rapoo.DeviceSnapshot, error) {
 	var lastErr error
 	for attempt := 0; attempt < 20; attempt++ {
-		snap, err := s.readSnapshotForPreset()
+		if deadlineExpired(deadline) {
+			return rapoo.DeviceSnapshot{}, ErrDeadlineExceeded
+		}
+		snap, err := s.readSnapshotForPreset(deadline)
 		if !errors.Is(err, ErrBusy) {
 			return snap, err
 		}
@@ -1113,12 +1131,24 @@ func (s *MouseService) ListPresets() ([]profile.Preset, error) {
 
 // SavePreset snapshots the current mouse configuration as a named preset.
 func (s *MouseService) SavePreset(id, name, description string) (profile.Preset, error) {
+	return s.SavePresetWithDeadline(id, name, description, time.Time{})
+}
+
+// SavePresetWithDeadline refuses to write the profile file after the bridge
+// request has expired.
+func (s *MouseService) SavePresetWithDeadline(
+	id, name, description string,
+	deadline time.Time,
+) (profile.Preset, error) {
 	if s.presetStore == nil {
 		return profile.Preset{}, s.presetStoreError()
 	}
-	snap, err := s.readSnapshotForPresetRetry()
+	snap, err := s.readSnapshotForPresetRetry(deadline)
 	if err != nil {
 		return profile.Preset{}, err
+	}
+	if deadlineExpired(deadline) {
+		return profile.Preset{}, ErrDeadlineExceeded
 	}
 	return s.presetStore.SaveSnapshot(id, name, description, snap)
 }

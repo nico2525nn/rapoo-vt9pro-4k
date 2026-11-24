@@ -325,7 +325,7 @@ func (b *bridge) handle(req request) (any, error) {
 		if err := decodeParams(req, &p); err != nil {
 			return nil, err
 		}
-		return b.svc.SavePreset(p.ID, p.Name, p.Description)
+		return b.svc.SavePresetWithDeadline(p.ID, p.Name, p.Description, requestDeadline(req))
 	case "applyPreset":
 		var p struct {
 			ID         string `json:"id"`

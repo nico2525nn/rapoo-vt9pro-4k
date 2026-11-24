@@ -714,6 +714,31 @@ func TestStagesWithSevenEntriesChecksAllSlots(t *testing.T) {
 	}
 }
 
+func TestSavePresetExpiredDeadlineDoesNotWrite(t *testing.T) {
+	svc := NewMouseService(hid.NewMockProvider(), Config{
+		InitialMode:       ModeNormal,
+		NormalInterval:    10 * time.Second,
+		ReconnectInterval: 10 * time.Second,
+		SleepGrace:        time.Nanosecond,
+		PresetDir:         t.TempDir(),
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.Startup(ctx)
+	defer svc.Shutdown()
+	if _, err := svc.SetDemoMode(true); err != nil {
+		t.Fatalf("SetDemoMode: %v", err)
+	}
+	_, err := svc.SavePresetWithDeadline("", "expired", "", time.Now().Add(-time.Second))
+	if !errors.Is(err, ErrDeadlineExceeded) {
+		t.Fatalf("error = %v, want ErrDeadlineExceeded", err)
+	}
+	presets, _ := svc.ListPresets()
+	if len(presets) != 0 {
+		t.Fatalf("presets = %v, want none", presets)
+	}
+}
+
 func TestSavePresetReloadsSettingsAfterBatteryWake(t *testing.T) {
 	svc := NewMouseService(hid.NewMockProvider(), Config{
 		InitialMode:       ModeNormal,
