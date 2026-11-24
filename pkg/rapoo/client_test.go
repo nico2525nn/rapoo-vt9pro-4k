@@ -53,7 +53,7 @@ func TestClientBusyPollingAndAsyncNotifications(t *testing.T) {
 	client, err := OpenFirst(prov, ClientOptions{
 		BusyPollInterval: time.Millisecond,
 		MaxBusyPolls:     10,
-		OnAsyncEvent: func(ev AsyncEvent) {
+		OnAsyncEvent: func(_ *Client, ev AsyncEvent) {
 			asyncCh <- ev
 		},
 	})

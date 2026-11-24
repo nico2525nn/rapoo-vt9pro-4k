@@ -16,13 +16,15 @@ v1.4.0 Linux tarball.
 
 | Bundle | Download | Requires |
 |:--|:--|:--|
-| Windows slim | `rapoo-control-uno-v1.6.0-windows-amd64-slim.7z` (8.4 MiB) / `.zip` (13.6 MiB) | .NET 10 Desktop Runtime, Windows App Runtime 2.x (2.5.1 or later, x64) |
-| Windows portable | `...-windows-amd64-portable.7z` (47.3 MiB) / `.zip` (75.4 MiB) | nothing |
+| Windows slim | `rapoo-control-uno-v1.6.1-windows-amd64-slim.7z` (8.4 MiB) / `.zip` (13.6 MiB) | .NET 10 Desktop Runtime, Windows App Runtime 2.x (2.5.1 or later, x64) |
+| Windows portable | `...-windows-amd64-portable.7z` (47.4 MiB) / `.zip` (75.9 MiB) | nothing |
 | Linux slim | `...-linux-amd64-slim.tar.xz` (15.3 MiB) / `.tar.gz` (21.7 MiB) | .NET 10 Runtime |
 | Linux portable | `...-linux-amd64-portable.tar.xz` (20.9 MiB) / `.tar.gz` (30.2 MiB) | nothing (X11 + OpenGL) |
 
 - A `.7z` needs [7-Zip](https://www.7-zip.org/); the `.zip` opens with Windows
   Explorer. On Linux, `tar.xz` is smaller and `tar.gz` is more widely supported.
+- Extract the whole Windows archive into a folder and run `RapooControl.exe`
+  there; the executable needs its neighbouring DLLs, assets, and sidecar.
 - `.NET 10 Desktop Runtime`:
   <https://dotnet.microsoft.com/download/dotnet/10.0>
 - `Windows App Runtime 2.x` (x64, 2.5.1 or later):

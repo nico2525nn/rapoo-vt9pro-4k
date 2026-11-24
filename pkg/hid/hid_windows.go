@@ -348,8 +348,10 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 	)
 	if err != nil {
 		if mutex != 0 {
-			_ = windows.ReleaseMutex(mutex)
 			_ = windows.CloseHandle(mutex)
+		}
+		if errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+			return nil, fmt.Errorf("%w: %s is open with an exclusive share mode", ErrDeviceBusy, info.Path)
 		}
 		return nil, fmt.Errorf("CreateFile(%s): %w", info.Path, err)
 	}
@@ -358,7 +360,6 @@ func (p *windowsProvider) Open(info DeviceInfo, writeAccess bool) (Device, error
 	if err != nil {
 		syscall.CloseHandle(h)
 		if mutex != 0 {
-			_ = windows.ReleaseMutex(mutex)
 			_ = windows.CloseHandle(mutex)
 		}
 		return nil, err
@@ -380,21 +381,39 @@ func CommandMutexName(vendorID, productID uint16) string {
 	return fmt.Sprintf(`Local\RapooVT9Pro4K_%04X_%04X`, vendorID, productID)
 }
 
-func acquireDeviceMutex(info DeviceInfo) (windows.Handle, error) {
-	name := CommandMutexName(info.VendorID, info.ProductID)
+var procCreateMutexW = windows.NewLazySystemDLL("kernel32.dll").NewProc("CreateMutexW")
+
+// openMutexLease creates or opens a named mutex and reports whether another
+// process already held it. The handle itself is the lease: closing it lets the
+// next owner in. No thread ownership is taken, so any goroutine may open or
+// close it safely.
+func openMutexLease(name string) (windows.Handle, bool, error) {
 	namePtr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
-	handle, err := windows.CreateMutex(nil, true, namePtr)
+	r0, _, callErr := procCreateMutexW.Call(0, 0, uintptr(unsafe.Pointer(namePtr)))
+	if r0 == 0 {
+		return 0, false, callErr
+	}
+	return windows.Handle(r0), callErr == windows.ERROR_ALREADY_EXISTS, nil
+}
+
+// OpenMutexLease is the shared named-mutex lease used by the device and the
+// firmware updater guard.
+func OpenMutexLease(name string) (windows.Handle, bool, error) {
+	return openMutexLease(name)
+}
+
+func acquireDeviceMutex(info DeviceInfo) (windows.Handle, error) {
+	name := CommandMutexName(info.VendorID, info.ProductID)
+	handle, held, err := openMutexLease(name)
 	if err != nil {
-		if handle != 0 {
-			_ = windows.CloseHandle(handle)
-		}
-		if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-			return 0, fmt.Errorf("HID device %04X:%04X is already in use by another process", info.VendorID, info.ProductID)
-		}
 		return 0, fmt.Errorf("CreateMutex(%s): %w", name, err)
+	}
+	if held {
+		_ = windows.CloseHandle(handle)
+		return 0, fmt.Errorf("%w: HID device %04X:%04X is already in use by another process", ErrDeviceBusy, info.VendorID, info.ProductID)
 	}
 	return handle, nil
 }
@@ -548,7 +567,6 @@ func (d *windowsDevice) Close() error {
 		closeErr = syscall.CloseHandle(h)
 		syscall.CloseHandle(d.closeEvt)
 		if d.mutex != 0 {
-			_ = windows.ReleaseMutex(d.mutex)
 			_ = windows.CloseHandle(d.mutex)
 			d.mutex = 0
 		}

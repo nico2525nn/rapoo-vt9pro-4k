@@ -21,6 +21,9 @@ public interface IRapooService : IAsyncDisposable
 
     Task<DeviceStatus> GetStatusAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>Forces a device poll or re-enumeration and returns the result.</summary>
+    Task<DeviceStatus> RefreshAsync(CancellationToken cancellationToken = default);
+
     Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default);
 
     Task<DeviceStatus> ApplyDpiConfigurationAsync(

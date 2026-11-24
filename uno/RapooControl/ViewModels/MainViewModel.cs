@@ -81,7 +81,10 @@ public sealed class MainViewModel : ObservableObject
 
     public string ConnectionMessage => _status switch
     {
-        { PermissionDenied: true } => LocalizationService.Instance.T("hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"),
+        { PermissionDenied: true } => LocalizationService.Instance.T(
+            OperatingSystem.IsLinux()
+                ? "hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"
+                : "HID デバイスへのアクセス権限がありません。"),
         { LastError.Length: > 0 } => LocalizationService.Instance.Format(
             "デバイスエラー: {0}",
             LocalizationService.Instance.Error(_status.LastError)),
@@ -141,7 +144,7 @@ public sealed class MainViewModel : ObservableObject
             }
             else
             {
-                _ = await _service.GetStatusAsync();
+                _ = await _service.RefreshAsync();
             }
 
             if (DeviceService is not null && CanConfigureDevice)

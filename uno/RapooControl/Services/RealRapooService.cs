@@ -108,6 +108,14 @@ public sealed partial class RealRapooService : IRapooService
         return PublishState(state.SessionId, state.State, state.Sequence);
     }
 
+    public async Task<DeviceStatus> RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        var epoch = CurrentEpoch;
+        var sessionId = CurrentSession();
+        var snapshot = await _client.RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+        return PublishSnapshot(snapshot, epoch, sessionId);
+    }
+
     public async Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
         var epoch = CurrentEpoch;

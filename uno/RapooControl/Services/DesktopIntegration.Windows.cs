@@ -107,18 +107,18 @@ public sealed partial class DesktopIntegration
         menu.Items.Add(_autoStartItem);
         menu.Items.Add(_quitItem);
 
-        _tray = new TaskbarIcon
-        {
-            ToolTipText = "Rapoo VT9 Pro 4K",
-            ContextFlyout = menu,
-            ContextMenuMode = ContextMenuMode.PopupMenu,
-            NoLeftClickDelay = true,
-            LeftClickCommand = new RelayCommand(ShowWindow),
-        };
-        UpdateTray(force: true);
         try
         {
-            _tray.ForceCreate();
+            _tray = new TaskbarIcon
+            {
+                ToolTipText = "Rapoo VT9 Pro 4K",
+                ContextFlyout = menu,
+                ContextMenuMode = ContextMenuMode.PopupMenu,
+                NoLeftClickDelay = true,
+                LeftClickCommand = new RelayCommand(ShowWindow),
+            };
+            UpdateTray(force: true);
+            _tray.ForceCreate(enablesEfficiencyMode: false);
         }
         catch (Exception ex)
         {
@@ -127,7 +127,7 @@ public sealed partial class DesktopIntegration
             System.Diagnostics.Debug.WriteLine($"tray create failed: {ex}");
             try
             {
-                _tray.Dispose();
+                _tray?.Dispose();
             }
             catch
             {
@@ -258,7 +258,19 @@ public sealed partial class DesktopIntegration
             return;
         }
         args.Cancel = true;
-        sender.Hide();
+        try
+        {
+            sender.Hide();
+        }
+        catch (Exception ex)
+        {
+            // Hiding failed (Explorer restart, lost registration). Let the
+            // close proceed so the user is not left with an invisible window.
+            System.Diagnostics.Debug.WriteLine($"tray hide failed: {ex.Message}");
+            args.Cancel = false;
+            Shutdown();
+            return;
+        }
         if (_trayHintShown)
         {
             return;
@@ -307,14 +319,23 @@ public sealed partial class DesktopIntegration
             Percentage: _viewModel.BatteryPercent,
             Charging: _viewModel.IsCharging,
             Sleeping: _viewModel.IsSleeping);
-        if (force || spec != _lastSpec)
+        try
         {
-            _lastSpec = spec;
-            _tray.Icon = TrayIconRenderer.Render(spec);
+            if (force || spec != _lastSpec)
+            {
+                _tray.Icon = TrayIconRenderer.Render(spec);
+                _lastSpec = spec;
+            }
+            var tooltip = _viewModel.TrayTooltip;
+            _tray.ToolTipText = tooltip.Length > 63 ? tooltip[..60] + "..." : tooltip;
         }
-
-        var tooltip = _viewModel.TrayTooltip;
-        _tray.ToolTipText = tooltip.Length > 63 ? tooltip[..60] + "..." : tooltip;
+        catch (Exception ex)
+        {
+            // A dispatched callback must never take the UI down; the next
+            // successful update retries because _lastSpec was not advanced.
+            System.Diagnostics.Debug.WriteLine($"tray update failed: {ex.Message}");
+            return;
+        }
 
         var loc = LocalizationService.Instance;
         if (_batteryItem is not null)

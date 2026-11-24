@@ -1,15 +1,48 @@
 # Changelog
 
-## Unreleased
+## v1.6.1 — 2026-11-25
 
 ### Fixed
 
 - Windows: the app crashed during startup while creating
   `XamlControlsResources` (`0x802B000A`). `Microsoft.WindowsAppSDK` is now a
-  direct package reference so the WinUI resource PRI is merged; both the slim
-  and portable builds start and render in an interactive session.
-- The Windows smoke is now run in the user's interactive session; an SSH
-  session cannot create a DirectComposition device and is not a valid GUI test.
+  direct package reference so the WinUI resource PRI is merged (27 KB -> 2.2
+  MB). The Windows smoke verifies the PRI, the rendered demo firmware,
+  single instance, the sidecar child, and clean shutdown.
+- Hardware writes require a positive device generation; zero is rejected
+  instead of acting as a wildcard. The connection lease is held across the
+  write and the readback, and the demo-mode transition is serialized with
+  reconnects.
+- Windows HID: the command lease uses named-mutex handle lifetime.
+  `CreateMutex`'s `ERROR_ALREADY_EXISTS` was previously discarded, so two
+  processes could both believe they owned the device. Sharing violations map
+  to `ErrDeviceBusy`.
+- Async battery/wake telemetry from a replaced client is dropped, and a
+  `LastError`-only change now publishes a state update.
+- The tray setup is guarded end to end. A failed icon update no longer
+  advances the cached spec or crashes the dispatcher, hiding failure lets the
+  close proceed, and the tray does not force efficiency mode.
+- Autostart ignores a stale Run value whose executable no longer exists and
+  only removes legacy entries after the Uno command is usable.
+- Tray Reload asks the device through a new `refresh` RPC that returns a fresh
+  snapshot and propagates busy/deadline/device errors; 0-TX stays passive.
+- The endpoint stays sticky while the client is healthy; a periodic priority
+  scan no longer tears down a working receiver when the preferred wired path
+  cannot be opened.
+- Windows permission errors show a Windows message instead of the Linux udev
+  hint.
+- Packaging: Windows validates the project version and writes an LF checksum
+  fragment; Linux refuses a dirty tree or a sidecar not built from `HEAD`; the
+  Linux smoke requires the GUI's own sidecar child and its cleanup.
+
+### Downloads
+
+| Bundle | 7z / tar.xz | zip / tar.gz |
+|:--|--:|--:|
+| Windows slim | 8.4 MiB | 13.6 MiB |
+| Windows portable | 47.4 MiB | 75.9 MiB |
+| Linux slim | 15.3 MiB | 21.7 MiB |
+| Linux portable | 20.9 MiB | 30.2 MiB |
 
 ## v1.6.0 — 2026-11-24
 
@@ -38,7 +71,7 @@
 | Bundle | 7z / tar.xz | zip / tar.gz |
 |:--|--:|--:|
 | Windows slim | 8.4 MiB | 13.6 MiB |
-| Windows portable | 47.3 MiB | 75.4 MiB |
+| Windows portable | 47.4 MiB | 75.9 MiB |
 | Linux slim | 15.3 MiB | 21.7 MiB |
 | Linux portable | 20.9 MiB | 30.2 MiB |
 

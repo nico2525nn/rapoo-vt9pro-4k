@@ -45,29 +45,19 @@ func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted fun
 		return errors.New("select RapooGameDev.exe or FirmwareExe.exe")
 	}
 
-	name, err := windows.UTF16PtrFromString(mutexName)
+	handle, held, err := hid.OpenMutexLease(mutexName)
 	if err != nil {
-		return err
-	}
-	handle, err := windows.CreateMutex(nil, true, name)
-	if err != nil {
-		if handle != 0 {
-			_ = windows.CloseHandle(handle)
-		}
-		if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-			return errors.New("firmware update is already in progress")
-		}
 		return fmt.Errorf("CreateMutex: %w", err)
 	}
-	defer func() {
-		_ = windows.ReleaseMutex(handle)
+	if held {
 		_ = windows.CloseHandle(handle)
-	}()
+		return errors.New("firmware update is already in progress")
+	}
+	defer windows.CloseHandle(handle)
 
 	hidMutexes := make([]windows.Handle, 0, len(productIDs))
 	defer func() {
 		for _, hidMutex := range hidMutexes {
-			_ = windows.ReleaseMutex(hidMutex)
 			_ = windows.CloseHandle(hidMutex)
 		}
 	}()
@@ -77,22 +67,16 @@ func Run(updaterPath string, vendorID uint16, productIDs []uint16, onStarted fun
 			continue
 		}
 		name := hid.CommandMutexName(vendorID, productID)
-		namePtr, nameErr := windows.UTF16PtrFromString(name)
-		if nameErr != nil {
-			return nameErr
-		}
 		for {
-			candidate, err := windows.CreateMutex(nil, true, namePtr)
-			if err == nil {
+			candidate, held, err := hid.OpenMutexLease(name)
+			if err != nil {
+				return fmt.Errorf("CreateMutex(%s): %w", name, err)
+			}
+			if !held {
 				hidMutexes = append(hidMutexes, candidate)
 				break
 			}
-			if candidate != 0 {
-				_ = windows.CloseHandle(candidate)
-			}
-			if !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-				return fmt.Errorf("CreateMutex(%s): %w", name, err)
-			}
+			_ = windows.CloseHandle(candidate)
 			if time.Now().After(deadline) {
 				return errors.New("the HID command handle is still in use by another process")
 			}

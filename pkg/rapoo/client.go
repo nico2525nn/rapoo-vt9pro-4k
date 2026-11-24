@@ -23,11 +23,12 @@ type ClientOptions struct {
 	BusyPollInterval time.Duration
 	// MaxCommandRetries is the outer send/recv retry count on transient error (default 2).
 	MaxCommandRetries int
-	// OnAsyncEvent receives unsolicited COL06 / COL05 notifications.
-	OnAsyncEvent func(AsyncEvent)
+	// OnAsyncEvent receives unsolicited COL06 / COL05 notifications from a
+	// specific client. Callers must ignore events from a client they replaced.
+	OnAsyncEvent func(*Client, AsyncEvent)
 	// OnAsyncError reports a non-timeout failure of the notification reader.
 	// The service should re-enumerate and reopen the device.
-	OnAsyncError func(error)
+	OnAsyncError func(*Client, error)
 }
 
 func (o *ClientOptions) applyDefaults() {
@@ -79,12 +80,32 @@ func OpenFirst(provider hid.Provider, opts ClientOptions) (*Client, error) {
 		return nil, ErrDeviceNotFound
 	}
 	ambiguous := false
+	var firstErr error
 	for _, pair := range pairs {
 		if pair.Ambiguous {
 			ambiguous = true
 			continue
 		}
-		return OpenEndpoint(provider, pair, opts)
+		// A writable client needs a command collection, a passive one needs a
+		// report collection. Skip partial pairs instead of opening a client
+		// that cannot do its job.
+		if opts.PassiveOnly {
+			if pair.Report == nil {
+				continue
+			}
+		} else if pair.Command == nil {
+			continue
+		}
+		client, err := OpenEndpoint(provider, pair, opts)
+		if err == nil {
+			return client, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	if ambiguous {
 		return nil, ErrAmbiguousDevice
@@ -194,13 +215,13 @@ func (c *Client) readReportLoop() {
 				return
 			}
 			if c.opts.OnAsyncError != nil {
-				c.opts.OnAsyncError(err)
+				c.opts.OnAsyncError(c, err)
 			}
 			return
 		}
 
 		if ev, ok := ParseAsyncReport(pkt, time.Now()); ok && c.opts.OnAsyncEvent != nil {
-			c.opts.OnAsyncEvent(*ev)
+			c.opts.OnAsyncEvent(c, *ev)
 		}
 	}
 }

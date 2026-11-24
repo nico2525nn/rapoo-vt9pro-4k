@@ -215,6 +215,9 @@ func TestMouseServiceWriteGuardRejectsStaleGenerationAndDeadline(t *testing.T) {
 	if _, err := svc.SetPollingRateForGeneration(4000, generation+1, time.Time{}); !errors.Is(err, ErrDeviceChanged) {
 		t.Fatalf("stale generation error = %v, want ErrDeviceChanged", err)
 	}
+	if _, err := svc.SetPollingRateForGeneration(4000, 0, time.Time{}); !errors.Is(err, ErrDeviceChanged) {
+		t.Fatalf("zero generation error = %v, want ErrDeviceChanged", err)
+	}
 	if _, err := svc.SetPollingRateForGeneration(4000, generation, time.Now().Add(-time.Second)); !errors.Is(err, ErrDeadlineExceeded) {
 		t.Fatalf("expired deadline error = %v, want ErrDeadlineExceeded", err)
 	}

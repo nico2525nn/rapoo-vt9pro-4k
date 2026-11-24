@@ -208,6 +208,8 @@ func (b *bridge) handle(req request) (any, error) {
 		return b.svc.GetCatalog(), nil
 	case "snapshot":
 		return b.svc.ReadSnapshot()
+	case "refresh":
+		return b.svc.RefreshSnapshot(requestDeadline(req))
 	case "demo":
 		var p struct {
 			Enabled bool `json:"enabled"`

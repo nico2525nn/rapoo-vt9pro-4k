@@ -59,6 +59,9 @@ public sealed class MockRapooService : IRapooService
         return Task.FromResult(status);
     }
 
+    public Task<DeviceStatus> RefreshAsync(CancellationToken cancellationToken = default) =>
+        GetStatusAsync(cancellationToken);
+
     public Task<DpiConfiguration> GetDpiConfigurationAsync(CancellationToken cancellationToken = default)
     {
         lock (_gate)

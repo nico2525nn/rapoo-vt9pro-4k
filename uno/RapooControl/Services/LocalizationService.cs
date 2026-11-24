@@ -193,6 +193,7 @@ public sealed class LocalizationService
         ["Rapoo Control を開く"] = "Open Rapoo Control",
         ["hidraw へのアクセス権限がありません。「設定」の udev 設定を確認してください。"] =
             "No permission to access hidraw. Check the udev setup in Settings.",
+        ["HID デバイスへのアクセス権限がありません。"] = "No permission to access the HID device.",
         ["udev 設定"] = "udev setup",
         ["コピー"] = "Copy",
         ["udev 設定コマンドをコピーしました。"] = "Copied the udev setup command.",

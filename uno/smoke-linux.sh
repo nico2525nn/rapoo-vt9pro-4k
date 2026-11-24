@@ -181,6 +181,24 @@ xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
   fi
   sleep 2
   python3 "$3" "$wid"
+
+  # The GUI must own a live sidecar. Probing the bundled sidecar independently
+  # is not enough: the child owned by the GUI could have exited.
+  bridge_pid=""
+  for _ in $(seq 1 20); do
+    for pid in $(cat /proc/"$app"/task/*/children 2>/dev/null || true); do
+      if [[ "$(cat "/proc/$pid/comm" 2>/dev/null)" == rapoo-bridge* ]]; then
+        bridge_pid=$pid
+        break 2
+      fi
+    done
+    sleep 0.25
+  done
+  if [[ -z "$bridge_pid" ]]; then
+    echo "smoke-linux: the GUI did not start its sidecar" >&2
+    exit 1
+  fi
+
   import -window "$wid" "$2"
   test -s "$2"
 
@@ -211,6 +229,18 @@ xvfb-run -a -s "-screen 0 1280x900x24" bash -c '
   xdotool getwindowgeometry "$wid" >/dev/null
   sd=$(identify -format "%[fx:standard_deviation]" "$2")
   python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) > 0.02 else 1)" "$sd"
+
+  # Closing the app must also reap its sidecar.
+  kill "$app" 2>/dev/null || true
+  wait "$app" 2>/dev/null || true
+  for _ in $(seq 1 30); do
+    kill -0 "$bridge_pid" 2>/dev/null || break
+    sleep 0.1
+  done
+  if kill -0 "$bridge_pid" 2>/dev/null; then
+    echo "smoke-linux: the sidecar outlived the app" >&2
+    exit 1
+  fi
 ' "$APP" "$LOG" "$SHOT" "$WORK/check_icon.py" "$WORK/after.png"
 
 echo "smoke-linux: OK ($SHOT)"

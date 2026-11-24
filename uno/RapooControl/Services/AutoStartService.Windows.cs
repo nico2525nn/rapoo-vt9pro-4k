@@ -20,8 +20,7 @@ public static partial class AutoStartService
     {
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath);
-            return key?.GetValue(RunValueName) is string;
+            return IsCommandUsable(ReadRunValue(RunValueName));
         }
         catch
         {
@@ -51,7 +50,7 @@ public static partial class AutoStartService
             }
 
             var executable = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(executable))
+            if (string.IsNullOrWhiteSpace(executable) || !File.Exists(executable))
             {
                 return false;
             }
@@ -86,13 +85,19 @@ public static partial class AutoStartService
                 return;
             }
 
-            if (ReadRunValue(RunValueName) is null)
+            if (!IsCommandUsable(ReadRunValue(RunValueName)))
             {
                 var hidden = legacy.Any(item => HasHiddenFlag(item.Command));
                 if (!SetEnabledCore(true, hidden))
                 {
                     return;
                 }
+            }
+            // Only remove the legacy entries once the Uno value points at an
+            // executable that still exists; a stale path must not win.
+            if (!IsCommandUsable(ReadRunValue(RunValueName)))
+            {
+                return;
             }
 
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
@@ -109,6 +114,31 @@ public static partial class AutoStartService
         {
             // Keep legacy entries when migration is not possible; retry next launch.
         }
+    }
+
+    private static bool IsCommandUsable(string? command)
+    {
+        if (string.IsNullOrWhiteSpace(command))
+        {
+            return false;
+        }
+        var text = command.Trim();
+        string? executable;
+        if (text.StartsWith('"'))
+        {
+            var end = text.IndexOf('"', 1);
+            if (end <= 1)
+            {
+                return false;
+            }
+            executable = text[1..end];
+        }
+        else
+        {
+            var end = text.IndexOf(' ');
+            executable = end > 0 ? text[..end] : text;
+        }
+        return !string.IsNullOrWhiteSpace(executable) && File.Exists(executable);
     }
 
     private static string? ReadRunValue(string name)

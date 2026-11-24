@@ -27,6 +27,22 @@ command -v xz >/dev/null || { echo "package-linux: xz not found" >&2; exit 1; }
 
 ./uno/build-sidecars.sh
 
+stamp_revision=$(sed -n 's/^revision=//p' build/bin/sidecar-vcs.txt)
+stamp_modified=$(sed -n 's/^modified=//p' build/bin/sidecar-vcs.txt)
+head_revision=$(git rev-parse HEAD 2>/dev/null || true)
+if [[ "$stamp_modified" != "0" ]]; then
+  echo "package-linux: the sidecar was built from a dirty tree" >&2
+  exit 1
+fi
+if [[ -n "$head_revision" && "$stamp_revision" != "$head_revision" ]]; then
+  echo "package-linux: sidecar revision $stamp_revision does not match HEAD $head_revision" >&2
+  exit 1
+fi
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  echo "package-linux: working tree is dirty; commit before packaging" >&2
+  exit 1
+fi
+
 rm -rf "$SLIM" "$PORTABLE"
 mkdir -p "$DIST"
 

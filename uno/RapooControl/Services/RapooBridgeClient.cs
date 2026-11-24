@@ -335,6 +335,9 @@ public sealed class RapooBridgeClient : IAsyncDisposable
             reply.Sequence);
     }
 
+    public Task<BridgeSnapshot> RefreshSnapshotAsync(CancellationToken cancellationToken = default) =>
+        RequestAsync<BridgeSnapshot>("refresh", null, cancellationToken);
+
     public Task<BridgeSnapshot> GetSnapshotAsync(CancellationToken cancellationToken = default) =>
         RequestAsync<BridgeSnapshot>("snapshot", null, cancellationToken);
 

@@ -163,7 +163,7 @@ func runWatch(args []string) error {
 	passiveOnly := *poll <= 0
 	client, err := rapoo.OpenFirst(nil, rapoo.ClientOptions{
 		PassiveOnly: passiveOnly,
-		OnAsyncEvent: func(ev rapoo.AsyncEvent) {
+		OnAsyncEvent: func(_ *rapoo.Client, ev rapoo.AsyncEvent) {
 			switch ev.Kind {
 			case rapoo.EventBattery:
 				fmt.Printf("[%s] async 0xBB: online=%v pct=%d%% charging=%v\n",

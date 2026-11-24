@@ -15,6 +15,7 @@
 #>
 param(
     [string]$Version = "",
+    [string]$ExpectedVersion = "",
     [string]$ExpectedSidecarRevision = ""
 )
 
@@ -24,12 +25,19 @@ $root = Split-Path $PSScriptRoot
 $project = Join-Path $root "uno\RapooControl\RapooControl.csproj"
 $dist = Join-Path $root "dist"
 
-if (-not $Version) {
-    $Version = (Select-String -Path $project -Pattern '<Version>([^<]+)</Version>' |
-        Select-Object -First 1).Matches[0].Groups[1].Value
+$projectVersion = (Select-String -Path $project -Pattern '<Version>([^<]+)</Version>' |
+    Select-Object -First 1).Matches[0].Groups[1].Value
+if (-not $projectVersion) {
+    throw "Could not read the app version from $project"
 }
 if (-not $Version) {
-    throw "Could not read the app version from $project"
+    $Version = $projectVersion
+}
+if ($Version -ne $projectVersion) {
+    throw "Requested version $Version does not match the project version $projectVersion."
+}
+if ($ExpectedVersion -and $ExpectedVersion -ne $projectVersion) {
+    throw "Project version $projectVersion does not match the expected $ExpectedVersion."
 }
 if (-not $ExpectedSidecarRevision) {
     throw "Pass -ExpectedSidecarRevision <sha> from the release checkout; an unpinned sidecar is not allowed."
@@ -63,15 +71,6 @@ if (-not $sidecarText.Contains("vcs.revision=$revision") -or
 }
 Write-Host "sidecar revision $revision (clean)"
 
-$newestGoSource = Get-ChildItem `
-    (Join-Path $root "cmd"), (Join-Path $root "internal"), (Join-Path $root "pkg") `
-    -Recurse -File -Filter *.go -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($newestGoSource -and
-    (Get-Item $sidecar).LastWriteTime -lt $newestGoSource.LastWriteTime) {
-    throw "The sidecar is older than $($newestGoSource.FullName). Rebuild it with ./uno/build-sidecars.sh."
-}
-
 $go = Get-Command go -ErrorAction SilentlyContinue
 if ($go) {
     $vcs = & $go.Source version -m $sidecar | Select-String 'vcs\.(revision|modified)='
@@ -83,7 +82,7 @@ if ($go) {
     }
     Write-Host ($vcs -join [Environment]::NewLine)
 } else {
-    Write-Warning "Go is not installed; the sidecar VCS stamp was not checked (freshness was checked)."
+    Write-Warning "Go is not installed; the sidecar VCS stamp was not re-checked (the stamp file and binary text were checked)."
 }
 
 $dotnet = Join-Path $env:USERPROFILE ".dotnet\dotnet.exe"
@@ -118,6 +117,14 @@ function Publish-Bundle {
         Remove-Item $out -Recurse -Force
     }
 
+    # Each bundle must build its own PRI. The slim (framework-dependent) and
+    # portable (self-contained) publishes share the same intermediate path, and
+    # an incremental reuse leaves the portable with the slim's 27 KB PRI.
+    $obj = Join-Path $root "uno\RapooControl\obj"
+    if (Test-Path $obj) {
+        Remove-Item $obj -Recurse -Force
+    }
+
     Write-Host "==> $Name"
     & $dotnet publish $project @common `
         "-p:PublishProfile=$Profile" `
@@ -128,6 +135,16 @@ function Publish-Bundle {
         "-o" $out
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish failed for $Name"
+    }
+
+    # A self-contained build must carry the merged WinUI resources; v1.6.0
+    # shipped a 27 KB PRI and crashed. A framework-dependent build loads them
+    # from the installed Windows App Runtime instead.
+    if ($WindowsAppSdkSelfContained) {
+        $pri = Join-Path $out "RapooControl.pri"
+        if (-not (Test-Path $pri) -or (Get-Item $pri).Length -lt 1000000) {
+            throw "$Name`: RapooControl.pri lacks the WinUI resources. Keep the direct Microsoft.WindowsAppSDK reference."
+        }
     }
 
     Copy-Item (Join-Path $root "README.md") $out
@@ -183,9 +200,13 @@ Publish-Bundle -Name "portable" -Profile "win-x64-portable" -SelfContained $true
 Write-Host "==> checksums"
 $assets = Get-ChildItem $dist -Filter "$prefix-*.7z" | Sort-Object Name
 $assets += Get-ChildItem $dist -Filter "$prefix-*.zip" | Sort-Object Name
-$assets | ForEach-Object {
-    $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    "$hash  $($_.Name)"
-} | Set-Content -Encoding ASCII (Join-Path $dist "checksums-windows.txt")
+$lines = foreach ($asset in $assets) {
+    $hash = (Get-FileHash $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    "$hash  $($asset.Name)"
+}
+# LF only: the combined manifest must verify with both sha256sum and shasum.
+[IO.File]::WriteAllText(
+    (Join-Path $dist "checksums-windows.txt"),
+    (($lines -join "`n") + "`n"))
 
 Get-ChildItem $dist -Filter "$prefix-*" | Format-Table Name, Length
