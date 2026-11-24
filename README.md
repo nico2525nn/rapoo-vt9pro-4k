@@ -157,9 +157,9 @@ ReadyToRun images, and PDBs.
 - Cannot change settings: disable 0-TX (gaming lock).
 - Linux permission error: apply the udev rule above, then reconnect the device.
 - Firmware update: the app launches the official Rapoo software you select and
-  never downloads or flashes firmware. The sidecar checks the absolute path and
-  file name; verify the publisher in Explorer before selecting a downloaded
-  copy.
+  never downloads or flashes firmware. A signed updater must carry a Rapoo
+  certificate; an unsigned file requires an explicit confirmation. The sidecar
+  also checks the absolute path and file name.
 
 ## Protocol
 
