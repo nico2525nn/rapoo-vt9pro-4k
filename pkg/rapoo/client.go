@@ -268,6 +268,9 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time, retryA
 			}
 			resp := NormalizeCommandResponse(raw)
 			if len(resp) == 0 {
+				if sent && !retryAfterSend {
+					return nil, fmt.Errorf("%w: empty command response", ErrResultUnknown)
+				}
 				lastErr = ErrInvalidResponse
 				break
 			}
@@ -290,6 +293,9 @@ func (c *Client) sendAndRecvLockedDeadline(tx []byte, deadline time.Time, retryA
 				return resp, nil
 			}
 			lastErr = fmt.Errorf("%w: status %#02x (raw=% x)", ErrInvalidResponse, resp[0], raw)
+			if sent && !retryAfterSend {
+				return nil, fmt.Errorf("%w: %v", ErrResultUnknown, lastErr)
+			}
 			break
 		}
 	}

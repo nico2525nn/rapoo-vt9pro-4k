@@ -243,6 +243,20 @@ func MatchEndpoints(infos []hid.DeviceInfo) []EndpointPair {
 				fallbackDeviceKey(pair.Report.Path) != infoKey {
 				pair.Ambiguous = true
 			}
+			if info.Usage == UsageAsyncReport && pair.Command != nil &&
+				pair.Command.PhysicalID == "" &&
+				strings.Contains(pair.Command.Path, "#") &&
+				strings.Contains(info.Path, "#") &&
+				fallbackDeviceKey(pair.Command.Path) != infoKey {
+				pair.Ambiguous = true
+			}
+			if info.Usage == UsageCommandRealtek && pair.Report != nil &&
+				pair.Report.PhysicalID == "" &&
+				strings.Contains(info.Path, "#") &&
+				strings.Contains(pair.Report.Path, "#") &&
+				fallbackDeviceKey(pair.Report.Path) != infoKey {
+				pair.Ambiguous = true
+			}
 		}
 
 		switch info.Usage {
