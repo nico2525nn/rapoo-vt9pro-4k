@@ -188,6 +188,10 @@ func (s *MouseService) Startup(ctx context.Context) {
 	s.cancel = cancel
 	s.mu.Unlock()
 
+	// Establish the first client before advertising readiness, so the bridge's
+	// `ready` event cannot race a demo/real `snapshot` RPC.
+	s.ensureConnectedAndPoll()
+
 	s.wg.Add(1)
 	go s.loop(runCtx)
 }
@@ -650,12 +654,11 @@ func verifyDPIConfig(snap rapoo.DeviceSnapshot, cfg rapoo.DPIConfig) error {
 		return fmt.Errorf("使用DPIステージの反映を確認できませんでした (要求 %d, 実測 %d)", expectedStage, snap.DPI.CurrentStage)
 	}
 	src := cfg.AllStages
-	compareAll := len(src) >= rapoo.MaxDPIStage
-	if !compareAll {
+	if len(src) < cfg.StageCount {
 		src = cfg.Stages
 	}
 	limit := cfg.StageCount
-	if compareAll {
+	if len(src) >= rapoo.MaxDPIStage {
 		limit = rapoo.MaxDPIStage
 	}
 	if len(src) < limit || len(stages) < limit {
@@ -1109,8 +1112,6 @@ func (s *MouseService) ImportPresetJSON(rawJSON string) (profile.Preset, error) 
 
 func (s *MouseService) loop(ctx context.Context) {
 	defer s.wg.Done()
-
-	s.ensureConnectedAndPoll()
 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
